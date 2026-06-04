@@ -3514,6 +3514,16 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             "m_Stress"
         ];
 
+        private static readonly string[] UInt32FieldNames =
+        [
+            "tree_id"
+        ];
+
+        private static readonly string[] SingleByteStringFieldNames =
+        [
+            "requirement_code"
+        ];
+
         private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
         private const int MaxInlineValueDistance = 16;
@@ -3608,6 +3618,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     [],
                     [],
                     [],
+                    [],
                     accessIssues);
             }
 
@@ -3659,6 +3670,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     container?.StringDataOffset,
                     container?.DsonSummary,
                     container?.DsonScalars.Take(320).ToArray() ?? [],
+                    container?.DsonScalars ?? [],
                     container?.DsonObjectPaths.Take(1000).ToArray() ?? [],
                     heroFacts,
                     [],
@@ -3685,6 +3697,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     null,
                     null,
                     null,
+                    [],
                     [],
                     [],
                     [],
@@ -3820,7 +3833,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 "persist.game.json" => new SaveFileMapClassification(1, "campaign_runtime", "Campaign identity, mode, elapsed time, current raid state, and game options."),
                 "persist.estate.json" => new SaveFileMapClassification(1, "estate_resources", "Wallet resources and estate-level inventory/tamper metadata."),
                 "persist.roster.json" => new SaveFileMapClassification(1, "heroes", "Hero roster entry points and partially decoded nested hero raw_data facts."),
-                "persist.upgrades.json" => new SaveFileMapClassification(2, "upgrade_tree", "Building purchase tree and upgrade unlock state; requirement_code remains partially raw."),
+                "persist.upgrades.json" => new SaveFileMapClassification(2, "upgrade_tree", "Building purchase tree and upgrade unlock state; tree_id is numeric until static definitions are mapped."),
                 "persist.quest.json" => new SaveFileMapClassification(3, "quests", "Quest generation, available missions, and dungeon selection state."),
                 "persist.town_event.json" => new SaveFileMapClassification(3, "town_events", "Current and historical town event state."),
                 "persist.town.json" => new SaveFileMapClassification(4, "town_runtime", "Hamlet buildings, shops, activity slots, inventories, and runtime town state."),
@@ -3858,7 +3871,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 if (fileName.Equals("persist.upgrades.json", StringComparison.OrdinalIgnoreCase)
                     && inspected.DsonSummary?.RawScalarCount > 0)
                 {
-                    return "candidate_raw_fields_pending";
+                    return "candidate_upgrade_purchases_partial";
                 }
 
                 return isCandidate ? "candidate_dson_partial" : "mapped_dson_partial";
@@ -3902,6 +3915,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 [],
                 [],
                 [],
+                [],
                 topLevelKeys,
                 [],
                 [],
@@ -3930,6 +3944,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             var game = files.FirstOrDefault(file => file.FileName.Equals("persist.game.json", StringComparison.OrdinalIgnoreCase));
             var progression = files.FirstOrDefault(file => file.FileName.Equals("persist.progression.json", StringComparison.OrdinalIgnoreCase));
             var estate = files.FirstOrDefault(file => file.FileName.Equals("persist.estate.json", StringComparison.OrdinalIgnoreCase));
+            var upgrades = files.FirstOrDefault(file => file.FileName.Equals("persist.upgrades.json", StringComparison.OrdinalIgnoreCase));
             var town = files.FirstOrDefault(file => file.FileName.Equals("persist.town.json", StringComparison.OrdinalIgnoreCase));
             var roster = files.FirstOrDefault(file => file.FileName.Equals("persist.roster.json", StringComparison.OrdinalIgnoreCase));
 
@@ -3952,6 +3967,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     TryGetBool(progression, "base_root.last_raid_success"),
                     TryGetBool(progression, "base_root.last_raid_was_a_plot_quest")),
                 BuildWalletFacts(estate),
+                BuildUpgradeFacts(upgrades),
                 ExtractDirectChildIds(town?.DsonObjectPaths ?? [], "base_root.buildings"),
                 ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"),
                 roster?.Heroes ?? []);
@@ -3965,8 +3981,9 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 return result;
             }
 
-            var byPath = estate.DsonScalars.ToDictionary(scalar => scalar.Path, StringComparer.OrdinalIgnoreCase);
-            foreach (var typeScalar in estate.DsonScalars.Where(scalar => scalar.Path.StartsWith("base_root.wallet.", StringComparison.OrdinalIgnoreCase)
+            var scalars = GetDsonScalars(estate);
+            var byPath = scalars.ToDictionary(scalar => scalar.Path, StringComparer.OrdinalIgnoreCase);
+            foreach (var typeScalar in scalars.Where(scalar => scalar.Path.StartsWith("base_root.wallet.", StringComparison.OrdinalIgnoreCase)
                          && scalar.Path.EndsWith(".type", StringComparison.OrdinalIgnoreCase)
                          && scalar.Type.Equals("string", StringComparison.OrdinalIgnoreCase)
                          && !string.IsNullOrWhiteSpace(scalar.Value)))
@@ -3984,10 +4001,105 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             return result;
         }
 
+        private static SaveStateUpgradeFacts BuildUpgradeFacts(SaveStateFileReport? upgrades)
+        {
+            if (upgrades is null)
+            {
+                return EmptyUpgradeFacts(null);
+            }
+
+            var purchaseIds = MergeAllDirectChildIds(
+                    ExtractAllDirectChildIds(upgrades.DsonObjectPaths, "base_root.purchases"),
+                    ExtractAllDirectChildIds(GetDsonScalars(upgrades), "base_root.purchases"))
+                .Select(id => int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : (int?)null)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .OrderBy(id => id)
+                .ToArray();
+            if (purchaseIds.Length == 0)
+            {
+                return EmptyUpgradeFacts(TryGetInt(upgrades, "base_root.version"));
+            }
+
+            var purchases = new List<SaveStateUpgradePurchaseFacts>();
+            foreach (var purchaseId in purchaseIds)
+            {
+                var path = $"base_root.purchases.{purchaseId.ToString(CultureInfo.InvariantCulture)}";
+                purchases.Add(new SaveStateUpgradePurchaseFacts(
+                    purchaseId,
+                    TryGetInt(upgrades, $"{path}.instance_number"),
+                    TryGetUInt(upgrades, $"{path}.tree_id"),
+                    TryGetString(upgrades, $"{path}.requirement_code"),
+                    TryGetBool(upgrades, $"{path}.is_purchased")));
+            }
+
+            var treeFacts = purchases
+                .Where(purchase => purchase.TreeId.HasValue)
+                .GroupBy(purchase => purchase.TreeId!.Value)
+                .OrderBy(group => group.Key)
+                .Select(group =>
+                {
+                    var groupPurchases = group.ToArray();
+                    return new SaveStateUpgradeTreeFacts(
+                        group.Key,
+                        groupPurchases.Length,
+                        groupPurchases.Count(purchase => purchase.IsPurchased == true),
+                        groupPurchases.Count(purchase => purchase.IsPurchased == false),
+                        groupPurchases
+                            .Select(purchase => purchase.InstanceNumber)
+                            .Where(value => value.HasValue)
+                            .Select(value => value!.Value)
+                            .Distinct()
+                            .OrderBy(value => value)
+                            .ToArray(),
+                        groupPurchases
+                            .Select(purchase => purchase.RequirementCode)
+                            .Where(value => !string.IsNullOrWhiteSpace(value))
+                            .Select(value => value!)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                            .ToArray(),
+                        groupPurchases
+                            .Where(purchase => purchase.IsPurchased == true)
+                            .Select(purchase => purchase.RequirementCode)
+                            .Where(value => !string.IsNullOrWhiteSpace(value))
+                            .Select(value => value!)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                            .ToArray());
+                })
+                .ToArray();
+
+            return new SaveStateUpgradeFacts(
+                TryGetInt(upgrades, "base_root.version"),
+                purchases.Count,
+                purchases.Count(purchase => purchase.IsPurchased == true),
+                purchases.Count(purchase => purchase.IsPurchased == false),
+                purchases.Count(purchase => !purchase.IsPurchased.HasValue),
+                treeFacts.Length,
+                purchases.Take(1000).ToArray(),
+                treeFacts.Take(1000).ToArray());
+        }
+
+        private static SaveStateUpgradeFacts EmptyUpgradeFacts(int? version)
+        {
+            return new SaveStateUpgradeFacts(version, 0, 0, 0, 0, 0, [], []);
+        }
+
         private static IReadOnlyList<string> ExtractDirectChildIds(IReadOnlyList<string> paths, string parentPath)
         {
+            return ExtractDirectChildIds(paths, parentPath, 120);
+        }
+
+        private static IReadOnlyList<string> ExtractAllDirectChildIds(IReadOnlyList<string> paths, string parentPath)
+        {
+            return ExtractDirectChildIds(paths, parentPath, null);
+        }
+
+        private static IReadOnlyList<string> ExtractDirectChildIds(IReadOnlyList<string> paths, string parentPath, int? maxCount)
+        {
             var prefix = parentPath + ".";
-            return paths
+            var values = paths
                 .Where(path => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 .Select(path =>
                 {
@@ -3997,9 +4109,11 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 })
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
-                .Take(120)
-                .ToArray();
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+
+            return maxCount.HasValue
+                ? values.Take(maxCount.Value).ToArray()
+                : values.ToArray();
         }
 
         private static IReadOnlyList<string> ExtractDirectChildIds(IReadOnlyList<SaveStateDsonScalar> scalars, string parentPath)
@@ -4007,15 +4121,32 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             return ExtractDirectChildIds(scalars.Select(scalar => scalar.Path).ToArray(), parentPath);
         }
 
+        private static IReadOnlyList<string> ExtractAllDirectChildIds(IReadOnlyList<SaveStateDsonScalar> scalars, string parentPath)
+        {
+            return ExtractAllDirectChildIds(scalars.Select(scalar => scalar.Path).ToArray(), parentPath);
+        }
+
         private static IReadOnlyList<string> MergeDirectChildIds(params IReadOnlyList<string>[] idLists)
         {
-            return idLists
+            return MergeDirectChildIds(120, idLists);
+        }
+
+        private static IReadOnlyList<string> MergeAllDirectChildIds(params IReadOnlyList<string>[] idLists)
+        {
+            return MergeDirectChildIds(null, idLists);
+        }
+
+        private static IReadOnlyList<string> MergeDirectChildIds(int? maxCount, params IReadOnlyList<string>[] idLists)
+        {
+            var values = idLists
                 .SelectMany(list => list)
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
-                .Take(120)
-                .ToArray();
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+
+            return maxCount.HasValue
+                ? values.Take(maxCount.Value).ToArray()
+                : values.ToArray();
         }
 
         private static IReadOnlyList<SaveStateHeroFacts> ExtractHeroFactsFromRoster(
@@ -4145,6 +4276,14 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 : null;
         }
 
+        private static uint? TryGetUInt(SaveStateFileReport? file, string path)
+        {
+            var scalar = FindDsonScalar(file, path);
+            return scalar is not null && uint.TryParse(scalar.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : null;
+        }
+
         private static double? TryGetDouble(SaveStateFileReport? file, string path)
         {
             var scalar = FindDsonScalar(file, path);
@@ -4195,12 +4334,22 @@ internal sealed class SaveDirectoryWatcher : IDisposable
 
         private static SaveStateDsonScalar? FindDsonScalar(SaveStateFileReport? file, string path)
         {
-            return file?.DsonScalars.FirstOrDefault(scalar => scalar.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+            return GetDsonScalars(file).FirstOrDefault(scalar => scalar.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
         }
 
         private static SaveStateDsonScalar? FindDsonScalar(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
         {
             return scalars.FirstOrDefault(scalar => scalar.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static IReadOnlyList<SaveStateDsonScalar> GetDsonScalars(SaveStateFileReport? file)
+        {
+            if (file is null)
+            {
+                return [];
+            }
+
+            return file.AllDsonScalars.Count > 0 ? file.AllDsonScalars : file.DsonScalars;
         }
 
         private static BinaryContainerInfo? TryParseBinaryContainer(byte[] bytes, List<string> accessIssues)
@@ -4421,6 +4570,14 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     continue;
                 }
 
+                if (remaining == 1
+                    && SingleByteStringFieldNames.Contains(field.Name, StringComparer.OrdinalIgnoreCase)
+                    && bytes[nameEnd] is >= 32 and <= 126)
+                {
+                    scalars.Add(new SaveStateDsonScalar(path, field.Name, "string", ((char)bytes[nameEnd]).ToString(), field.AbsoluteOffset, size, rawHex));
+                    continue;
+                }
+
                 if (alignedRemaining >= 4 && TryReadDsonString(bytes, valueStart, alignedRemaining, out var stringValue))
                 {
                     scalars.Add(new SaveStateDsonScalar(path, field.Name, "string", stringValue, field.AbsoluteOffset, size, rawHex));
@@ -4436,6 +4593,17 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                             field.Name,
                             "float32",
                             BitConverter.ToSingle(bytes, valueStart).ToString("R", CultureInfo.InvariantCulture),
+                            field.AbsoluteOffset,
+                            size,
+                            rawHex));
+                    }
+                    else if (UInt32FieldNames.Contains(field.Name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        scalars.Add(new SaveStateDsonScalar(
+                            path,
+                            field.Name,
+                            "uint32",
+                            ReadUInt32LittleEndian(bytes, valueStart).ToString(CultureInfo.InvariantCulture),
                             field.AbsoluteOffset,
                             size,
                             rawHex));
@@ -4666,6 +4834,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         int? BinaryStringDataOffset,
         SaveStateDsonSummary? DsonSummary,
         IReadOnlyList<SaveStateDsonScalar> DsonScalars,
+        [property: JsonIgnore] IReadOnlyList<SaveStateDsonScalar> AllDsonScalars,
         IReadOnlyList<string> DsonObjectPaths,
         IReadOnlyList<SaveStateHeroFacts> Heroes,
         IReadOnlyList<string> JsonTopLevelKeys,
@@ -4723,9 +4892,36 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         SaveStateCampaignFacts Campaign,
         SaveStateProgressionFacts Progression,
         IReadOnlyDictionary<string, int> Wallet,
+        SaveStateUpgradeFacts Upgrades,
         IReadOnlyList<string> BuildingIds,
         IReadOnlyList<string> HeroIds,
         IReadOnlyList<SaveStateHeroFacts> Heroes);
+
+    private sealed record SaveStateUpgradeFacts(
+        int? Version,
+        int PurchaseCount,
+        int PurchasedCount,
+        int UnpurchasedCount,
+        int UnknownPurchaseStateCount,
+        int TreeCount,
+        IReadOnlyList<SaveStateUpgradePurchaseFacts> Purchases,
+        IReadOnlyList<SaveStateUpgradeTreeFacts> Trees);
+
+    private sealed record SaveStateUpgradePurchaseFacts(
+        int Index,
+        int? InstanceNumber,
+        uint? TreeId,
+        string? RequirementCode,
+        bool? IsPurchased);
+
+    private sealed record SaveStateUpgradeTreeFacts(
+        uint TreeId,
+        int PurchaseCount,
+        int PurchasedCount,
+        int UnpurchasedCount,
+        IReadOnlyList<int> InstanceNumbers,
+        IReadOnlyList<string> RequirementCodes,
+        IReadOnlyList<string> PurchasedRequirementCodes);
 
     private sealed record SaveStateHeroFacts(
         string Id,
