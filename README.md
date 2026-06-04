@@ -121,6 +121,14 @@ watcher 只记录日志，不修改存档。实时事件和退出快照差异会
 - `save.sidecar_snapshot_changed`
 - `save.sidecar_snapshot_deleted`
 
+退出快照之后还会输出降噪摘要，按 `profile_*` 和稳定 `.json` 文件聚合，忽略 `.stmp`、`~RF*.TMP` 等中间文件：
+
+- `save.sidecar_session_summary`
+- `save.sidecar_profile_summary`
+- `save.sidecar_profile_files`
+
+例如一次城镇停留可能汇总成 `profile_3` 的 `persist.game.json`、`persist.narration.json` 和 `backup/persist.*.json` 更新，而不需要先从大量临时重命名事件里手动整理。
+
 ## 虚拟文件原型
 
 默认配置中虚拟文件通道是打开的，但没有启用规则时不会改变任何游戏读取结果：

@@ -2665,6 +2665,7 @@ internal sealed class LauncherLog : IDisposable
 internal sealed class SaveDirectoryWatcher : IDisposable
 {
     private const string DarkestDungeonAppId = "262060";
+    private const int MaxSummaryFilesPerLine = 32;
     private static readonly TimeSpan DedupeWindow = TimeSpan.FromMilliseconds(250);
 
     private readonly LauncherLog _log;
@@ -2907,17 +2908,20 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         var created = 0;
         var changed = 0;
         var deleted = 0;
+        var snapshotChanges = new List<SaveSnapshotChange>();
 
         foreach (var (path, snapshot) in finalSnapshot.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
         {
             if (!_initialSnapshot.TryGetValue(path, out var initial))
             {
                 created++;
+                snapshotChanges.Add(SaveSnapshotChange.Created(path, snapshot));
                 _log.Info($"event name=save.sidecar_snapshot_created {DescribeSnapshot(path, snapshot)}");
             }
             else if (initial != snapshot)
             {
                 changed++;
+                snapshotChanges.Add(SaveSnapshotChange.Changed(path, initial, snapshot));
                 _log.Info($"event name=save.sidecar_snapshot_changed oldSize={initial.Length} oldLastWriteUtc={initial.LastWriteUtc:O} {DescribeSnapshot(path, snapshot)}");
             }
         }
@@ -2927,11 +2931,57 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             if (!finalSnapshot.ContainsKey(path))
             {
                 deleted++;
+                snapshotChanges.Add(SaveSnapshotChange.Deleted(path, snapshot));
                 _log.Info($"event name=save.sidecar_snapshot_deleted {DescribeSnapshot(path, snapshot)}");
             }
         }
 
         _log.Info($"Save sidecar final snapshot files={finalSnapshot.Count} created={created} changed={changed} deleted={deleted}");
+        LogProfileSummary(snapshotChanges);
+    }
+
+    private void LogProfileSummary(IReadOnlyList<SaveSnapshotChange> snapshotChanges)
+    {
+        var stableChanges = snapshotChanges
+            .Select(change => StableSaveChange.TryCreate(change))
+            .Where(change => change is not null)
+            .Select(change => change!)
+            .ToArray();
+
+        var transientOrUnknown = snapshotChanges.Count - stableChanges.Length;
+        _log.Info($"event name=save.sidecar_session_summary snapshotChanges={snapshotChanges.Count} stableJsonChanges={stableChanges.Length} transientOrUnknownChanges={transientOrUnknown}");
+
+        foreach (var profileGroup in stableChanges
+                     .GroupBy(change => (change.ProfileRoot, change.Profile), StableSaveChangeGroupComparer.Instance)
+                     .OrderBy(group => group.Key.ProfileRoot, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(group => group.Key.Profile, StringComparer.OrdinalIgnoreCase))
+        {
+            var changes = profileGroup.ToArray();
+            var created = changes.Count(change => change.Kind == SaveSnapshotChangeKind.Created);
+            var changed = changes.Count(change => change.Kind == SaveSnapshotChangeKind.Changed);
+            var deleted = changes.Count(change => change.Kind == SaveSnapshotChangeKind.Deleted);
+            var live = changes.Count(change => change.Area.Equals("live", StringComparison.OrdinalIgnoreCase));
+            var backup = changes.Count(change => change.Area.Equals("backup", StringComparison.OrdinalIgnoreCase));
+
+            _log.Info(
+                $"event name=save.sidecar_profile_summary profile={profileGroup.Key.Profile} root={Quote(profileGroup.Key.ProfileRoot)} stableCreated={created} stableChanged={changed} stableDeleted={deleted} live={live} backup={backup}");
+
+            foreach (var fileGroup in changes
+                         .GroupBy(change => (change.Kind, change.Area))
+                         .OrderBy(group => group.Key.Kind)
+                         .ThenBy(group => group.Key.Area, StringComparer.OrdinalIgnoreCase))
+            {
+                var files = fileGroup
+                    .Select(change => change.RelativePath)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var listedFiles = files.Take(MaxSummaryFilesPerLine).ToArray();
+                var omitted = Math.Max(0, files.Length - listedFiles.Length);
+
+                _log.Info(
+                    $"event name=save.sidecar_profile_files profile={profileGroup.Key.Profile} kind={fileGroup.Key.Kind.ToString().ToLowerInvariant()} area={fileGroup.Key.Area} count={files.Length} omitted={omitted} files={Quote(string.Join(';', listedFiles))}");
+            }
+        }
     }
 
     private static Dictionary<string, SaveFileSnapshot> CaptureSnapshot(IEnumerable<string> directories)
@@ -3000,7 +3050,99 @@ internal sealed class SaveDirectoryWatcher : IDisposable
 
     private static string Quote(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
 
+    private static bool IsTransientSaveFileName(string fileName)
+    {
+        return fileName.EndsWith(".stmp", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("~RF", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private enum SaveSnapshotChangeKind
+    {
+        Created,
+        Changed,
+        Deleted
+    }
+
     private readonly record struct SaveFileSnapshot(long Length, DateTime LastWriteUtc);
+
+    private readonly record struct SaveSnapshotChange(
+        SaveSnapshotChangeKind Kind,
+        string Path,
+        SaveFileSnapshot? Before,
+        SaveFileSnapshot? After)
+    {
+        public static SaveSnapshotChange Created(string path, SaveFileSnapshot after) =>
+            new(SaveSnapshotChangeKind.Created, path, null, after);
+
+        public static SaveSnapshotChange Changed(string path, SaveFileSnapshot before, SaveFileSnapshot after) =>
+            new(SaveSnapshotChangeKind.Changed, path, before, after);
+
+        public static SaveSnapshotChange Deleted(string path, SaveFileSnapshot before) =>
+            new(SaveSnapshotChangeKind.Deleted, path, before, null);
+    }
+
+    private sealed record StableSaveChange(
+        SaveSnapshotChangeKind Kind,
+        string ProfileRoot,
+        string Profile,
+        string Area,
+        string RelativePath)
+    {
+        public static StableSaveChange? TryCreate(SaveSnapshotChange change)
+        {
+            var fileName = Path.GetFileName(change.Path);
+            if (!fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || IsTransientSaveFileName(fileName))
+            {
+                return null;
+            }
+
+            var file = new FileInfo(Path.GetFullPath(change.Path));
+            var profileDirectory = file.Directory;
+            while (profileDirectory is not null && !profileDirectory.Name.StartsWith("profile_", StringComparison.OrdinalIgnoreCase))
+            {
+                profileDirectory = profileDirectory.Parent;
+            }
+
+            if (profileDirectory is null)
+            {
+                return null;
+            }
+
+            var profile = profileDirectory.Name;
+            var profileRoot = profileDirectory.FullName;
+            var relativePath = Path.GetRelativePath(profileRoot, change.Path)
+                .Replace(Path.DirectorySeparatorChar, '/')
+                .Replace(Path.AltDirectorySeparatorChar, '/');
+            var relativeParts = relativePath
+                .Split('/')
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .ToArray();
+            var area = relativeParts.Length > 1 && relativeParts[0].Equals("backup", StringComparison.OrdinalIgnoreCase)
+                ? "backup"
+                : "live";
+
+            return new StableSaveChange(change.Kind, profileRoot, profile, area, relativePath);
+        }
+    }
+
+    private sealed class StableSaveChangeGroupComparer : IEqualityComparer<(string ProfileRoot, string Profile)>
+    {
+        public static readonly StableSaveChangeGroupComparer Instance = new();
+
+        public bool Equals((string ProfileRoot, string Profile) x, (string ProfileRoot, string Profile) y)
+        {
+            return StringComparer.OrdinalIgnoreCase.Equals(x.ProfileRoot, y.ProfileRoot)
+                && StringComparer.OrdinalIgnoreCase.Equals(x.Profile, y.Profile);
+        }
+
+        public int GetHashCode((string ProfileRoot, string Profile) obj)
+        {
+            return HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.ProfileRoot),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Profile));
+        }
+    }
 }
 
 internal static class PeArchitecture
