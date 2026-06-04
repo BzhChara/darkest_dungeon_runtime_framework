@@ -14,6 +14,13 @@
   ],
   "fileIoMaxLogEntries": 300,
   "fileIoDeduplicate": true,
+  "eventProbeEnabled": true,
+  "eventProbeLogFileOpen": true,
+  "eventProbeLogFileWrite": true,
+  "eventProbeLogSaveFiles": true,
+  "eventProbeLogDataFiles": true,
+  "eventProbeLogAssetFiles": false,
+  "eventProbeMaxLogEntries": 300,
   "pluginDirectories": [
     "./plugins"
   ],

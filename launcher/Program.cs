@@ -279,6 +279,27 @@ internal sealed class RuntimeConfig
     [JsonPropertyName("fileIoDeduplicate")]
     public bool FileIoDeduplicate { get; set; } = true;
 
+    [JsonPropertyName("eventProbeEnabled")]
+    public bool EventProbeEnabled { get; set; } = true;
+
+    [JsonPropertyName("eventProbeLogFileOpen")]
+    public bool EventProbeLogFileOpen { get; set; } = true;
+
+    [JsonPropertyName("eventProbeLogFileWrite")]
+    public bool EventProbeLogFileWrite { get; set; } = true;
+
+    [JsonPropertyName("eventProbeLogSaveFiles")]
+    public bool EventProbeLogSaveFiles { get; set; } = true;
+
+    [JsonPropertyName("eventProbeLogDataFiles")]
+    public bool EventProbeLogDataFiles { get; set; } = true;
+
+    [JsonPropertyName("eventProbeLogAssetFiles")]
+    public bool EventProbeLogAssetFiles { get; set; }
+
+    [JsonPropertyName("eventProbeMaxLogEntries")]
+    public int EventProbeMaxLogEntries { get; set; } = 1000;
+
     [JsonPropertyName("pluginDirectories")]
     public string[] PluginDirectories { get; set; } = ["./plugins"];
 
@@ -328,6 +349,13 @@ internal sealed class RuntimeConfig
             ["DD_RUNTIME_FILE_IO_LOG_EXTENSIONS"] = string.Join(';', FileIoLogExtensions),
             ["DD_RUNTIME_FILE_IO_MAX_ENTRIES"] = FileIoMaxLogEntries.ToString(),
             ["DD_RUNTIME_FILE_IO_DEDUPLICATE"] = FileIoDeduplicate ? "1" : "0",
+            ["DD_RUNTIME_EVENT_PROBE_ENABLED"] = EventProbeEnabled ? "1" : "0",
+            ["DD_RUNTIME_EVENT_PROBE_LOG_FILE_OPEN"] = EventProbeLogFileOpen ? "1" : "0",
+            ["DD_RUNTIME_EVENT_PROBE_LOG_FILE_WRITE"] = EventProbeLogFileWrite ? "1" : "0",
+            ["DD_RUNTIME_EVENT_PROBE_LOG_SAVE_FILES"] = EventProbeLogSaveFiles ? "1" : "0",
+            ["DD_RUNTIME_EVENT_PROBE_LOG_DATA_FILES"] = EventProbeLogDataFiles ? "1" : "0",
+            ["DD_RUNTIME_EVENT_PROBE_LOG_ASSET_FILES"] = EventProbeLogAssetFiles ? "1" : "0",
+            ["DD_RUNTIME_EVENT_PROBE_MAX_ENTRIES"] = EventProbeMaxLogEntries.ToString(),
             ["DD_RUNTIME_VIRTUAL_FILE_ENABLED"] = VirtualFileEnabled ? "1" : "0"
         };
 

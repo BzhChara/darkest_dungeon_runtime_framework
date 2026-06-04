@@ -25,7 +25,7 @@ C# 控制台启动器。
 - 计算并记录游戏 exe SHA-256。
 - 默认以 suspended 模式启动 `Darkest.exe`，先注入 DLL 再恢复主线程，避免错过早期资源读取。
 - 通过 `LoadLibraryW` 远程线程注入 RuntimeHook.dll。
-- 将 `DD_RUNTIME_FRAMEWORK_ROOT` 和 `DD_RUNTIME_LOG_DIR` 写入游戏进程环境。
+- 将 `DD_RUNTIME_FRAMEWORK_ROOT`、`DD_RUNTIME_LOG_DIR`、文件 IO 观察配置和事件探针配置写入游戏进程环境。
 - 扫描插件补丁清单 `plugins/<plugin-id>/patches.json`，按 manifest 依赖和顺序字段生成加载计划，再把虚拟文件规则写入 `DD_RUNTIME_VIRTUAL_RULE_*` 环境变量。
 - 在启动前验证补丁规则：目标文件存在性、当前虚拟文件大小限制、按最终替换顺序统计字符串命中次数和同目标多规则提示。
 - 在不启动游戏的情况下解释和预览补丁结果，输出加载顺序、排序边、跳过原因、虚拟文件文本、简短 diff 和同一目标行冲突提示。
@@ -39,7 +39,7 @@ C++ DLL。
 - 在 `DLL_PROCESS_ATTACH` 后创建初始化线程。
 - 初始化日志。
 - 记录进程、模块路径和环境变量。
-- 初始化 Hook 模块占位。
+- 初始化文件 IO Hook、虚拟文件通道和 observe-only 事件探针。
 
 ### Hook Layer
 
@@ -49,8 +49,9 @@ C++ DLL。
 
 1. 观察文件读取路径，只记录不修改。当前阶段通过 MinHook 挂 `CreateFileW/CreateFileA`。
 2. 对 `.darkest` / localization 文件做虚拟内容返回。当前原型支持配置规则列表：每条规则匹配一个路径后缀，并按顺序执行多条字符串替换，通过虚拟句柄响应 `ReadFile` / `GetFileSize` / `SetFilePointer` / `CloseHandle`。
-3. 对数据加载函数做结构化 Hook。
-4. 最后才碰战斗、AI 和存档相关逻辑。
+3. 观察文件写入尝试，只记录不修改。当前阶段通过 MinHook 挂 `WriteFile`，把已知真实文件句柄分类成 `data` / `asset` / `save` 事件。
+4. 对数据加载函数做结构化 Hook。
+5. 最后才碰战斗、AI 和存档相关逻辑。
 
 ### Plugin Layer
 

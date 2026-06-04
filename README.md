@@ -7,7 +7,8 @@
 - C# 启动器读取配置、校验路径、启动游戏。
 - C# 启动器将 `RuntimeHook.dll` 注入游戏进程。
 - C++ DLL 被加载后写入日志。
-- 文件读取 Hook 使用 MinHook 观察 `CreateFileW/CreateFileA`，只记录匹配扩展名的路径，默认不修改任何游戏行为。
+- 文件读取 Hook 使用 MinHook 观察 `CreateFileW/CreateFileA`，只记录匹配扩展名的路径。
+- 事件探针 v0 使用 `CreateFileW/CreateFileA/WriteFile` 观察文件打开和写入尝试，只写日志，不修改任何游戏行为。
 
 ## 当前边界
 
@@ -62,6 +63,31 @@ docs/architecture.md            架构说明
 如果需要完全关闭文件 IO Hook，把 `fileIoObserveOnly` 改成 `false`。如果需要完全关闭注入，把 `enableInjection` 改成 `false`。
 
 默认启动器会使用 `startSuspendedForInjection: true`：先挂起启动游戏，注入并安装 Hook 后再恢复主线程。这样能观察游戏启动早期的资源读取。
+
+## 事件探针 v0
+
+事件探针是后续事件层的最低风险起点。当前只观察文件活动，不拦截、不取消、不改写写入：
+
+```json
+"eventProbeEnabled": true,
+"eventProbeLogFileOpen": true,
+"eventProbeLogFileWrite": true,
+"eventProbeLogSaveFiles": true,
+"eventProbeLogDataFiles": true,
+"eventProbeLogAssetFiles": false,
+"eventProbeMaxLogEntries": 1000
+```
+
+当前事件名：
+
+- `data.file_opened`
+- `data.file_write_attempted`
+- `asset.file_opened`
+- `asset.file_write_attempted`
+- `save.file_opened`
+- `save.file_write_attempted`
+
+默认记录数据文件和存档类事件，资产事件默认关闭，避免资源读取日志过多。`save` 分类是启发式识别：路径包含 `profile` / `save`，或文件名类似 `persist.*` 时会归为存档类。
 
 ## 虚拟文件原型
 

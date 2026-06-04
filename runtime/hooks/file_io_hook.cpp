@@ -26,6 +26,7 @@ namespace
 using CreateFileWFn = HANDLE(WINAPI*)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 using CreateFileAFn = HANDLE(WINAPI*)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 using ReadFileFn = BOOL(WINAPI*)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+using WriteFileFn = BOOL(WINAPI*)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
 using CloseHandleFn = BOOL(WINAPI*)(HANDLE);
 using GetFileSizeFn = DWORD(WINAPI*)(HANDLE, LPDWORD);
 using GetFileSizeExFn = BOOL(WINAPI*)(HANDLE, PLARGE_INTEGER);
@@ -38,6 +39,8 @@ CreateFileWFn g_originalKernelBaseCreateFileW = nullptr;
 CreateFileAFn g_originalKernelBaseCreateFileA = nullptr;
 ReadFileFn g_originalKernel32ReadFile = nullptr;
 ReadFileFn g_originalKernelBaseReadFile = nullptr;
+WriteFileFn g_originalKernel32WriteFile = nullptr;
+WriteFileFn g_originalKernelBaseWriteFile = nullptr;
 CloseHandleFn g_originalKernel32CloseHandle = nullptr;
 CloseHandleFn g_originalKernelBaseCloseHandle = nullptr;
 GetFileSizeFn g_originalKernel32GetFileSize = nullptr;
@@ -56,6 +59,19 @@ std::atomic<unsigned long> g_loggedCount{ 0 };
 unsigned long g_maxEntries = 2000;
 bool g_deduplicate = true;
 bool g_limitLogged = false;
+
+bool g_eventProbeEnabled = true;
+bool g_eventProbeLogFileOpen = true;
+bool g_eventProbeLogFileWrite = true;
+bool g_eventProbeLogSaveFiles = true;
+bool g_eventProbeLogDataFiles = true;
+bool g_eventProbeLogAssetFiles = false;
+unsigned long g_eventProbeMaxEntries = 1000;
+std::atomic<unsigned long> g_eventProbeLoggedCount{ 0 };
+bool g_eventProbeLimitLogged = false;
+std::mutex g_eventProbeMutex;
+std::mutex g_observedHandlesMutex;
+std::unordered_map<HANDLE, std::wstring> g_observedFileHandles;
 
 struct ReplacementRule
 {
@@ -276,6 +292,209 @@ bool ExtensionMatches(const std::wstring& path)
     return std::find(g_extensions.begin(), g_extensions.end(), extension) != g_extensions.end();
 }
 
+bool IsOneOf(const std::wstring& value, const std::vector<std::wstring>& candidates)
+{
+    return std::find(candidates.begin(), candidates.end(), value) != candidates.end();
+}
+
+std::wstring FileNameOf(const std::wstring& path)
+{
+    std::size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? path : path.substr(slash + 1);
+}
+
+std::wstring ClassifyEventPath(const std::wstring& path)
+{
+    std::wstring normalized = NormalizePath(path);
+    std::wstring fileName = FileNameOf(normalized);
+    if (normalized.empty())
+    {
+        return L"other";
+    }
+
+    if (normalized.find(L"\\profiles\\") != std::wstring::npos ||
+        normalized.find(L"\\profile_") != std::wstring::npos ||
+        normalized.find(L"\\save") != std::wstring::npos ||
+        fileName.rfind(L"persist.", 0) == 0 ||
+        fileName.find(L".persist") != std::wstring::npos)
+    {
+        return L"save";
+    }
+
+    std::wstring extension = ExtensionOf(normalized);
+    static const std::vector<std::wstring> dataExtensions =
+    {
+        L".darkest",
+        L".json",
+        L".xml",
+        L".loc",
+        L".loc2",
+        L".txt",
+        L".csv"
+    };
+    static const std::vector<std::wstring> assetExtensions =
+    {
+        L".png",
+        L".jpg",
+        L".jpeg",
+        L".dds",
+        L".atlas",
+        L".skel",
+        L".font",
+        L".ttf",
+        L".otf",
+        L".shader",
+        L".wav",
+        L".bank",
+        L".mp3",
+        L".ogg"
+    };
+
+    if (IsOneOf(extension, dataExtensions))
+    {
+        return L"data";
+    }
+    if (IsOneOf(extension, assetExtensions))
+    {
+        return L"asset";
+    }
+    return L"other";
+}
+
+bool ShouldLogEventCategory(const std::wstring& category)
+{
+    if (category == L"save")
+    {
+        return g_eventProbeLogSaveFiles;
+    }
+    if (category == L"data")
+    {
+        return g_eventProbeLogDataFiles;
+    }
+    if (category == L"asset")
+    {
+        return g_eventProbeLogAssetFiles;
+    }
+    return false;
+}
+
+std::wstring EventName(const std::wstring& category, bool writeAttempt)
+{
+    if (category == L"save")
+    {
+        return writeAttempt ? L"save.file_write_attempted" : L"save.file_opened";
+    }
+    if (category == L"data")
+    {
+        return writeAttempt ? L"data.file_write_attempted" : L"data.file_opened";
+    }
+    if (category == L"asset")
+    {
+        return writeAttempt ? L"asset.file_write_attempted" : L"asset.file_opened";
+    }
+    return writeAttempt ? L"file.write_attempted" : L"file.opened";
+}
+
+std::wstring DispositionName(DWORD disposition);
+
+bool ReserveEventProbeLogEntry()
+{
+    std::lock_guard<std::mutex> lock(g_eventProbeMutex);
+    if (g_eventProbeMaxEntries > 0 && g_eventProbeLoggedCount.load() >= g_eventProbeMaxEntries)
+    {
+        if (!g_eventProbeLimitLogged)
+        {
+            g_eventProbeLimitLogged = true;
+            Logger::Warn(L"Event probe log limit reached. Further event entries are suppressed.");
+        }
+        return false;
+    }
+
+    g_eventProbeLoggedCount.fetch_add(1);
+    return true;
+}
+
+void LogEventProbeFileOpen(const std::wstring& path, DWORD desiredAccess, DWORD creationDisposition)
+{
+    if (!g_eventProbeEnabled || !g_eventProbeLogFileOpen || path.empty())
+    {
+        return;
+    }
+
+    std::wstring category = ClassifyEventPath(path);
+    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry())
+    {
+        return;
+    }
+
+    Logger::Info(
+        L"event name=" + EventName(category, false) +
+        L" category=" + category +
+        L" disposition=" + DispositionName(creationDisposition) +
+        L" access=0x" + std::to_wstring(desiredAccess) +
+        L" path=" + path);
+}
+
+void LogEventProbeFileWrite(const std::wstring& path, DWORD bytesToWrite)
+{
+    if (!g_eventProbeEnabled || !g_eventProbeLogFileWrite || path.empty())
+    {
+        return;
+    }
+
+    std::wstring category = ClassifyEventPath(path);
+    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry())
+    {
+        return;
+    }
+
+    Logger::Info(
+        L"event name=" + EventName(category, true) +
+        L" category=" + category +
+        L" bytes=" + std::to_wstring(bytesToWrite) +
+        L" path=" + path);
+}
+
+bool RequestedWriteAccess(DWORD desiredAccess)
+{
+    constexpr DWORD writeAccess =
+        GENERIC_WRITE |
+        FILE_WRITE_DATA |
+        FILE_APPEND_DATA |
+        FILE_WRITE_ATTRIBUTES |
+        FILE_WRITE_EA;
+    return (desiredAccess & writeAccess) != 0;
+}
+
+void RecordObservedFileHandle(HANDLE handle, const std::wstring& path, DWORD desiredAccess)
+{
+    if (!g_eventProbeEnabled ||
+        !g_eventProbeLogFileWrite ||
+        !RequestedWriteAccess(desiredAccess) ||
+        handle == INVALID_HANDLE_VALUE ||
+        handle == nullptr ||
+        path.empty())
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(g_observedHandlesMutex);
+    g_observedFileHandles[handle] = path;
+}
+
+std::wstring GetObservedFileHandlePath(HANDLE handle)
+{
+    std::lock_guard<std::mutex> lock(g_observedHandlesMutex);
+    auto it = g_observedFileHandles.find(handle);
+    return it == g_observedFileHandles.end() ? L"" : it->second;
+}
+
+void ForgetObservedFileHandle(HANDLE handle)
+{
+    std::lock_guard<std::mutex> lock(g_observedHandlesMutex);
+    g_observedFileHandles.erase(handle);
+}
+
 std::wstring DispositionName(DWORD disposition)
 {
     switch (disposition)
@@ -310,6 +529,14 @@ void LoadSettings()
     g_extensions = SplitExtensions(GetEnvironmentString(L"DD_RUNTIME_FILE_IO_LOG_EXTENSIONS"));
     g_maxEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_FILE_IO_MAX_ENTRIES", 2000);
     g_deduplicate = GetEnvironmentBool(L"DD_RUNTIME_FILE_IO_DEDUPLICATE", true);
+
+    g_eventProbeEnabled = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_ENABLED", true);
+    g_eventProbeLogFileOpen = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_FILE_OPEN", true);
+    g_eventProbeLogFileWrite = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_FILE_WRITE", true);
+    g_eventProbeLogSaveFiles = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_SAVE_FILES", true);
+    g_eventProbeLogDataFiles = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_DATA_FILES", true);
+    g_eventProbeLogAssetFiles = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_ASSET_FILES", false);
+    g_eventProbeMaxEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_EVENT_PROBE_MAX_ENTRIES", 1000);
 
     g_virtualFileEnabled = GetEnvironmentBool(L"DD_RUNTIME_VIRTUAL_FILE_ENABLED", false);
     g_virtualRules.clear();
@@ -388,6 +615,11 @@ CreateFileWFn OriginalCreateFileW()
 ReadFileFn OriginalReadFile()
 {
     return g_originalKernelBaseReadFile ? g_originalKernelBaseReadFile : g_originalKernel32ReadFile;
+}
+
+WriteFileFn OriginalWriteFile()
+{
+    return g_originalKernelBaseWriteFile ? g_originalKernelBaseWriteFile : g_originalKernel32WriteFile;
 }
 
 CloseHandleFn OriginalCloseHandle()
@@ -606,6 +838,14 @@ HANDLE CallOriginalCreateFileW(
     HANDLE result = virtualHandle != INVALID_HANDLE_VALUE
         ? virtualHandle
         : original(fileName, desiredAccess, shareMode, securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
+    if (result != INVALID_HANDLE_VALUE && result != nullptr)
+    {
+        LogEventProbeFileOpen(path, desiredAccess, creationDisposition);
+    }
+    if (virtualHandle == INVALID_HANDLE_VALUE)
+    {
+        RecordObservedFileHandle(result, path, desiredAccess);
+    }
     g_insideHook = false;
     return result;
 }
@@ -638,6 +878,14 @@ HANDLE CallOriginalCreateFileA(
     HANDLE result = virtualHandle != INVALID_HANDLE_VALUE
         ? virtualHandle
         : original(fileName, desiredAccess, shareMode, securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
+    if (result != INVALID_HANDLE_VALUE && result != nullptr)
+    {
+        LogEventProbeFileOpen(path, desiredAccess, creationDisposition);
+    }
+    if (virtualHandle == INVALID_HANDLE_VALUE)
+    {
+        RecordObservedFileHandle(result, path, desiredAccess);
+    }
     g_insideHook = false;
     return result;
 }
@@ -681,14 +929,36 @@ BOOL CallOriginalReadFile(ReadFileFn original, HANDLE handle, LPVOID buffer, DWO
     return TRUE;
 }
 
+BOOL CallOriginalWriteFile(WriteFileFn original, HANDLE handle, LPCVOID buffer, DWORD bytesToWrite, LPDWORD bytesWritten, LPOVERLAPPED overlapped)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(handle, buffer, bytesToWrite, bytesWritten, overlapped);
+    }
+
+    g_insideHook = true;
+    LogEventProbeFileWrite(GetObservedFileHandlePath(handle), bytesToWrite);
+    BOOL result = original(handle, buffer, bytesToWrite, bytesWritten, overlapped);
+    g_insideHook = false;
+    return result;
+}
+
 BOOL CallOriginalCloseHandle(CloseHandleFn original, HANDLE handle)
 {
     auto virtualFile = RemoveVirtualFile(handle);
     if (!virtualFile)
     {
+        ForgetObservedFileHandle(handle);
         return original ? original(handle) : FALSE;
     }
 
+    ForgetObservedFileHandle(handle);
     CloseHandleFn closeHandle = OriginalCloseHandle();
     if (closeHandle != nullptr && virtualFile->backingHandle != nullptr)
     {
@@ -830,6 +1100,12 @@ BOOL WINAPI name(HANDLE file, LPVOID buffer, DWORD bytesToRead, LPDWORD bytesRea
     return CallOriginalReadFile(original, file, buffer, bytesToRead, bytesRead, overlapped); \
 }
 
+#define DEFINE_WRITEFILE_DETOUR(name, original) \
+BOOL WINAPI name(HANDLE file, LPCVOID buffer, DWORD bytesToWrite, LPDWORD bytesWritten, LPOVERLAPPED overlapped) \
+{ \
+    return CallOriginalWriteFile(original, file, buffer, bytesToWrite, bytesWritten, overlapped); \
+}
+
 #define DEFINE_CLOSEHANDLE_DETOUR(name, original) \
 BOOL WINAPI name(HANDLE handle) \
 { \
@@ -866,6 +1142,8 @@ DEFINE_CREATEFILEW_DETOUR(DetourKernelBaseCreateFileW, g_originalKernelBaseCreat
 DEFINE_CREATEFILEA_DETOUR(DetourKernelBaseCreateFileA, g_originalKernelBaseCreateFileA)
 DEFINE_READFILE_DETOUR(DetourKernel32ReadFile, g_originalKernel32ReadFile)
 DEFINE_READFILE_DETOUR(DetourKernelBaseReadFile, g_originalKernelBaseReadFile)
+DEFINE_WRITEFILE_DETOUR(DetourKernel32WriteFile, g_originalKernel32WriteFile)
+DEFINE_WRITEFILE_DETOUR(DetourKernelBaseWriteFile, g_originalKernelBaseWriteFile)
 DEFINE_CLOSEHANDLE_DETOUR(DetourKernel32CloseHandle, g_originalKernel32CloseHandle)
 DEFINE_CLOSEHANDLE_DETOUR(DetourKernelBaseCloseHandle, g_originalKernelBaseCloseHandle)
 DEFINE_GETFILESIZE_DETOUR(DetourKernel32GetFileSize, g_originalKernel32GetFileSize)
@@ -921,6 +1199,11 @@ void FileIoHook::InitializeObserveOnly()
     createdAny |= CreateApiHook(L"KernelBase.dll", "CreateFileA", reinterpret_cast<LPVOID>(&DetourKernelBaseCreateFileA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseCreateFileA));
     createdAny |= CreateApiHook(L"kernel32.dll", "ReadFile", reinterpret_cast<LPVOID>(&DetourKernel32ReadFile), reinterpret_cast<LPVOID*>(&g_originalKernel32ReadFile));
     createdAny |= CreateApiHook(L"KernelBase.dll", "ReadFile", reinterpret_cast<LPVOID>(&DetourKernelBaseReadFile), reinterpret_cast<LPVOID*>(&g_originalKernelBaseReadFile));
+    if (g_eventProbeEnabled && g_eventProbeLogFileWrite)
+    {
+        createdAny |= CreateApiHook(L"kernel32.dll", "WriteFile", reinterpret_cast<LPVOID>(&DetourKernel32WriteFile), reinterpret_cast<LPVOID*>(&g_originalKernel32WriteFile));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "WriteFile", reinterpret_cast<LPVOID>(&DetourKernelBaseWriteFile), reinterpret_cast<LPVOID*>(&g_originalKernelBaseWriteFile));
+    }
     createdAny |= CreateApiHook(L"kernel32.dll", "CloseHandle", reinterpret_cast<LPVOID>(&DetourKernel32CloseHandle), reinterpret_cast<LPVOID*>(&g_originalKernel32CloseHandle));
     createdAny |= CreateApiHook(L"KernelBase.dll", "CloseHandle", reinterpret_cast<LPVOID>(&DetourKernelBaseCloseHandle), reinterpret_cast<LPVOID*>(&g_originalKernelBaseCloseHandle));
     createdAny |= CreateApiHook(L"kernel32.dll", "GetFileSize", reinterpret_cast<LPVOID>(&DetourKernel32GetFileSize), reinterpret_cast<LPVOID*>(&g_originalKernel32GetFileSize));
@@ -950,6 +1233,8 @@ void FileIoHook::InitializeObserveOnly()
         GetEnvironmentString(L"DD_RUNTIME_FILE_IO_LOG_EXTENSIONS") +
         L" maxEntries=" + std::to_wstring(g_maxEntries) +
         L" deduplicate=" + (g_deduplicate ? L"true" : L"false") +
+        L" eventProbe=" + (g_eventProbeEnabled ? L"enabled" : L"disabled") +
+        L" eventProbeMaxEntries=" + std::to_wstring(g_eventProbeMaxEntries) +
         L" virtualFile=" + (g_virtualFileEnabled ? L"enabled" : L"disabled") +
         L" virtualRules=" + std::to_wstring(g_virtualRules.size()));
 }
