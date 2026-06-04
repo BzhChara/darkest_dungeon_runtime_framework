@@ -3509,7 +3509,9 @@ internal sealed class SaveDirectoryWatcher : IDisposable
 
         private static readonly string[] FloatFieldNames =
         [
-            "totalelapsed"
+            "totalelapsed",
+            "current_hp",
+            "m_Stress"
         ];
 
         private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -4000,6 +4002,22 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 .ToArray();
         }
 
+        private static IReadOnlyList<string> ExtractDirectChildIds(IReadOnlyList<SaveStateDsonScalar> scalars, string parentPath)
+        {
+            return ExtractDirectChildIds(scalars.Select(scalar => scalar.Path).ToArray(), parentPath);
+        }
+
+        private static IReadOnlyList<string> MergeDirectChildIds(params IReadOnlyList<string>[] idLists)
+        {
+            return idLists
+                .SelectMany(list => list)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .Take(120)
+                .ToArray();
+        }
+
         private static IReadOnlyList<SaveStateHeroFacts> ExtractHeroFactsFromRoster(
             string fileName,
             byte[] bytes,
@@ -4095,6 +4113,8 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 TryGetString(nested.DsonScalars, "base_root.heroClass"),
                 TryGetInt(nested.DsonScalars, "base_root.roster.status"),
                 TryGetInt(nested.DsonScalars, "base_root.resolveXp"),
+                TryGetDouble(nested.DsonScalars, "base_root.actor.current_hp"),
+                TryGetDouble(nested.DsonScalars, "base_root.m_Stress"),
                 TryGetInt(nested.DsonScalars, "base_root.weapon_rank"),
                 TryGetInt(nested.DsonScalars, "base_root.armour_rank"),
                 TryGetBool(nested.DsonScalars, "base_root.backer_hero"),
@@ -4102,8 +4122,11 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 nested.DsonSummary.ObjectCount,
                 nested.DsonSummary.FieldCount,
                 ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.quirks"),
-                ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.skills.selected_combat_skills"),
-                ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.skills.selected_camping_skills"));
+                ExtractDirectChildIds(nested.DsonScalars, "base_root.skills.selected_combat_skills"),
+                ExtractDirectChildIds(nested.DsonScalars, "base_root.skills.selected_camping_skills"),
+                MergeDirectChildIds(
+                    ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.trinkets.items"),
+                    ExtractDirectChildIds(nested.DsonScalars, "base_root.trinkets.items")));
         }
 
         private static string? TryGetString(SaveStateFileReport? file, string path)
@@ -4150,6 +4173,14 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         {
             var scalar = FindDsonScalar(scalars, path);
             return scalar is not null && int.TryParse(scalar.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : null;
+        }
+
+        private static double? TryGetDouble(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
+        {
+            var scalar = FindDsonScalar(scalars, path);
+            return scalar is not null && double.TryParse(scalar.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
                 ? value
                 : null;
         }
@@ -4702,6 +4733,8 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         string? HeroClass,
         int? RosterStatus,
         int? ResolveXp,
+        double? CurrentHp,
+        double? Stress,
         int? WeaponRank,
         int? ArmourRank,
         bool? BackerHero,
@@ -4710,7 +4743,8 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         int NestedFieldCount,
         IReadOnlyList<string> QuirkIds,
         IReadOnlyList<string> CombatSkillIds,
-        IReadOnlyList<string> CampingSkillIds);
+        IReadOnlyList<string> CampingSkillIds,
+        IReadOnlyList<string> TrinketIds);
 
     private sealed record SaveStateCampaignFacts(
         int? Version,
