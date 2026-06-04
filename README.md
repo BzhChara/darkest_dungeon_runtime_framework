@@ -145,6 +145,14 @@ logs/save_states/<sessionId>.json
 
 DD1 的 `persist.*.json` 文件扩展名是 `.json`，但 Steam 存档里的实际内容是 DSON 二进制容器。状态报告不会假装已经完整反序列化这些文件；它会记录文件大小、时间戳、SHA-256、二进制头、DSON header/meta 摘要、可见 marker 字符串、少量短距离内联字符串候选 key/value、有限的 DSON scalar/object 路径样本，以及保守的 `facts` 摘要。报告的 `parseStatus` 会标明当前是 `dsonPartialDecoded`、`binaryStringIndexOnly` 还是普通 `parsedJsonText`。这给后续状态模型和二进制格式解析留出稳定契约。
 
+同一次退出还会写一个只读文件地图报告：
+
+```text
+logs/save_file_maps/<sessionId>.json
+```
+
+文件地图会扫描 active profile 下 live/backup 的所有 `persist*.json`，标出是否属于当前核心候选、优先级、类别、mod 相关性、当前覆盖程度、DSON 摘要和访问问题。它用于决定后续解码顺序，不代表对应文件已经有完整语义模型。
+
 ## 虚拟文件原型
 
 默认配置中虚拟文件通道是打开的，但没有启用规则时不会改变任何游戏读取结果：

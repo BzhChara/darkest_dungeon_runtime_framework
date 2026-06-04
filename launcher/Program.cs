@@ -3574,6 +3574,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             var path = Path.Combine(stateDirectory, $"{sessionId}.json");
             File.WriteAllText(path, JsonSerializer.Serialize(report, SessionJsonOptions), Encoding.UTF8);
             log.Info($"event name=save.state_report_written path={Quote(path)} parseStatus={parseStatus} files={fileReports.Length} accessIssues={accessIssues.Count}");
+            TryWriteFileMapReport(logDirectory, sessionId, generatedAt, sessionReport, activeRoot, fileReports, log);
             return path;
         }
 
@@ -3688,6 +3689,176 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     [],
                     accessIssues);
             }
+        }
+
+        private static void TryWriteFileMapReport(
+            string logDirectory,
+            string sessionId,
+            DateTimeOffset generatedAt,
+            SaveSessionReport sessionReport,
+            string activeRoot,
+            IReadOnlyList<SaveStateFileReport> analyzedFiles,
+            LauncherLog log)
+        {
+            if (sessionReport.ActiveProfile is null)
+            {
+                return;
+            }
+
+            var accessIssues = new List<string>();
+            var entries = new List<SaveFileMapEntry>();
+            var analyzedByName = analyzedFiles.ToDictionary(file => file.FileName, StringComparer.OrdinalIgnoreCase);
+
+            if (!Directory.Exists(activeRoot))
+            {
+                accessIssues.Add($"Active profile directory was not found: {activeRoot}");
+            }
+            else
+            {
+                foreach (var source in EnumeratePersistFiles(activeRoot))
+                {
+                    SaveStateFileReport inspected;
+                    if (source.Area.Equals("live", StringComparison.OrdinalIgnoreCase)
+                        && analyzedByName.TryGetValue(source.FileName, out var cached))
+                    {
+                        inspected = cached;
+                    }
+                    else
+                    {
+                        inspected = InspectFile(source.Path, source.FileName);
+                    }
+
+                    foreach (var issue in inspected.AccessIssues)
+                    {
+                        accessIssues.Add(issue);
+                    }
+
+                    entries.Add(BuildFileMapEntry(source, inspected));
+                }
+            }
+
+            var mapDirectory = Path.Combine(logDirectory, "save_file_maps");
+            Directory.CreateDirectory(mapDirectory);
+            var report = new SaveFileMapReport(
+                1,
+                sessionId,
+                generatedAt,
+                sessionReport.ActiveProfile,
+                activeRoot,
+                CandidateFiles,
+                entries
+                    .OrderBy(entry => entry.Area, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(entry => entry.Priority)
+                    .ThenBy(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                accessIssues.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+
+            var path = Path.Combine(mapDirectory, $"{sessionId}.json");
+            File.WriteAllText(path, JsonSerializer.Serialize(report, SessionJsonOptions), Encoding.UTF8);
+            log.Info($"event name=save.file_map_report_written path={Quote(path)} files={entries.Count} live={entries.Count(entry => entry.Area.Equals("live", StringComparison.OrdinalIgnoreCase))} backup={entries.Count(entry => entry.Area.Equals("backup", StringComparison.OrdinalIgnoreCase))} accessIssues={accessIssues.Count}");
+        }
+
+        private static IEnumerable<SaveFileMapSource> EnumeratePersistFiles(string activeRoot)
+        {
+            foreach (var path in Directory.EnumerateFiles(activeRoot, "persist*.json", SearchOption.TopDirectoryOnly))
+            {
+                yield return new SaveFileMapSource(path, Path.GetFileName(path), Path.GetFileName(path), "live");
+            }
+
+            var backupRoot = Path.Combine(activeRoot, "backup");
+            if (!Directory.Exists(backupRoot))
+            {
+                yield break;
+            }
+
+            foreach (var path in Directory.EnumerateFiles(backupRoot, "persist*.json", SearchOption.TopDirectoryOnly))
+            {
+                yield return new SaveFileMapSource(path, Path.GetFileName(path), Path.Combine("backup", Path.GetFileName(path)), "backup");
+            }
+        }
+
+        private static SaveFileMapEntry BuildFileMapEntry(SaveFileMapSource source, SaveStateFileReport inspected)
+        {
+            var classification = ClassifyPersistFile(source.FileName);
+            var isCandidate = CandidateFiles.Contains(source.FileName, StringComparer.OrdinalIgnoreCase);
+            var coverage = DetermineFileCoverage(source.FileName, isCandidate, inspected);
+
+            return new SaveFileMapEntry(
+                source.FileName,
+                source.RelativePath,
+                source.Area,
+                inspected.Path,
+                inspected.Exists,
+                inspected.Length,
+                inspected.LastWriteUtc,
+                inspected.Sha256,
+                inspected.Format,
+                inspected.ParseStatus,
+                isCandidate,
+                classification.Priority,
+                classification.Category,
+                classification.ModRelevance,
+                coverage,
+                inspected.DsonSummary,
+                inspected.MarkerStrings,
+                inspected.ValueCandidates.Select(candidate => candidate.Key).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                inspected.DsonScalars.Count,
+                inspected.DsonObjectPaths.Count,
+                inspected.AccessIssues);
+        }
+
+        private static SaveFileMapClassification ClassifyPersistFile(string fileName)
+        {
+            return fileName.ToLowerInvariant() switch
+            {
+                "persist.game.json" => new SaveFileMapClassification(1, "campaign_runtime", "Campaign identity, mode, elapsed time, current raid state, and game options."),
+                "persist.estate.json" => new SaveFileMapClassification(1, "estate_resources", "Wallet resources and estate-level inventory/tamper metadata."),
+                "persist.roster.json" => new SaveFileMapClassification(1, "heroes", "Hero roster entry points; nested hero raw_data still needs deeper decoding."),
+                "persist.upgrades.json" => new SaveFileMapClassification(2, "upgrade_tree", "Building purchase tree and upgrade unlock state; requirement_code remains partially raw."),
+                "persist.quest.json" => new SaveFileMapClassification(3, "quests", "Quest generation, available missions, and dungeon selection state."),
+                "persist.town_event.json" => new SaveFileMapClassification(3, "town_events", "Current and historical town event state."),
+                "persist.town.json" => new SaveFileMapClassification(4, "town_runtime", "Hamlet buildings, shops, activity slots, inventories, and runtime town state."),
+                "persist.progression.json" => new SaveFileMapClassification(5, "progression", "Dungeon XP, boss/story progression, quest history, and unlock conditions."),
+                "persist.game_knowledge.json" => new SaveFileMapClassification(6, "knowledge", "Discovered game knowledge and UI reveal state."),
+                "persist.journal.json" => new SaveFileMapClassification(6, "journal", "Collected journal pages and related discovery state."),
+                "persist.narration.json" => new SaveFileMapClassification(6, "narration", "Narration playback and bark/history gating state."),
+                "persist.tutorial.json" => new SaveFileMapClassification(6, "tutorial", "Tutorial prompt completion and gating state."),
+                "persist.campaign_log.json" => new SaveFileMapClassification(7, "history_log", "Campaign history/log data, likely secondary for runtime rules."),
+                "persist.campaign_mash.json" => new SaveFileMapClassification(7, "history_log", "Campaign aggregate/log companion data, likely secondary for runtime rules."),
+                _ => new SaveFileMapClassification(9, "unknown", "Unclassified persist data; inspect when a mod idea needs it.")
+            };
+        }
+
+        private static string DetermineFileCoverage(string fileName, bool isCandidate, SaveStateFileReport inspected)
+        {
+            if (!inspected.Exists)
+            {
+                return "missing";
+            }
+
+            if (inspected.ParseStatus.Equals("dsonPartialDecoded", StringComparison.OrdinalIgnoreCase))
+            {
+                if (fileName.Equals("persist.roster.json", StringComparison.OrdinalIgnoreCase)
+                    && inspected.DsonSummary?.RawScalarCount > 0)
+                {
+                    return "candidate_nested_raw_pending";
+                }
+
+                if (fileName.Equals("persist.upgrades.json", StringComparison.OrdinalIgnoreCase)
+                    && inspected.DsonSummary?.RawScalarCount > 0)
+                {
+                    return "candidate_raw_fields_pending";
+                }
+
+                return isCandidate ? "candidate_dson_partial" : "mapped_dson_partial";
+            }
+
+            if (inspected.Format.Equals("jsonText", StringComparison.OrdinalIgnoreCase))
+            {
+                return isCandidate ? "candidate_json_text" : "mapped_json_text";
+            }
+
+            return isCandidate ? "candidate_unresolved" : "mapped_unresolved";
         }
 
         private static SaveStateFileReport InspectJsonText(
@@ -4297,6 +4468,50 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         IReadOnlyList<string> StringSamples,
         IReadOnlyList<SaveStateBinaryString> BinaryStrings,
         IReadOnlyList<string> AccessIssues);
+
+    private sealed record SaveFileMapReport(
+        int Version,
+        string SessionId,
+        DateTimeOffset GeneratedAt,
+        ActiveProfileInference ActiveProfile,
+        string ActiveRoot,
+        IReadOnlyList<string> CandidateFiles,
+        IReadOnlyList<SaveFileMapEntry> Files,
+        IReadOnlyList<string> AccessIssues);
+
+    private sealed record SaveFileMapEntry(
+        string FileName,
+        string RelativePath,
+        string Area,
+        string Path,
+        bool Exists,
+        long? Length,
+        DateTime? LastWriteUtc,
+        string? Sha256,
+        string Format,
+        string ParseStatus,
+        bool CandidateFile,
+        int Priority,
+        string Category,
+        string ModRelevance,
+        string Coverage,
+        SaveStateDsonSummary? DsonSummary,
+        IReadOnlyList<string> MarkerStrings,
+        IReadOnlyList<string> ValueCandidateKeys,
+        int DsonScalarSampleCount,
+        int DsonObjectPathCount,
+        IReadOnlyList<string> AccessIssues);
+
+    private sealed record SaveFileMapClassification(
+        int Priority,
+        string Category,
+        string ModRelevance);
+
+    private sealed record SaveFileMapSource(
+        string Path,
+        string FileName,
+        string RelativePath,
+        string Area);
 
     private sealed record SaveStateFacts(
         SaveStateCampaignFacts Campaign,
