@@ -52,7 +52,7 @@ Plugin Manifest
 
 事件层负责把游戏内部流程暴露成可订阅的节点。
 
-当前 observe-only v0 已实现最低风险探针：RuntimeHook 会观察 `CreateFileW/CreateFileA/WriteFile`，把已知文件活动分类为 `data.file_opened`、`asset.file_opened`、`save.file_opened` 和对应的 `*.file_write_attempted`。这一步只写日志，不读取事件上下文，不拦截流程，也不修改存档。
+当前 observe-only v0 已实现最低风险探针：RuntimeHook 会观察 `CreateFileW/CreateFileA/WriteFile`，把已知文件活动分类为 `data.file_opened`、`asset.file_opened`、`save.file_opened` 和对应的 `*.file_write_attempted`。这一步只写日志，不读取事件上下文，不拦截流程，也不修改存档。真实游戏采样默认优先保留 `save.*`，普通 data/asset 事件使用独立预算，并会过滤 Steam overlay 日志这类外部噪声。
 
 优先级从低风险到高风险：
 

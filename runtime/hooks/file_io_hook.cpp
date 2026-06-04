@@ -64,11 +64,15 @@ bool g_eventProbeEnabled = true;
 bool g_eventProbeLogFileOpen = true;
 bool g_eventProbeLogFileWrite = true;
 bool g_eventProbeLogSaveFiles = true;
-bool g_eventProbeLogDataFiles = true;
+bool g_eventProbeLogDataFiles = false;
 bool g_eventProbeLogAssetFiles = false;
-unsigned long g_eventProbeMaxEntries = 1000;
+unsigned long g_eventProbeMaxEntries = 5000;
+unsigned long g_eventProbeMaxSaveEntries = 20000;
 std::atomic<unsigned long> g_eventProbeLoggedCount{ 0 };
+std::atomic<unsigned long> g_eventProbeSaveLoggedCount{ 0 };
 bool g_eventProbeLimitLogged = false;
+bool g_eventProbeSaveLimitLogged = false;
+std::vector<std::wstring> g_eventProbeIgnorePathFragments;
 std::mutex g_eventProbeMutex;
 std::mutex g_observedHandlesMutex;
 std::unordered_map<HANDLE, std::wstring> g_observedFileHandles;
@@ -265,6 +269,29 @@ std::vector<std::wstring> SplitExtensions(std::wstring value)
     return extensions;
 }
 
+std::vector<std::wstring> SplitPathFragments(std::wstring value)
+{
+    std::vector<std::wstring> fragments;
+    std::size_t start = 0;
+    while (start < value.size())
+    {
+        std::size_t end = value.find_first_of(L";,", start);
+        std::wstring item = value.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
+        item.erase(std::remove_if(item.begin(), item.end(), iswspace), item.end());
+        if (!item.empty())
+        {
+            fragments.push_back(NormalizePath(item));
+        }
+
+        if (end == std::wstring::npos)
+        {
+            break;
+        }
+        start = end + 1;
+    }
+    return fragments;
+}
+
 std::wstring ExtensionOf(const std::wstring& path)
 {
     std::size_t slash = path.find_last_of(L"\\/");
@@ -295,6 +322,24 @@ bool ExtensionMatches(const std::wstring& path)
 bool IsOneOf(const std::wstring& value, const std::vector<std::wstring>& candidates)
 {
     return std::find(candidates.begin(), candidates.end(), value) != candidates.end();
+}
+
+bool IsIgnoredEventPath(const std::wstring& path)
+{
+    if (path.empty() || g_eventProbeIgnorePathFragments.empty())
+    {
+        return false;
+    }
+
+    std::wstring normalized = NormalizePath(path);
+    for (const std::wstring& fragment : g_eventProbeIgnorePathFragments)
+    {
+        if (!fragment.empty() && normalized.find(fragment) != std::wstring::npos)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::wstring FileNameOf(const std::wstring& path)
@@ -397,9 +442,25 @@ std::wstring EventName(const std::wstring& category, bool writeAttempt)
 
 std::wstring DispositionName(DWORD disposition);
 
-bool ReserveEventProbeLogEntry()
+bool ReserveEventProbeLogEntry(const std::wstring& category)
 {
     std::lock_guard<std::mutex> lock(g_eventProbeMutex);
+    if (category == L"save")
+    {
+        if (g_eventProbeMaxSaveEntries > 0 && g_eventProbeSaveLoggedCount.load() >= g_eventProbeMaxSaveEntries)
+        {
+            if (!g_eventProbeSaveLimitLogged)
+            {
+                g_eventProbeSaveLimitLogged = true;
+                Logger::Warn(L"Event probe save log limit reached. Further save event entries are suppressed.");
+            }
+            return false;
+        }
+
+        g_eventProbeSaveLoggedCount.fetch_add(1);
+        return true;
+    }
+
     if (g_eventProbeMaxEntries > 0 && g_eventProbeLoggedCount.load() >= g_eventProbeMaxEntries)
     {
         if (!g_eventProbeLimitLogged)
@@ -416,13 +477,13 @@ bool ReserveEventProbeLogEntry()
 
 void LogEventProbeFileOpen(const std::wstring& path, DWORD desiredAccess, DWORD creationDisposition)
 {
-    if (!g_eventProbeEnabled || !g_eventProbeLogFileOpen || path.empty())
+    if (!g_eventProbeEnabled || !g_eventProbeLogFileOpen || path.empty() || IsIgnoredEventPath(path))
     {
         return;
     }
 
     std::wstring category = ClassifyEventPath(path);
-    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry())
+    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry(category))
     {
         return;
     }
@@ -437,13 +498,13 @@ void LogEventProbeFileOpen(const std::wstring& path, DWORD desiredAccess, DWORD 
 
 void LogEventProbeFileWrite(const std::wstring& path, DWORD bytesToWrite)
 {
-    if (!g_eventProbeEnabled || !g_eventProbeLogFileWrite || path.empty())
+    if (!g_eventProbeEnabled || !g_eventProbeLogFileWrite || path.empty() || IsIgnoredEventPath(path))
     {
         return;
     }
 
     std::wstring category = ClassifyEventPath(path);
-    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry())
+    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry(category))
     {
         return;
     }
@@ -473,7 +534,8 @@ void RecordObservedFileHandle(HANDLE handle, const std::wstring& path, DWORD des
         !RequestedWriteAccess(desiredAccess) ||
         handle == INVALID_HANDLE_VALUE ||
         handle == nullptr ||
-        path.empty())
+        path.empty() ||
+        IsIgnoredEventPath(path))
     {
         return;
     }
@@ -534,9 +596,11 @@ void LoadSettings()
     g_eventProbeLogFileOpen = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_FILE_OPEN", true);
     g_eventProbeLogFileWrite = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_FILE_WRITE", true);
     g_eventProbeLogSaveFiles = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_SAVE_FILES", true);
-    g_eventProbeLogDataFiles = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_DATA_FILES", true);
+    g_eventProbeLogDataFiles = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_DATA_FILES", false);
     g_eventProbeLogAssetFiles = GetEnvironmentBool(L"DD_RUNTIME_EVENT_PROBE_LOG_ASSET_FILES", false);
-    g_eventProbeMaxEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_EVENT_PROBE_MAX_ENTRIES", 1000);
+    g_eventProbeMaxEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_EVENT_PROBE_MAX_ENTRIES", 5000);
+    g_eventProbeMaxSaveEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_EVENT_PROBE_MAX_SAVE_ENTRIES", 20000);
+    g_eventProbeIgnorePathFragments = SplitPathFragments(GetEnvironmentString(L"DD_RUNTIME_EVENT_PROBE_IGNORE_PATH_FRAGMENTS"));
 
     g_virtualFileEnabled = GetEnvironmentBool(L"DD_RUNTIME_VIRTUAL_FILE_ENABLED", false);
     g_virtualRules.clear();
@@ -1235,6 +1299,8 @@ void FileIoHook::InitializeObserveOnly()
         L" deduplicate=" + (g_deduplicate ? L"true" : L"false") +
         L" eventProbe=" + (g_eventProbeEnabled ? L"enabled" : L"disabled") +
         L" eventProbeMaxEntries=" + std::to_wstring(g_eventProbeMaxEntries) +
+        L" eventProbeMaxSaveEntries=" + std::to_wstring(g_eventProbeMaxSaveEntries) +
+        L" eventProbeIgnoredFragments=" + std::to_wstring(g_eventProbeIgnorePathFragments.size()) +
         L" virtualFile=" + (g_virtualFileEnabled ? L"enabled" : L"disabled") +
         L" virtualRules=" + std::to_wstring(g_virtualRules.size()));
 }

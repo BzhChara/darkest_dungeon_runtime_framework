@@ -49,7 +49,7 @@ C++ DLL。
 
 1. 观察文件读取路径，只记录不修改。当前阶段通过 MinHook 挂 `CreateFileW/CreateFileA`。
 2. 对 `.darkest` / localization 文件做虚拟内容返回。当前原型支持配置规则列表：每条规则匹配一个路径后缀，并按顺序执行多条字符串替换，通过虚拟句柄响应 `ReadFile` / `GetFileSize` / `SetFilePointer` / `CloseHandle`。
-3. 观察文件写入尝试，只记录不修改。当前阶段通过 MinHook 挂 `WriteFile`，把已知真实文件句柄分类成 `data` / `asset` / `save` 事件。
+3. 观察文件写入尝试，只记录不修改。当前阶段通过 MinHook 挂 `WriteFile`，把已知真实文件句柄分类成 `data` / `asset` / `save` 事件；`save` 事件有独立日志预算，外部噪声路径可通过配置过滤。
 4. 对数据加载函数做结构化 Hook。
 5. 最后才碰战斗、AI 和存档相关逻辑。
 

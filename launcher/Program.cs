@@ -292,13 +292,23 @@ internal sealed class RuntimeConfig
     public bool EventProbeLogSaveFiles { get; set; } = true;
 
     [JsonPropertyName("eventProbeLogDataFiles")]
-    public bool EventProbeLogDataFiles { get; set; } = true;
+    public bool EventProbeLogDataFiles { get; set; }
 
     [JsonPropertyName("eventProbeLogAssetFiles")]
     public bool EventProbeLogAssetFiles { get; set; }
 
     [JsonPropertyName("eventProbeMaxLogEntries")]
-    public int EventProbeMaxLogEntries { get; set; } = 1000;
+    public int EventProbeMaxLogEntries { get; set; } = 5000;
+
+    [JsonPropertyName("eventProbeMaxSaveLogEntries")]
+    public int EventProbeMaxSaveLogEntries { get; set; } = 20000;
+
+    [JsonPropertyName("eventProbeIgnorePathFragments")]
+    public string[] EventProbeIgnorePathFragments { get; set; } =
+    [
+        "Steam/logs/",
+        "gameoverlay_renderer.txt"
+    ];
 
     [JsonPropertyName("pluginDirectories")]
     public string[] PluginDirectories { get; set; } = ["./plugins"];
@@ -356,6 +366,8 @@ internal sealed class RuntimeConfig
             ["DD_RUNTIME_EVENT_PROBE_LOG_DATA_FILES"] = EventProbeLogDataFiles ? "1" : "0",
             ["DD_RUNTIME_EVENT_PROBE_LOG_ASSET_FILES"] = EventProbeLogAssetFiles ? "1" : "0",
             ["DD_RUNTIME_EVENT_PROBE_MAX_ENTRIES"] = EventProbeMaxLogEntries.ToString(),
+            ["DD_RUNTIME_EVENT_PROBE_MAX_SAVE_ENTRIES"] = EventProbeMaxSaveLogEntries.ToString(),
+            ["DD_RUNTIME_EVENT_PROBE_IGNORE_PATH_FRAGMENTS"] = string.Join(';', EventProbeIgnorePathFragments),
             ["DD_RUNTIME_VIRTUAL_FILE_ENABLED"] = VirtualFileEnabled ? "1" : "0"
         };
 

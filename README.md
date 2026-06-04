@@ -73,9 +73,14 @@ docs/architecture.md            架构说明
 "eventProbeLogFileOpen": true,
 "eventProbeLogFileWrite": true,
 "eventProbeLogSaveFiles": true,
-"eventProbeLogDataFiles": true,
+"eventProbeLogDataFiles": false,
 "eventProbeLogAssetFiles": false,
-"eventProbeMaxLogEntries": 1000
+"eventProbeMaxLogEntries": 5000,
+"eventProbeMaxSaveLogEntries": 20000,
+"eventProbeIgnorePathFragments": [
+  "Steam/logs/",
+  "gameoverlay_renderer.txt"
+]
 ```
 
 当前事件名：
@@ -87,7 +92,7 @@ docs/architecture.md            架构说明
 - `save.file_opened`
 - `save.file_write_attempted`
 
-默认记录数据文件和存档类事件，资产事件默认关闭，避免资源读取日志过多。`save` 分类是启发式识别：路径包含 `profile` / `save`，或文件名类似 `persist.*` 时会归为存档类。
+默认采样存档类事件，数据文件和资产事件默认关闭，避免启动期 Mod、localization、layout、贴图和 Steam overlay 日志把事件上限刷满。`eventProbeMaxLogEntries` 控制普通 `data` / `asset` 事件预算，`eventProbeMaxSaveLogEntries` 单独控制 `save` 事件预算，所以存档读写不会被普通文件噪声挤掉。`save` 分类是启发式识别：路径包含 `profile` / `save`，或文件名类似 `persist.*` 时会归为存档类。
 
 ## 虚拟文件原型
 

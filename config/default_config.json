@@ -27,9 +27,14 @@
   "eventProbeLogFileOpen": true,
   "eventProbeLogFileWrite": true,
   "eventProbeLogSaveFiles": true,
-  "eventProbeLogDataFiles": true,
+  "eventProbeLogDataFiles": false,
   "eventProbeLogAssetFiles": false,
-  "eventProbeMaxLogEntries": 1000,
+  "eventProbeMaxLogEntries": 5000,
+  "eventProbeMaxSaveLogEntries": 20000,
+  "eventProbeIgnorePathFragments": [
+    "Steam/logs/",
+    "gameoverlay_renderer.txt"
+  ],
   "pluginDirectories": [
     "./plugins"
   ],
