@@ -137,6 +137,14 @@ logs/save_sessions/<sessionId>.json
 
 报告包含启动/结束时间、游戏进程信息、监控目录、事件计数、快照统计、按 profile 聚合的稳定 JSON 文件变化，以及 `activeProfile` 推断。`activeProfile` 只是一条带 `confidence` 和 `reasons` 的诊断提示：例如 `persist.game.json`、`persist.narration.json` 和大量 `backup/persist.*.json` 一起变化时，更像当前战役 profile；只有 `persist.circus_estate.json`、`persist.rankings.json` 等文件变化时，会降低战役 profile 置信度。框架不会因为这个推断去写存档或阻止启动。
 
+如果存在 `activeProfile`，watcher 还会基于该 profile 写一个只读状态报告：
+
+```text
+logs/save_states/<sessionId>.json
+```
+
+DD1 的 `persist.*.json` 文件扩展名是 `.json`，但 Steam 存档里的实际内容是二进制容器。第一版状态报告不会假装已经完整反序列化这些文件；它会记录文件大小、时间戳、SHA-256、二进制头、可见 marker 字符串、少量候选 key/value，以及访问问题。报告的 `parseStatus` 会标明当前是 `binaryStringIndexOnly` 还是普通 `parsedJsonText`。这给后续状态模型和二进制格式解析留出稳定契约。
+
 ## 虚拟文件原型
 
 默认配置中虚拟文件通道是打开的，但没有启用规则时不会改变任何游戏读取结果：

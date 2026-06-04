@@ -3209,6 +3209,12 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         File.WriteAllText(path, json, Encoding.UTF8);
         CountEvent("save.sidecar_session_report_written");
         _log.Info($"event name=save.sidecar_session_report_written path={Quote(path)}");
+
+        var stateReportPath = SaveStateExporter.TryWriteReport(_sessionDirectory, _sessionId, completedAt, report, _log);
+        if (!string.IsNullOrWhiteSpace(stateReportPath))
+        {
+            CountEvent("save.state_report_written");
+        }
     }
 
     private IReadOnlyDictionary<string, int> SnapshotEventCounts()
@@ -3443,6 +3449,358 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         int SnapshotChanges,
         int StableJsonChanges,
         int TransientOrUnknownChanges);
+
+    private static class SaveStateExporter
+    {
+        private static readonly string[] CandidateFiles =
+        [
+            "persist.game.json",
+            "persist.town.json",
+            "persist.roster.json",
+            "persist.progression.json",
+            "persist.upgrades.json",
+            "persist.estate.json"
+        ];
+
+        private static readonly string[] KnownMarkers =
+        [
+            "base_root",
+            "version",
+            "totalelapsed",
+            "raiddungeon",
+            "estatename",
+            "game_mode",
+            "date_time",
+            "buildings",
+            "heroes",
+            "hero_file_data",
+            "roster.status",
+            "heroClass",
+            "dungeon",
+            "completed_plot_quests_data",
+            "total_quests_finished",
+            "last_quest_played_id",
+            "purchases",
+            "tree_id",
+            "requirement_code",
+            "is_purchased",
+            "wallet",
+            "amount",
+            "type",
+            "gold",
+            "bust",
+            "portrait",
+            "deed",
+            "crest",
+            "shard",
+            "memory",
+            "blueprint"
+        ];
+
+        private static readonly string[] ValueCandidateKeys =
+        [
+            "estatename",
+            "game_mode",
+            "date_time",
+            "raiddungeon",
+            "dd_mode",
+            "nextGuid",
+            "dismissed_hero_count",
+            "total_quests_finished",
+            "last_quest_played_id",
+            "gold",
+            "bust",
+            "portrait",
+            "deed",
+            "crest",
+            "shard",
+            "memory",
+            "blueprint"
+        ];
+
+        public static string? TryWriteReport(
+            string sessionDirectory,
+            string sessionId,
+            DateTimeOffset generatedAt,
+            SaveSessionReport sessionReport,
+            LauncherLog log)
+        {
+            if (sessionReport.ActiveProfile is null)
+            {
+                log.Warn("event name=save.state_report_skipped reason=no_active_profile");
+                return null;
+            }
+
+            var logDirectory = Directory.GetParent(sessionDirectory)?.FullName ?? sessionDirectory;
+            var stateDirectory = Path.Combine(logDirectory, "save_states");
+            Directory.CreateDirectory(stateDirectory);
+
+            var accessIssues = new List<string>();
+            var activeRoot = sessionReport.ActiveProfile.Root;
+            if (!Directory.Exists(activeRoot))
+            {
+                accessIssues.Add($"Active profile directory was not found: {activeRoot}");
+            }
+
+            var fileReports = CandidateFiles
+                .Select(name => InspectFile(Path.Combine(activeRoot, name), name))
+                .ToArray();
+            foreach (var issue in fileReports.SelectMany(file => file.AccessIssues))
+            {
+                accessIssues.Add(issue);
+            }
+
+            var parseStatus = fileReports.Any(file => file.Format.Equals("jsonText", StringComparison.OrdinalIgnoreCase))
+                ? "partialJsonText"
+                : "binaryStringIndexOnly";
+            if (fileReports.All(file => !file.Exists))
+            {
+                parseStatus = "noCandidateFiles";
+            }
+
+            var report = new SaveStateReport(
+                1,
+                sessionId,
+                generatedAt,
+                parseStatus,
+                "Darkest Dungeon persist files use a binary container despite the .json extension; this report is read-only and only exports stable metadata plus visible string candidates until the binary format is decoded.",
+                sessionReport.ActiveProfile,
+                CandidateFiles,
+                fileReports,
+                accessIssues);
+
+            var path = Path.Combine(stateDirectory, $"{sessionId}.json");
+            File.WriteAllText(path, JsonSerializer.Serialize(report, SessionJsonOptions), Encoding.UTF8);
+            log.Info($"event name=save.state_report_written path={Quote(path)} parseStatus={parseStatus} files={fileReports.Length} accessIssues={accessIssues.Count}");
+            return path;
+        }
+
+        private static SaveStateFileReport InspectFile(string path, string fileName)
+        {
+            var accessIssues = new List<string>();
+            if (!File.Exists(path))
+            {
+                accessIssues.Add($"Candidate file was not found: {path}");
+                return new SaveStateFileReport(
+                    fileName,
+                    path,
+                    false,
+                    null,
+                    null,
+                    null,
+                    "missing",
+                    "missing",
+                    null,
+                    [],
+                    [],
+                    [],
+                    [],
+                    accessIssues);
+            }
+
+            try
+            {
+                var bytes = File.ReadAllBytes(path);
+                var info = new FileInfo(path);
+                var sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+                var firstByte = bytes.FirstOrDefault();
+                if (LooksLikeJsonText(bytes))
+                {
+                    return InspectJsonText(path, fileName, bytes, info, sha256, accessIssues);
+                }
+
+                var strings = ExtractPrintableStrings(bytes);
+                var markerSet = KnownMarkers.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var markers = strings
+                    .Select(item => item.Value)
+                    .Where(value => markerSet.Contains(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(120)
+                    .ToArray();
+                var valueCandidates = ExtractValueCandidates(strings);
+                var samples = strings
+                    .Select(item => item.Value)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(120)
+                    .ToArray();
+
+                return new SaveStateFileReport(
+                    fileName,
+                    path,
+                    true,
+                    info.Length,
+                    info.LastWriteTimeUtc,
+                    sha256,
+                    "binaryContainer",
+                    firstByte == 0x01 ? "binaryStringIndexOnly" : "unknownBinary",
+                    ToHex(bytes.Take(32)),
+                    [],
+                    markers,
+                    valueCandidates,
+                    samples,
+                    accessIssues);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                accessIssues.Add($"{fileName}: {ex.Message}");
+                return new SaveStateFileReport(
+                    fileName,
+                    path,
+                    true,
+                    null,
+                    null,
+                    null,
+                    "unreadable",
+                    "error",
+                    null,
+                    [],
+                    [],
+                    [],
+                    [],
+                    accessIssues);
+            }
+        }
+
+        private static SaveStateFileReport InspectJsonText(
+            string path,
+            string fileName,
+            byte[] bytes,
+            FileInfo info,
+            string sha256,
+            IReadOnlyList<string> accessIssues)
+        {
+            using var document = JsonDocument.Parse(bytes);
+            var topLevelKeys = document.RootElement.ValueKind == JsonValueKind.Object
+                ? document.RootElement.EnumerateObject().Select(property => property.Name).Take(120).ToArray()
+                : [];
+
+            return new SaveStateFileReport(
+                fileName,
+                path,
+                true,
+                info.Length,
+                info.LastWriteTimeUtc,
+                sha256,
+                "jsonText",
+                "parsedJsonText",
+                null,
+                topLevelKeys,
+                [],
+                [],
+                [],
+                accessIssues);
+        }
+
+        private static bool LooksLikeJsonText(byte[] bytes)
+        {
+            foreach (var b in bytes)
+            {
+                if (b is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n')
+                {
+                    continue;
+                }
+
+                return b is (byte)'{' or (byte)'[';
+            }
+
+            return false;
+        }
+
+        private static IReadOnlyList<ExtractedString> ExtractPrintableStrings(byte[] bytes)
+        {
+            var strings = new List<ExtractedString>();
+            var builder = new StringBuilder();
+            var start = 0;
+
+            for (var i = 0; i < bytes.Length; i++)
+            {
+                var b = bytes[i];
+                if (b is >= 32 and <= 126)
+                {
+                    if (builder.Length == 0) start = i;
+                    builder.Append((char)b);
+                    continue;
+                }
+
+                FlushString(strings, builder, start);
+            }
+
+            FlushString(strings, builder, start);
+            return strings;
+        }
+
+        private static void FlushString(List<ExtractedString> strings, StringBuilder builder, int start)
+        {
+            if (builder.Length >= 4)
+            {
+                strings.Add(new ExtractedString(start, builder.ToString()));
+            }
+
+            builder.Clear();
+        }
+
+        private static IReadOnlyList<SaveStateValueCandidate> ExtractValueCandidates(IReadOnlyList<ExtractedString> strings)
+        {
+            var keys = ValueCandidateKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var candidates = new List<SaveStateValueCandidate>();
+            for (var i = 0; i < strings.Count; i++)
+            {
+                var key = strings[i].Value;
+                if (!keys.Contains(key)) continue;
+
+                var value = strings
+                    .Skip(i + 1)
+                    .Select(item => item.Value)
+                    .FirstOrDefault(value => !keys.Contains(value) && !KnownMarkers.Contains(value, StringComparer.OrdinalIgnoreCase));
+                if (string.IsNullOrWhiteSpace(value)) continue;
+
+                candidates.Add(new SaveStateValueCandidate(key, value, strings[i].Offset));
+                if (candidates.Count >= 80) break;
+            }
+
+            return candidates;
+        }
+
+        private static string ToHex(IEnumerable<byte> bytes)
+        {
+            return string.Join(' ', bytes.Select(value => value.ToString("X2")));
+        }
+
+        private readonly record struct ExtractedString(int Offset, string Value);
+    }
+
+    private sealed record SaveStateReport(
+        int Version,
+        string SessionId,
+        DateTimeOffset GeneratedAt,
+        string ParseStatus,
+        string Notes,
+        ActiveProfileInference ActiveProfile,
+        IReadOnlyList<string> CandidateFiles,
+        IReadOnlyList<SaveStateFileReport> Files,
+        IReadOnlyList<string> AccessIssues);
+
+    private sealed record SaveStateFileReport(
+        string FileName,
+        string Path,
+        bool Exists,
+        long? Length,
+        DateTime? LastWriteUtc,
+        string? Sha256,
+        string Format,
+        string ParseStatus,
+        string? BinaryHeaderHex,
+        IReadOnlyList<string> JsonTopLevelKeys,
+        IReadOnlyList<string> MarkerStrings,
+        IReadOnlyList<SaveStateValueCandidate> ValueCandidates,
+        IReadOnlyList<string> StringSamples,
+        IReadOnlyList<string> AccessIssues);
+
+    private sealed record SaveStateValueCandidate(
+        string Key,
+        string Value,
+        int Offset);
 
     private sealed class StableSaveChangeGroupComparer : IEqualityComparer<(string ProfileRoot, string Profile)>
     {
