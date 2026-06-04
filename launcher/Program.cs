@@ -85,10 +85,14 @@ internal static class Program
                 return 0;
             }
 
+            int? gameProcessId = null;
+            using var saveWatcher = SaveDirectoryWatcher.Start(config, log);
+
             if (config.EnableInjection && !options.NoInject && config.StartSuspendedForInjection)
             {
                 using var environmentScope = ProcessEnvironmentScope.Apply(runtimeEnvironment);
                 using var suspendedProcess = SuspendedProcess.Start(config.GameExecutablePath, config.GameWorkingDirectory);
+                gameProcessId = suspendedProcess.ProcessId;
                 log.Info($"Game process started suspended. PID={suspendedProcess.ProcessId}");
 
                 try
@@ -128,6 +132,7 @@ internal static class Program
                 }
 
                 using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start game process.");
+                gameProcessId = process.Id;
                 log.Info($"Game process started. PID={process.Id}");
 
                 if (config.EnableInjection && !options.NoInject)
@@ -154,7 +159,15 @@ internal static class Program
                 }
             }
 
-            log.Info("Launcher finished its startup work. Game process remains independent.");
+            if (saveWatcher is not null && gameProcessId.HasValue)
+            {
+                saveWatcher.WaitForGameExit(gameProcessId.Value, config.SaveWatchAfterExitSeconds);
+                log.Info("Launcher finished after game process exit and save watch grace period.");
+            }
+            else
+            {
+                log.Info("Launcher finished its startup work. Game process remains independent.");
+            }
             return 0;
         }
         catch (Exception ex)
@@ -208,6 +221,9 @@ internal static class Program
 
         if (gameArch == "x86" && Environment.Is64BitProcess)
             log.Warn("x86 game detected. This skeleton is configured for x64; use a matching x86 launcher and DLL before injecting.");
+
+        if (config.SaveWatchAfterExitSeconds < 0)
+            throw new InvalidOperationException("saveWatchAfterExitSeconds must be zero or greater.");
     }
 
     private static string ComputeSha256(string path)
@@ -310,6 +326,15 @@ internal sealed class RuntimeConfig
         "gameoverlay_renderer.txt"
     ];
 
+    [JsonPropertyName("saveWatchEnabled")]
+    public bool SaveWatchEnabled { get; set; }
+
+    [JsonPropertyName("saveWatchDirectories")]
+    public string[] SaveWatchDirectories { get; set; } = [];
+
+    [JsonPropertyName("saveWatchAfterExitSeconds")]
+    public int SaveWatchAfterExitSeconds { get; set; } = 10;
+
     [JsonPropertyName("pluginDirectories")]
     public string[] PluginDirectories { get; set; } = ["./plugins"];
 
@@ -340,6 +365,9 @@ internal sealed class RuntimeConfig
         GameWorkingDirectory = ResolvePath(projectRoot, GameWorkingDirectory);
         RuntimeDllPath = ResolvePath(projectRoot, RuntimeDllPath);
         LogDirectory = ResolvePath(projectRoot, LogDirectory);
+        SaveWatchDirectories = SaveWatchDirectories
+            .Select(path => ResolvePath(projectRoot, path))
+            .ToArray();
         Directory.CreateDirectory(LogDirectory);
     }
 
@@ -2601,6 +2629,7 @@ internal sealed class LauncherOptions
 internal sealed class LauncherLog : IDisposable
 {
     private readonly StreamWriter _writer;
+    private readonly object _sync = new();
 
     private LauncherLog(string path)
     {
@@ -2623,11 +2652,355 @@ internal sealed class LauncherLog : IDisposable
     private void Write(string level, string message)
     {
         var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [{level}] {message}";
-        Console.WriteLine(line);
-        _writer.WriteLine(line);
+        lock (_sync)
+        {
+            Console.WriteLine(line);
+            _writer.WriteLine(line);
+        }
     }
 
     public void Dispose() => _writer.Dispose();
+}
+
+internal sealed class SaveDirectoryWatcher : IDisposable
+{
+    private const string DarkestDungeonAppId = "262060";
+    private static readonly TimeSpan DedupeWindow = TimeSpan.FromMilliseconds(250);
+
+    private readonly LauncherLog _log;
+    private readonly List<string> _directories;
+    private readonly List<FileSystemWatcher> _watchers = [];
+    private readonly Dictionary<string, SaveFileSnapshot> _initialSnapshot;
+    private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _sync = new();
+    private bool _disposed;
+
+    private SaveDirectoryWatcher(IReadOnlyList<string> directories, LauncherLog log)
+    {
+        _directories = directories.ToList();
+        _log = log;
+
+        foreach (var directory in _directories)
+        {
+            RegisterDirectory(directory);
+        }
+
+        _initialSnapshot = CaptureSnapshot(_directories);
+        _log.Info($"Save sidecar initial snapshot files={_initialSnapshot.Count}");
+    }
+
+    public static SaveDirectoryWatcher? Start(RuntimeConfig config, LauncherLog log)
+    {
+        if (!config.SaveWatchEnabled) return null;
+
+        var directories = ResolveWatchDirectories(config, log);
+        if (directories.Count == 0)
+        {
+            log.Warn("Save sidecar watcher is enabled, but no existing save directories were found.");
+            return null;
+        }
+
+        log.Info($"Save sidecar watcher enabled. directories={directories.Count} afterExitSeconds={config.SaveWatchAfterExitSeconds}");
+        foreach (var directory in directories)
+        {
+            log.Info($"Save sidecar watcher directory: {directory}");
+        }
+
+        return new SaveDirectoryWatcher(directories, log);
+    }
+
+    public void WaitForGameExit(int processId, int afterExitSeconds)
+    {
+        _log.Info($"Save sidecar watcher waiting for game process exit. PID={processId}");
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            process.WaitForExit();
+            var exitCode = TryReadExitCode(process);
+            var exitCodeText = exitCode.HasValue ? exitCode.Value.ToString() : "unknown";
+            _log.Info($"Game process exited. PID={processId} exitCode={exitCodeText}");
+        }
+        catch (ArgumentException)
+        {
+            _log.Info($"Game process already exited. PID={processId}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _log.Warn($"Could not wait for game process PID={processId}: {ex.Message}");
+        }
+
+        if (afterExitSeconds > 0)
+        {
+            _log.Info($"Continuing save sidecar watch for {afterExitSeconds} seconds after game exit.");
+            Thread.Sleep(TimeSpan.FromSeconds(afterExitSeconds));
+        }
+    }
+
+    private static int? TryReadExitCode(Process process)
+    {
+        try
+        {
+            return process.ExitCode;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        foreach (var watcher in _watchers)
+        {
+            watcher.EnableRaisingEvents = false;
+            watcher.Dispose();
+        }
+
+        var finalSnapshot = CaptureSnapshot(_directories);
+        LogSnapshotDiff(finalSnapshot);
+    }
+
+    private static List<string> ResolveWatchDirectories(RuntimeConfig config, LauncherLog log)
+    {
+        var configured = config.SaveWatchDirectories
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
+
+        var candidates = configured.Length > 0
+            ? configured
+            : DiscoverDefaultSaveDirectories(config.GameWorkingDirectory).ToArray();
+
+        var directories = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            var fullPath = Path.GetFullPath(candidate);
+            if (!Directory.Exists(fullPath))
+            {
+                log.Warn($"Save sidecar watcher skipped missing directory: {fullPath}");
+                continue;
+            }
+
+            if (seen.Add(fullPath))
+            {
+                directories.Add(fullPath);
+            }
+        }
+
+        return directories;
+    }
+
+    private static IEnumerable<string> DiscoverDefaultSaveDirectories(string gameWorkingDirectory)
+    {
+        var steamRoot = TryInferSteamRoot(gameWorkingDirectory);
+        if (!string.IsNullOrWhiteSpace(steamRoot))
+        {
+            var userdataRoot = Path.Combine(steamRoot, "userdata");
+            if (Directory.Exists(userdataRoot))
+            {
+                foreach (var userDirectory in Directory.EnumerateDirectories(userdataRoot))
+                {
+                    var remoteDirectory = Path.Combine(userDirectory, DarkestDungeonAppId, "remote");
+                    if (Directory.Exists(remoteDirectory))
+                    {
+                        yield return remoteDirectory;
+                    }
+                }
+            }
+        }
+
+        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (!string.IsNullOrWhiteSpace(documents))
+        {
+            var darkestDocuments = Path.Combine(documents, "Darkest");
+            if (Directory.Exists(darkestDocuments))
+            {
+                yield return darkestDocuments;
+            }
+        }
+    }
+
+    private static string? TryInferSteamRoot(string gameWorkingDirectory)
+    {
+        var directory = new DirectoryInfo(gameWorkingDirectory);
+        while (directory is not null)
+        {
+            if (directory.Name.Equals("steamapps", StringComparison.OrdinalIgnoreCase))
+            {
+                return directory.Parent?.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
+    }
+
+    private void RegisterDirectory(string directory)
+    {
+        var watcher = new FileSystemWatcher(directory)
+        {
+            IncludeSubdirectories = true,
+            InternalBufferSize = 64 * 1024,
+            NotifyFilter = NotifyFilters.FileName
+                | NotifyFilters.DirectoryName
+                | NotifyFilters.LastWrite
+                | NotifyFilters.Size
+                | NotifyFilters.CreationTime
+                | NotifyFilters.Attributes
+        };
+
+        watcher.Created += (_, e) => LogPathEvent("save.sidecar_created", e);
+        watcher.Changed += (_, e) => LogPathEvent("save.sidecar_changed", e);
+        watcher.Deleted += (_, e) => LogPathEvent("save.sidecar_deleted", e);
+        watcher.Renamed += (_, e) => LogRenameEvent(e);
+        watcher.Error += (_, e) => _log.Warn($"event name=save.sidecar_error message={Quote(e.GetException().Message)}");
+        watcher.EnableRaisingEvents = true;
+        _watchers.Add(watcher);
+    }
+
+    private void LogPathEvent(string eventName, FileSystemEventArgs e)
+    {
+        if (ShouldSuppress(eventName, e.FullPath)) return;
+        _log.Info($"event name={eventName} change={e.ChangeType} {DescribePath(e.FullPath)}");
+    }
+
+    private void LogRenameEvent(RenamedEventArgs e)
+    {
+        if (ShouldSuppress("save.sidecar_renamed", e.FullPath)) return;
+        _log.Info($"event name=save.sidecar_renamed oldPath={Quote(e.OldFullPath)} {DescribePath(e.FullPath)}");
+    }
+
+    private bool ShouldSuppress(string eventName, string path)
+    {
+        var key = $"{eventName}|{path}";
+        var now = DateTimeOffset.UtcNow;
+
+        lock (_sync)
+        {
+            if (_recentEvents.TryGetValue(key, out var previous) && now - previous < DedupeWindow)
+            {
+                return true;
+            }
+
+            _recentEvents[key] = now;
+            if (_recentEvents.Count > 2048)
+            {
+                foreach (var stale in _recentEvents
+                             .Where(pair => now - pair.Value > TimeSpan.FromSeconds(5))
+                             .Select(pair => pair.Key)
+                             .ToArray())
+                {
+                    _recentEvents.Remove(stale);
+                }
+            }
+
+            return false;
+        }
+    }
+
+    private void LogSnapshotDiff(IReadOnlyDictionary<string, SaveFileSnapshot> finalSnapshot)
+    {
+        var created = 0;
+        var changed = 0;
+        var deleted = 0;
+
+        foreach (var (path, snapshot) in finalSnapshot.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!_initialSnapshot.TryGetValue(path, out var initial))
+            {
+                created++;
+                _log.Info($"event name=save.sidecar_snapshot_created {DescribeSnapshot(path, snapshot)}");
+            }
+            else if (initial != snapshot)
+            {
+                changed++;
+                _log.Info($"event name=save.sidecar_snapshot_changed oldSize={initial.Length} oldLastWriteUtc={initial.LastWriteUtc:O} {DescribeSnapshot(path, snapshot)}");
+            }
+        }
+
+        foreach (var (path, snapshot) in _initialSnapshot.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!finalSnapshot.ContainsKey(path))
+            {
+                deleted++;
+                _log.Info($"event name=save.sidecar_snapshot_deleted {DescribeSnapshot(path, snapshot)}");
+            }
+        }
+
+        _log.Info($"Save sidecar final snapshot files={finalSnapshot.Count} created={created} changed={changed} deleted={deleted}");
+    }
+
+    private static Dictionary<string, SaveFileSnapshot> CaptureSnapshot(IEnumerable<string> directories)
+    {
+        var snapshot = new Dictionary<string, SaveFileSnapshot>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in directories)
+        {
+            try
+            {
+                foreach (var path in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        var file = new FileInfo(path);
+                        snapshot[path] = new SaveFileSnapshot(file.Length, file.LastWriteTimeUtc);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return snapshot;
+    }
+
+    private static string DescribePath(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                var file = new FileInfo(path);
+                return DescribeSnapshot(path, new SaveFileSnapshot(file.Length, file.LastWriteTimeUtc));
+            }
+
+            if (Directory.Exists(path))
+            {
+                var directory = new DirectoryInfo(path);
+                return $"path={Quote(path)} exists=1 directory=1 lastWriteUtc={directory.LastWriteTimeUtc:O}";
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return $"path={Quote(path)} exists=0";
+    }
+
+    private static string DescribeSnapshot(string path, SaveFileSnapshot snapshot)
+    {
+        return $"path={Quote(path)} exists=1 directory=0 size={snapshot.Length} lastWriteUtc={snapshot.LastWriteUtc:O}";
+    }
+
+    private static string Quote(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
+
+    private readonly record struct SaveFileSnapshot(long Length, DateTime LastWriteUtc);
 }
 
 internal static class PeArchitecture

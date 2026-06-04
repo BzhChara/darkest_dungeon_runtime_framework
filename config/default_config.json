@@ -35,6 +35,9 @@
     "Steam/logs/",
     "gameoverlay_renderer.txt"
   ],
+  "saveWatchEnabled": true,
+  "saveWatchDirectories": [],
+  "saveWatchAfterExitSeconds": 10,
   "pluginDirectories": [
     "./plugins"
   ],

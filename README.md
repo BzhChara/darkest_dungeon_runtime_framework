@@ -99,6 +99,28 @@ docs/architecture.md            架构说明
 
 默认采样存档类事件，数据文件和资产事件默认关闭，避免启动期 Mod、localization、layout、贴图和 Steam overlay 日志把事件上限刷满。`eventProbeMaxLogEntries` 控制普通 `data` / `asset` 事件预算，`eventProbeMaxSaveLogEntries` 单独控制 `save` 事件预算，所以存档读写不会被普通文件噪声挤掉。`save` 分类是启发式识别：Steam userdata 下的 `262060/remote/profile_*`、Documents Darkest 下的 `profile_*`，或文件名类似 `persist.*` 时会归为存档类。
 
+## 存档目录 sidecar watcher
+
+真实游戏测试显示，`E:/Steam/userdata/.../262060/remote/profile_*` 中的部分存档落盘并不一定由 `Darkest.exe` 进程直接执行，因此注入游戏进程的 DLL 文件 API Hook 可能看不到这些写入。启动器侧 watcher 用于补足这条链路：
+
+```json
+"saveWatchEnabled": true,
+"saveWatchDirectories": [],
+"saveWatchAfterExitSeconds": 10
+```
+
+`saveWatchDirectories` 为空时，启动器会从 `gameWorkingDirectory` 推断 Steam 根目录，自动监控现有的 `userdata/*/262060/remote`，并额外监控 `Documents/Darkest`（如果目录存在）。开启 watcher 后，启动器会等待游戏进程退出，并在退出后继续监听 `saveWatchAfterExitSeconds` 秒，用来捕获 Steam 或外部同步进程稍后写入的 `persist.*.json`、`backup` 等存档变化。
+
+watcher 只记录日志，不修改存档。实时事件和退出快照差异会写入 `logs/launcher.log`，事件名以 `save.sidecar_*` 开头，例如：
+
+- `save.sidecar_created`
+- `save.sidecar_changed`
+- `save.sidecar_deleted`
+- `save.sidecar_renamed`
+- `save.sidecar_snapshot_created`
+- `save.sidecar_snapshot_changed`
+- `save.sidecar_snapshot_deleted`
+
 ## 虚拟文件原型
 
 默认配置中虚拟文件通道是打开的，但没有启用规则时不会改变任何游戏读取结果：
