@@ -3605,6 +3605,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     [],
                     [],
                     [],
+                    [],
                     accessIssues);
             }
 
@@ -3636,6 +3637,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Take(120)
                     .ToArray();
+                var heroFacts = ExtractHeroFactsFromRoster(fileName, bytes, container, accessIssues);
                 var parseStatus = container is not null
                     ? "dsonPartialDecoded"
                     : firstByte == 0x01 ? "binaryStringIndexOnly" : "unknownBinary";
@@ -3656,6 +3658,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     container?.DsonSummary,
                     container?.DsonScalars.Take(320).ToArray() ?? [],
                     container?.DsonObjectPaths.Take(1000).ToArray() ?? [],
+                    heroFacts,
                     [],
                     markers,
                     valueCandidates,
@@ -3680,6 +3683,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     null,
                     null,
                     null,
+                    [],
                     [],
                     [],
                     [],
@@ -3813,7 +3817,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             {
                 "persist.game.json" => new SaveFileMapClassification(1, "campaign_runtime", "Campaign identity, mode, elapsed time, current raid state, and game options."),
                 "persist.estate.json" => new SaveFileMapClassification(1, "estate_resources", "Wallet resources and estate-level inventory/tamper metadata."),
-                "persist.roster.json" => new SaveFileMapClassification(1, "heroes", "Hero roster entry points; nested hero raw_data still needs deeper decoding."),
+                "persist.roster.json" => new SaveFileMapClassification(1, "heroes", "Hero roster entry points and partially decoded nested hero raw_data facts."),
                 "persist.upgrades.json" => new SaveFileMapClassification(2, "upgrade_tree", "Building purchase tree and upgrade unlock state; requirement_code remains partially raw."),
                 "persist.quest.json" => new SaveFileMapClassification(3, "quests", "Quest generation, available missions, and dungeon selection state."),
                 "persist.town_event.json" => new SaveFileMapClassification(3, "town_events", "Current and historical town event state."),
@@ -3841,6 +3845,11 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 if (fileName.Equals("persist.roster.json", StringComparison.OrdinalIgnoreCase)
                     && inspected.DsonSummary?.RawScalarCount > 0)
                 {
+                    if (inspected.Heroes.Count > 0)
+                    {
+                        return "candidate_nested_dson_partial";
+                    }
+
                     return "candidate_nested_raw_pending";
                 }
 
@@ -3888,6 +3897,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 null,
                 null,
                 null,
+                [],
                 [],
                 [],
                 topLevelKeys,
@@ -3941,7 +3951,8 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     TryGetBool(progression, "base_root.last_raid_was_a_plot_quest")),
                 BuildWalletFacts(estate),
                 ExtractDirectChildIds(town?.DsonObjectPaths ?? [], "base_root.buildings"),
-                ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"));
+                ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"),
+                roster?.Heroes ?? []);
         }
 
         private static IReadOnlyDictionary<string, int> BuildWalletFacts(SaveStateFileReport? estate)
@@ -3989,6 +4000,112 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 .ToArray();
         }
 
+        private static IReadOnlyList<SaveStateHeroFacts> ExtractHeroFactsFromRoster(
+            string fileName,
+            byte[] bytes,
+            BinaryContainerInfo? container,
+            List<string> accessIssues)
+        {
+            if (!fileName.Equals("persist.roster.json", StringComparison.OrdinalIgnoreCase) || container is null)
+            {
+                return [];
+            }
+
+            var heroes = new List<SaveStateHeroFacts>();
+            foreach (var scalar in container.DsonScalars
+                         .Where(scalar => scalar.Path.EndsWith(".hero_file_data.raw_data", StringComparison.OrdinalIgnoreCase))
+                         .OrderBy(scalar => scalar.Path, StringComparer.OrdinalIgnoreCase))
+            {
+                var heroId = ExtractHeroIdFromRawDataPath(scalar.Path);
+                if (string.IsNullOrWhiteSpace(heroId))
+                {
+                    continue;
+                }
+
+                var nameLength = Encoding.UTF8.GetByteCount(scalar.Name) + 1;
+                var valueStart = Align4(scalar.Offset + nameLength);
+                var fieldEnd = scalar.Offset + scalar.Size;
+                if (fieldEnd > bytes.Length || valueStart + 4 > fieldEnd)
+                {
+                    accessIssues.Add($"{fileName}: hero raw_data has no length prefix path={scalar.Path}");
+                    continue;
+                }
+
+                var nestedLength = ReadInt32LittleEndian(bytes, valueStart);
+                var nestedOffset = valueStart + 4;
+                var availableLength = fieldEnd - nestedOffset;
+                if (nestedLength < 0
+                    || availableLength < 0
+                    || nestedLength > availableLength
+                    || nestedOffset > bytes.Length
+                    || bytes.Length - nestedOffset < nestedLength)
+                {
+                    accessIssues.Add($"{fileName}: hero raw_data length is invalid path={scalar.Path} length={nestedLength}");
+                    continue;
+                }
+
+                if (nestedLength < 0x40 || ReadUInt32LittleEndian(bytes, nestedOffset) != 0x0000B101)
+                {
+                    accessIssues.Add($"{fileName}: hero raw_data is not a DSON container path={scalar.Path}");
+                    continue;
+                }
+
+                var nestedIssues = new List<string>();
+                var nested = TryParseDsonContainer(bytes, nestedOffset, nestedLength, nestedIssues);
+                foreach (var issue in nestedIssues)
+                {
+                    accessIssues.Add($"{fileName}: hero={heroId} {issue}");
+                }
+
+                if (nested is null)
+                {
+                    accessIssues.Add($"{fileName}: failed to parse nested hero DSON path={scalar.Path}");
+                    continue;
+                }
+
+                heroes.Add(BuildSaveStateHeroFacts(heroId, nestedLength, nested));
+            }
+
+            return heroes
+                .OrderBy(hero => int.TryParse(hero.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : int.MaxValue)
+                .ThenBy(hero => hero.Id, StringComparer.OrdinalIgnoreCase)
+                .Take(120)
+                .ToArray();
+        }
+
+        private static string? ExtractHeroIdFromRawDataPath(string path)
+        {
+            const string prefix = "base_root.heroes.";
+            const string suffix = ".hero_file_data.raw_data";
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || !path.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+                || path.Length <= prefix.Length + suffix.Length)
+            {
+                return null;
+            }
+
+            return path[prefix.Length..^suffix.Length];
+        }
+
+        private static SaveStateHeroFacts BuildSaveStateHeroFacts(string heroId, int rawDataLength, BinaryContainerInfo nested)
+        {
+            return new SaveStateHeroFacts(
+                heroId,
+                TryGetString(nested.DsonScalars, "base_root.actor.name"),
+                TryGetString(nested.DsonScalars, "base_root.heroClass"),
+                TryGetInt(nested.DsonScalars, "base_root.roster.status"),
+                TryGetInt(nested.DsonScalars, "base_root.resolveXp"),
+                TryGetInt(nested.DsonScalars, "base_root.weapon_rank"),
+                TryGetInt(nested.DsonScalars, "base_root.armour_rank"),
+                TryGetBool(nested.DsonScalars, "base_root.backer_hero"),
+                rawDataLength,
+                nested.DsonSummary.ObjectCount,
+                nested.DsonSummary.FieldCount,
+                ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.quirks"),
+                ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.skills.selected_combat_skills"),
+                ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.skills.selected_camping_skills"));
+        }
+
         private static string? TryGetString(SaveStateFileReport? file, string path)
         {
             var scalar = FindDsonScalar(file, path);
@@ -4021,53 +4138,110 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 : null;
         }
 
+        private static string? TryGetString(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
+        {
+            var scalar = FindDsonScalar(scalars, path);
+            return scalar is not null && scalar.Type.Equals("string", StringComparison.OrdinalIgnoreCase)
+                ? scalar.Value
+                : null;
+        }
+
+        private static int? TryGetInt(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
+        {
+            var scalar = FindDsonScalar(scalars, path);
+            return scalar is not null && int.TryParse(scalar.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : null;
+        }
+
+        private static bool? TryGetBool(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
+        {
+            var scalar = FindDsonScalar(scalars, path);
+            return scalar is not null && bool.TryParse(scalar.Value, out var value)
+                ? value
+                : null;
+        }
+
         private static SaveStateDsonScalar? FindDsonScalar(SaveStateFileReport? file, string path)
         {
             return file?.DsonScalars.FirstOrDefault(scalar => scalar.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
         }
 
+        private static SaveStateDsonScalar? FindDsonScalar(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
+        {
+            return scalars.FirstOrDefault(scalar => scalar.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+        }
+
         private static BinaryContainerInfo? TryParseBinaryContainer(byte[] bytes, List<string> accessIssues)
         {
-            if (bytes.Length < 0x40)
+            return TryParseDsonContainer(bytes, 0, bytes.Length, accessIssues);
+        }
+
+        private static BinaryContainerInfo? TryParseDsonContainer(byte[] bytes, int baseOffset, int length, List<string> accessIssues)
+        {
+            if (baseOffset < 0
+                || length < 0
+                || baseOffset > bytes.Length
+                || bytes.Length - baseOffset < length
+                || length < 0x40)
             {
                 return null;
             }
 
-            var magic = ReadUInt32LittleEndian(bytes, 0);
-            var headerLength = ReadInt32LittleEndian(bytes, 0x08);
-            var meta1Size = ReadInt32LittleEndian(bytes, 0x10);
-            var objectCount = ReadInt32LittleEndian(bytes, 0x14);
-            var meta1Offset = ReadInt32LittleEndian(bytes, 0x18);
-            var stringCount = ReadUInt32LittleEndian(bytes, 0x2C);
-            var stringIndexOffset = ReadUInt32LittleEndian(bytes, 0x30);
-            var dataLength = ReadInt32LittleEndian(bytes, 0x38);
-            var stringDataOffset = ReadUInt32LittleEndian(bytes, 0x3C);
+            var endOffset = baseOffset + length;
+            var magic = ReadUInt32LittleEndian(bytes, baseOffset);
+            var headerLength = ReadInt32LittleEndian(bytes, baseOffset + 0x08);
+            var meta1Size = ReadInt32LittleEndian(bytes, baseOffset + 0x10);
+            var objectCount = ReadInt32LittleEndian(bytes, baseOffset + 0x14);
+            var meta1OffsetRelative = ReadInt32LittleEndian(bytes, baseOffset + 0x18);
+            var stringCountRaw = ReadUInt32LittleEndian(bytes, baseOffset + 0x2C);
+            var stringIndexOffsetRaw = ReadUInt32LittleEndian(bytes, baseOffset + 0x30);
+            var dataLength = ReadInt32LittleEndian(bytes, baseOffset + 0x38);
+            var stringDataOffsetRaw = ReadUInt32LittleEndian(bytes, baseOffset + 0x3C);
             if (magic != 0x0000B101
                 || headerLength != 0x40
                 || objectCount < 0
-                || meta1Offset < 0
+                || meta1OffsetRelative < 0
                 || meta1Size < 0
-                || meta1Offset + objectCount * 16 > bytes.Length
-                || meta1Size < objectCount * 16
-                || stringCount > 100_000
-                || stringIndexOffset > bytes.Length
-                || stringDataOffset > bytes.Length
                 || dataLength < 0
-                || stringDataOffset + dataLength > bytes.Length
-                || stringIndexOffset + stringCount * 12 > bytes.Length
-                || stringIndexOffset + stringCount * 12 != stringDataOffset)
+                || stringCountRaw > 100_000
+                || stringCountRaw > int.MaxValue
+                || stringIndexOffsetRaw > int.MaxValue
+                || stringDataOffsetRaw > int.MaxValue)
+            {
+                return null;
+            }
+
+            var stringCount = (int)stringCountRaw;
+            var stringIndexOffsetRelative = (int)stringIndexOffsetRaw;
+            var stringDataOffsetRelative = (int)stringDataOffsetRaw;
+            var meta1Offset = baseOffset + meta1OffsetRelative;
+            var stringIndexOffset = baseOffset + stringIndexOffsetRelative;
+            var stringDataOffset = baseOffset + stringDataOffsetRelative;
+            var objectTableSize = (long)objectCount * 16L;
+            var meta1End = (long)meta1Offset + objectTableSize;
+            var stringIndexEnd = (long)stringIndexOffset + (long)stringCount * 12L;
+            var stringDataEnd = (long)stringDataOffset + dataLength;
+            if (meta1OffsetRelative > length
+                || stringIndexOffsetRelative > length
+                || stringDataOffsetRelative > length
+                || meta1End > endOffset
+                || meta1Size < objectTableSize
+                || stringIndexEnd > endOffset
+                || stringDataEnd > endOffset
+                || stringIndexEnd != stringDataOffset)
             {
                 return null;
             }
 
             var objectEntries = ReadDsonObjectEntries(bytes, objectCount, meta1Offset);
-            var fieldEntries = ReadDsonFieldEntries(bytes, (int)stringCount, (int)stringIndexOffset, (int)stringDataOffset);
+            var fieldEntries = ReadDsonFieldEntries(bytes, stringCount, stringIndexOffset, stringDataOffset);
             var dsonObjectPaths = BuildDsonObjectPaths(objectEntries, fieldEntries);
-            var dsonScalars = ExtractDsonScalars(bytes, fieldEntries, objectEntries, dsonObjectPaths, (int)stringDataOffset, dataLength);
+            var dsonScalars = ExtractDsonScalars(bytes, fieldEntries, objectEntries, dsonObjectPaths, stringDataOffset, dataLength);
             var strings = new List<SaveStateBinaryString>();
             foreach (var field in fieldEntries)
             {
-                if (field.AbsoluteOffset >= bytes.Length)
+                if (field.AbsoluteOffset < baseOffset || field.AbsoluteOffset >= endOffset)
                 {
                     accessIssues.Add($"DSON field {field.Index} points outside file: absoluteOffset={field.AbsoluteOffset}");
                     continue;
@@ -4085,16 +4259,16 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             var dsonSummary = new SaveStateDsonSummary(
                 headerLength,
                 objectCount,
-                (int)stringCount,
+                stringCount,
                 dataLength,
-                (int)stringDataOffset,
+                stringDataOffsetRelative,
                 dsonScalars.Count(scalar => !scalar.Type.Equals("raw", StringComparison.OrdinalIgnoreCase)),
                 dsonScalars.Count(scalar => scalar.Type.Equals("raw", StringComparison.OrdinalIgnoreCase)));
 
             return new BinaryContainerInfo(
-                (int)stringCount,
-                (int)stringIndexOffset,
-                (int)stringDataOffset,
+                stringCount,
+                stringIndexOffsetRelative,
+                stringDataOffsetRelative,
                 strings,
                 dsonSummary,
                 dsonScalars,
@@ -4462,6 +4636,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         SaveStateDsonSummary? DsonSummary,
         IReadOnlyList<SaveStateDsonScalar> DsonScalars,
         IReadOnlyList<string> DsonObjectPaths,
+        IReadOnlyList<SaveStateHeroFacts> Heroes,
         IReadOnlyList<string> JsonTopLevelKeys,
         IReadOnlyList<string> MarkerStrings,
         IReadOnlyList<SaveStateValueCandidate> ValueCandidates,
@@ -4518,7 +4693,24 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         SaveStateProgressionFacts Progression,
         IReadOnlyDictionary<string, int> Wallet,
         IReadOnlyList<string> BuildingIds,
-        IReadOnlyList<string> HeroIds);
+        IReadOnlyList<string> HeroIds,
+        IReadOnlyList<SaveStateHeroFacts> Heroes);
+
+    private sealed record SaveStateHeroFacts(
+        string Id,
+        string? Name,
+        string? HeroClass,
+        int? RosterStatus,
+        int? ResolveXp,
+        int? WeaponRank,
+        int? ArmourRank,
+        bool? BackerHero,
+        int RawDataLength,
+        int NestedObjectCount,
+        int NestedFieldCount,
+        IReadOnlyList<string> QuirkIds,
+        IReadOnlyList<string> CombatSkillIds,
+        IReadOnlyList<string> CampingSkillIds);
 
     private sealed record SaveStateCampaignFacts(
         int? Version,
