@@ -27,6 +27,18 @@ using CreateFileWFn = HANDLE(WINAPI*)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUT
 using CreateFileAFn = HANDLE(WINAPI*)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 using ReadFileFn = BOOL(WINAPI*)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 using WriteFileFn = BOOL(WINAPI*)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
+using MoveFileWFn = BOOL(WINAPI*)(LPCWSTR, LPCWSTR);
+using MoveFileAFn = BOOL(WINAPI*)(LPCSTR, LPCSTR);
+using MoveFileExWFn = BOOL(WINAPI*)(LPCWSTR, LPCWSTR, DWORD);
+using MoveFileExAFn = BOOL(WINAPI*)(LPCSTR, LPCSTR, DWORD);
+using CopyFileWFn = BOOL(WINAPI*)(LPCWSTR, LPCWSTR, BOOL);
+using CopyFileAFn = BOOL(WINAPI*)(LPCSTR, LPCSTR, BOOL);
+using DeleteFileWFn = BOOL(WINAPI*)(LPCWSTR);
+using DeleteFileAFn = BOOL(WINAPI*)(LPCSTR);
+using ReplaceFileWFn = BOOL(WINAPI*)(LPCWSTR, LPCWSTR, LPCWSTR, DWORD, LPVOID, LPVOID);
+using ReplaceFileAFn = BOOL(WINAPI*)(LPCSTR, LPCSTR, LPCSTR, DWORD, LPVOID, LPVOID);
+using SetFileAttributesWFn = BOOL(WINAPI*)(LPCWSTR, DWORD);
+using SetFileAttributesAFn = BOOL(WINAPI*)(LPCSTR, DWORD);
 using CloseHandleFn = BOOL(WINAPI*)(HANDLE);
 using GetFileSizeFn = DWORD(WINAPI*)(HANDLE, LPDWORD);
 using GetFileSizeExFn = BOOL(WINAPI*)(HANDLE, PLARGE_INTEGER);
@@ -41,6 +53,30 @@ ReadFileFn g_originalKernel32ReadFile = nullptr;
 ReadFileFn g_originalKernelBaseReadFile = nullptr;
 WriteFileFn g_originalKernel32WriteFile = nullptr;
 WriteFileFn g_originalKernelBaseWriteFile = nullptr;
+MoveFileWFn g_originalKernel32MoveFileW = nullptr;
+MoveFileAFn g_originalKernel32MoveFileA = nullptr;
+MoveFileWFn g_originalKernelBaseMoveFileW = nullptr;
+MoveFileAFn g_originalKernelBaseMoveFileA = nullptr;
+MoveFileExWFn g_originalKernel32MoveFileExW = nullptr;
+MoveFileExAFn g_originalKernel32MoveFileExA = nullptr;
+MoveFileExWFn g_originalKernelBaseMoveFileExW = nullptr;
+MoveFileExAFn g_originalKernelBaseMoveFileExA = nullptr;
+CopyFileWFn g_originalKernel32CopyFileW = nullptr;
+CopyFileAFn g_originalKernel32CopyFileA = nullptr;
+CopyFileWFn g_originalKernelBaseCopyFileW = nullptr;
+CopyFileAFn g_originalKernelBaseCopyFileA = nullptr;
+DeleteFileWFn g_originalKernel32DeleteFileW = nullptr;
+DeleteFileAFn g_originalKernel32DeleteFileA = nullptr;
+DeleteFileWFn g_originalKernelBaseDeleteFileW = nullptr;
+DeleteFileAFn g_originalKernelBaseDeleteFileA = nullptr;
+ReplaceFileWFn g_originalKernel32ReplaceFileW = nullptr;
+ReplaceFileAFn g_originalKernel32ReplaceFileA = nullptr;
+ReplaceFileWFn g_originalKernelBaseReplaceFileW = nullptr;
+ReplaceFileAFn g_originalKernelBaseReplaceFileA = nullptr;
+SetFileAttributesWFn g_originalKernel32SetFileAttributesW = nullptr;
+SetFileAttributesAFn g_originalKernel32SetFileAttributesA = nullptr;
+SetFileAttributesWFn g_originalKernelBaseSetFileAttributesW = nullptr;
+SetFileAttributesAFn g_originalKernelBaseSetFileAttributesA = nullptr;
 CloseHandleFn g_originalKernel32CloseHandle = nullptr;
 CloseHandleFn g_originalKernelBaseCloseHandle = nullptr;
 GetFileSizeFn g_originalKernel32GetFileSize = nullptr;
@@ -242,6 +278,13 @@ std::wstring AnsiToWide(LPCSTR value)
     return result;
 }
 
+std::wstring ToHex(DWORD value)
+{
+    wchar_t buffer[16] = {};
+    swprintf_s(buffer, L"0x%08lX", static_cast<unsigned long>(value));
+    return buffer;
+}
+
 std::vector<std::wstring> SplitExtensions(std::wstring value)
 {
     std::vector<std::wstring> extensions;
@@ -357,9 +400,10 @@ std::wstring ClassifyEventPath(const std::wstring& path)
         return L"other";
     }
 
-    if (normalized.find(L"\\profiles\\") != std::wstring::npos ||
-        normalized.find(L"\\profile_") != std::wstring::npos ||
-        normalized.find(L"\\save") != std::wstring::npos ||
+    if ((normalized.find(L"\\userdata\\") != std::wstring::npos &&
+         normalized.find(L"\\262060\\remote\\profile_") != std::wstring::npos) ||
+        normalized.find(L"\\documents\\darkest\\profile_") != std::wstring::npos ||
+        normalized.find(L"\\remote\\profile_") != std::wstring::npos ||
         fileName.rfind(L"persist.", 0) == 0 ||
         fileName.find(L".persist") != std::wstring::npos)
     {
@@ -440,6 +484,35 @@ std::wstring EventName(const std::wstring& category, bool writeAttempt)
     return writeAttempt ? L"file.write_attempted" : L"file.opened";
 }
 
+std::wstring LifecycleEventName(const std::wstring& category, const std::wstring& operation)
+{
+    std::wstring prefix = category == L"other" ? L"file" : category;
+    return prefix + L".file_" + operation + L"_attempted";
+}
+
+std::wstring ChooseLifecycleCategory(const std::vector<std::wstring>& paths)
+{
+    std::wstring fallback = L"other";
+    for (const std::wstring& path : paths)
+    {
+        if (path.empty() || IsIgnoredEventPath(path))
+        {
+            continue;
+        }
+
+        std::wstring category = ClassifyEventPath(path);
+        if (category == L"save")
+        {
+            return category;
+        }
+        if (fallback == L"other" && category != L"other")
+        {
+            fallback = category;
+        }
+    }
+    return fallback;
+}
+
 std::wstring DispositionName(DWORD disposition);
 
 bool ReserveEventProbeLogEntry(const std::wstring& category)
@@ -492,7 +565,7 @@ void LogEventProbeFileOpen(const std::wstring& path, DWORD desiredAccess, DWORD 
         L"event name=" + EventName(category, false) +
         L" category=" + category +
         L" disposition=" + DispositionName(creationDisposition) +
-        L" access=0x" + std::to_wstring(desiredAccess) +
+        L" access=" + ToHex(desiredAccess) +
         L" path=" + path);
 }
 
@@ -514,6 +587,80 @@ void LogEventProbeFileWrite(const std::wstring& path, DWORD bytesToWrite)
         L" category=" + category +
         L" bytes=" + std::to_wstring(bytesToWrite) +
         L" path=" + path);
+}
+
+void LogEventProbePathOperation(
+    const std::wstring& operation,
+    const std::wstring& path,
+    const std::wstring& details = L"")
+{
+    if (!g_eventProbeEnabled || !g_eventProbeLogFileWrite || path.empty() || IsIgnoredEventPath(path))
+    {
+        return;
+    }
+
+    std::wstring category = ClassifyEventPath(path);
+    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry(category))
+    {
+        return;
+    }
+
+    Logger::Info(
+        L"event name=" + LifecycleEventName(category, operation) +
+        L" category=" + category +
+        (details.empty() ? L"" : L" " + details) +
+        L" path=" + path);
+}
+
+void LogEventProbeTwoPathOperation(
+    const std::wstring& operation,
+    const std::wstring& sourcePath,
+    const std::wstring& targetPath,
+    const std::wstring& details = L"")
+{
+    if (!g_eventProbeEnabled || !g_eventProbeLogFileWrite)
+    {
+        return;
+    }
+
+    std::wstring category = ChooseLifecycleCategory({ sourcePath, targetPath });
+    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry(category))
+    {
+        return;
+    }
+
+    Logger::Info(
+        L"event name=" + LifecycleEventName(category, operation) +
+        L" category=" + category +
+        (details.empty() ? L"" : L" " + details) +
+        L" source=" + sourcePath +
+        L" target=" + targetPath);
+}
+
+void LogEventProbeReplaceOperation(
+    const std::wstring& replacedPath,
+    const std::wstring& replacementPath,
+    const std::wstring& backupPath,
+    DWORD flags)
+{
+    if (!g_eventProbeEnabled || !g_eventProbeLogFileWrite)
+    {
+        return;
+    }
+
+    std::wstring category = ChooseLifecycleCategory({ replacedPath, replacementPath, backupPath });
+    if (!ShouldLogEventCategory(category) || !ReserveEventProbeLogEntry(category))
+    {
+        return;
+    }
+
+    Logger::Info(
+        L"event name=" + LifecycleEventName(category, L"replace") +
+        L" category=" + category +
+        L" flags=" + ToHex(flags) +
+        L" replaced=" + replacedPath +
+        L" replacement=" + replacementPath +
+        L" backup=" + backupPath);
 }
 
 bool RequestedWriteAccess(DWORD desiredAccess)
@@ -667,7 +814,7 @@ void LogFileOpen(const std::wstring& path, DWORD desiredAccess, DWORD creationDi
 
     Logger::Info(
         L"file-open disposition=" + DispositionName(creationDisposition) +
-        L" access=0x" + std::to_wstring(desiredAccess) +
+        L" access=" + ToHex(desiredAccess) +
         L" path=" + path);
 }
 
@@ -1013,6 +1160,279 @@ BOOL CallOriginalWriteFile(WriteFileFn original, HANDLE handle, LPCVOID buffer, 
     return result;
 }
 
+BOOL CallOriginalMoveFileW(MoveFileWFn original, LPCWSTR existingFileName, LPCWSTR newFileName)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(existingFileName, newFileName);
+    }
+
+    g_insideHook = true;
+    LogEventProbeTwoPathOperation(L"move", existingFileName == nullptr ? L"" : existingFileName, newFileName == nullptr ? L"" : newFileName);
+    BOOL result = original(existingFileName, newFileName);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalMoveFileA(MoveFileAFn original, LPCSTR existingFileName, LPCSTR newFileName)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(existingFileName, newFileName);
+    }
+
+    g_insideHook = true;
+    LogEventProbeTwoPathOperation(L"move", AnsiToWide(existingFileName), AnsiToWide(newFileName));
+    BOOL result = original(existingFileName, newFileName);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalMoveFileExW(MoveFileExWFn original, LPCWSTR existingFileName, LPCWSTR newFileName, DWORD flags)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(existingFileName, newFileName, flags);
+    }
+
+    g_insideHook = true;
+    LogEventProbeTwoPathOperation(
+        L"move",
+        existingFileName == nullptr ? L"" : existingFileName,
+        newFileName == nullptr ? L"" : newFileName,
+        L"flags=" + ToHex(flags));
+    BOOL result = original(existingFileName, newFileName, flags);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalMoveFileExA(MoveFileExAFn original, LPCSTR existingFileName, LPCSTR newFileName, DWORD flags)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(existingFileName, newFileName, flags);
+    }
+
+    g_insideHook = true;
+    LogEventProbeTwoPathOperation(L"move", AnsiToWide(existingFileName), AnsiToWide(newFileName), L"flags=" + ToHex(flags));
+    BOOL result = original(existingFileName, newFileName, flags);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalCopyFileW(CopyFileWFn original, LPCWSTR existingFileName, LPCWSTR newFileName, BOOL failIfExists)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(existingFileName, newFileName, failIfExists);
+    }
+
+    g_insideHook = true;
+    LogEventProbeTwoPathOperation(
+        L"copy",
+        existingFileName == nullptr ? L"" : existingFileName,
+        newFileName == nullptr ? L"" : newFileName,
+        L"failIfExists=" + std::wstring(failIfExists ? L"true" : L"false"));
+    BOOL result = original(existingFileName, newFileName, failIfExists);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalCopyFileA(CopyFileAFn original, LPCSTR existingFileName, LPCSTR newFileName, BOOL failIfExists)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(existingFileName, newFileName, failIfExists);
+    }
+
+    g_insideHook = true;
+    LogEventProbeTwoPathOperation(
+        L"copy",
+        AnsiToWide(existingFileName),
+        AnsiToWide(newFileName),
+        L"failIfExists=" + std::wstring(failIfExists ? L"true" : L"false"));
+    BOOL result = original(existingFileName, newFileName, failIfExists);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalDeleteFileW(DeleteFileWFn original, LPCWSTR fileName)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(fileName);
+    }
+
+    g_insideHook = true;
+    LogEventProbePathOperation(L"delete", fileName == nullptr ? L"" : fileName);
+    BOOL result = original(fileName);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalDeleteFileA(DeleteFileAFn original, LPCSTR fileName)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(fileName);
+    }
+
+    g_insideHook = true;
+    LogEventProbePathOperation(L"delete", AnsiToWide(fileName));
+    BOOL result = original(fileName);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalReplaceFileW(
+    ReplaceFileWFn original,
+    LPCWSTR replacedFileName,
+    LPCWSTR replacementFileName,
+    LPCWSTR backupFileName,
+    DWORD flags,
+    LPVOID exclude,
+    LPVOID reserved)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(replacedFileName, replacementFileName, backupFileName, flags, exclude, reserved);
+    }
+
+    g_insideHook = true;
+    LogEventProbeReplaceOperation(
+        replacedFileName == nullptr ? L"" : replacedFileName,
+        replacementFileName == nullptr ? L"" : replacementFileName,
+        backupFileName == nullptr ? L"" : backupFileName,
+        flags);
+    BOOL result = original(replacedFileName, replacementFileName, backupFileName, flags, exclude, reserved);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalReplaceFileA(
+    ReplaceFileAFn original,
+    LPCSTR replacedFileName,
+    LPCSTR replacementFileName,
+    LPCSTR backupFileName,
+    DWORD flags,
+    LPVOID exclude,
+    LPVOID reserved)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(replacedFileName, replacementFileName, backupFileName, flags, exclude, reserved);
+    }
+
+    g_insideHook = true;
+    LogEventProbeReplaceOperation(AnsiToWide(replacedFileName), AnsiToWide(replacementFileName), AnsiToWide(backupFileName), flags);
+    BOOL result = original(replacedFileName, replacementFileName, backupFileName, flags, exclude, reserved);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalSetFileAttributesW(SetFileAttributesWFn original, LPCWSTR fileName, DWORD fileAttributes)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(fileName, fileAttributes);
+    }
+
+    g_insideHook = true;
+    LogEventProbePathOperation(
+        L"set_attributes",
+        fileName == nullptr ? L"" : fileName,
+        L"attributes=" + ToHex(fileAttributes));
+    BOOL result = original(fileName, fileAttributes);
+    g_insideHook = false;
+    return result;
+}
+
+BOOL CallOriginalSetFileAttributesA(SetFileAttributesAFn original, LPCSTR fileName, DWORD fileAttributes)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    if (g_insideHook)
+    {
+        return original(fileName, fileAttributes);
+    }
+
+    g_insideHook = true;
+    LogEventProbePathOperation(L"set_attributes", AnsiToWide(fileName), L"attributes=" + ToHex(fileAttributes));
+    BOOL result = original(fileName, fileAttributes);
+    g_insideHook = false;
+    return result;
+}
+
 BOOL CallOriginalCloseHandle(CloseHandleFn original, HANDLE handle)
 {
     auto virtualFile = RemoveVirtualFile(handle);
@@ -1170,6 +1590,78 @@ BOOL WINAPI name(HANDLE file, LPCVOID buffer, DWORD bytesToWrite, LPDWORD bytesW
     return CallOriginalWriteFile(original, file, buffer, bytesToWrite, bytesWritten, overlapped); \
 }
 
+#define DEFINE_MOVEFILEW_DETOUR(name, original) \
+BOOL WINAPI name(LPCWSTR existingFileName, LPCWSTR newFileName) \
+{ \
+    return CallOriginalMoveFileW(original, existingFileName, newFileName); \
+}
+
+#define DEFINE_MOVEFILEA_DETOUR(name, original) \
+BOOL WINAPI name(LPCSTR existingFileName, LPCSTR newFileName) \
+{ \
+    return CallOriginalMoveFileA(original, existingFileName, newFileName); \
+}
+
+#define DEFINE_MOVEFILEEXW_DETOUR(name, original) \
+BOOL WINAPI name(LPCWSTR existingFileName, LPCWSTR newFileName, DWORD flags) \
+{ \
+    return CallOriginalMoveFileExW(original, existingFileName, newFileName, flags); \
+}
+
+#define DEFINE_MOVEFILEEXA_DETOUR(name, original) \
+BOOL WINAPI name(LPCSTR existingFileName, LPCSTR newFileName, DWORD flags) \
+{ \
+    return CallOriginalMoveFileExA(original, existingFileName, newFileName, flags); \
+}
+
+#define DEFINE_COPYFILEW_DETOUR(name, original) \
+BOOL WINAPI name(LPCWSTR existingFileName, LPCWSTR newFileName, BOOL failIfExists) \
+{ \
+    return CallOriginalCopyFileW(original, existingFileName, newFileName, failIfExists); \
+}
+
+#define DEFINE_COPYFILEA_DETOUR(name, original) \
+BOOL WINAPI name(LPCSTR existingFileName, LPCSTR newFileName, BOOL failIfExists) \
+{ \
+    return CallOriginalCopyFileA(original, existingFileName, newFileName, failIfExists); \
+}
+
+#define DEFINE_DELETEFILEW_DETOUR(name, original) \
+BOOL WINAPI name(LPCWSTR fileName) \
+{ \
+    return CallOriginalDeleteFileW(original, fileName); \
+}
+
+#define DEFINE_DELETEFILEA_DETOUR(name, original) \
+BOOL WINAPI name(LPCSTR fileName) \
+{ \
+    return CallOriginalDeleteFileA(original, fileName); \
+}
+
+#define DEFINE_REPLACEFILEW_DETOUR(name, original) \
+BOOL WINAPI name(LPCWSTR replacedFileName, LPCWSTR replacementFileName, LPCWSTR backupFileName, DWORD flags, LPVOID exclude, LPVOID reserved) \
+{ \
+    return CallOriginalReplaceFileW(original, replacedFileName, replacementFileName, backupFileName, flags, exclude, reserved); \
+}
+
+#define DEFINE_REPLACEFILEA_DETOUR(name, original) \
+BOOL WINAPI name(LPCSTR replacedFileName, LPCSTR replacementFileName, LPCSTR backupFileName, DWORD flags, LPVOID exclude, LPVOID reserved) \
+{ \
+    return CallOriginalReplaceFileA(original, replacedFileName, replacementFileName, backupFileName, flags, exclude, reserved); \
+}
+
+#define DEFINE_SETFILEATTRIBUTESW_DETOUR(name, original) \
+BOOL WINAPI name(LPCWSTR fileName, DWORD fileAttributes) \
+{ \
+    return CallOriginalSetFileAttributesW(original, fileName, fileAttributes); \
+}
+
+#define DEFINE_SETFILEATTRIBUTESA_DETOUR(name, original) \
+BOOL WINAPI name(LPCSTR fileName, DWORD fileAttributes) \
+{ \
+    return CallOriginalSetFileAttributesA(original, fileName, fileAttributes); \
+}
+
 #define DEFINE_CLOSEHANDLE_DETOUR(name, original) \
 BOOL WINAPI name(HANDLE handle) \
 { \
@@ -1208,6 +1700,30 @@ DEFINE_READFILE_DETOUR(DetourKernel32ReadFile, g_originalKernel32ReadFile)
 DEFINE_READFILE_DETOUR(DetourKernelBaseReadFile, g_originalKernelBaseReadFile)
 DEFINE_WRITEFILE_DETOUR(DetourKernel32WriteFile, g_originalKernel32WriteFile)
 DEFINE_WRITEFILE_DETOUR(DetourKernelBaseWriteFile, g_originalKernelBaseWriteFile)
+DEFINE_MOVEFILEW_DETOUR(DetourKernel32MoveFileW, g_originalKernel32MoveFileW)
+DEFINE_MOVEFILEA_DETOUR(DetourKernel32MoveFileA, g_originalKernel32MoveFileA)
+DEFINE_MOVEFILEW_DETOUR(DetourKernelBaseMoveFileW, g_originalKernelBaseMoveFileW)
+DEFINE_MOVEFILEA_DETOUR(DetourKernelBaseMoveFileA, g_originalKernelBaseMoveFileA)
+DEFINE_MOVEFILEEXW_DETOUR(DetourKernel32MoveFileExW, g_originalKernel32MoveFileExW)
+DEFINE_MOVEFILEEXA_DETOUR(DetourKernel32MoveFileExA, g_originalKernel32MoveFileExA)
+DEFINE_MOVEFILEEXW_DETOUR(DetourKernelBaseMoveFileExW, g_originalKernelBaseMoveFileExW)
+DEFINE_MOVEFILEEXA_DETOUR(DetourKernelBaseMoveFileExA, g_originalKernelBaseMoveFileExA)
+DEFINE_COPYFILEW_DETOUR(DetourKernel32CopyFileW, g_originalKernel32CopyFileW)
+DEFINE_COPYFILEA_DETOUR(DetourKernel32CopyFileA, g_originalKernel32CopyFileA)
+DEFINE_COPYFILEW_DETOUR(DetourKernelBaseCopyFileW, g_originalKernelBaseCopyFileW)
+DEFINE_COPYFILEA_DETOUR(DetourKernelBaseCopyFileA, g_originalKernelBaseCopyFileA)
+DEFINE_DELETEFILEW_DETOUR(DetourKernel32DeleteFileW, g_originalKernel32DeleteFileW)
+DEFINE_DELETEFILEA_DETOUR(DetourKernel32DeleteFileA, g_originalKernel32DeleteFileA)
+DEFINE_DELETEFILEW_DETOUR(DetourKernelBaseDeleteFileW, g_originalKernelBaseDeleteFileW)
+DEFINE_DELETEFILEA_DETOUR(DetourKernelBaseDeleteFileA, g_originalKernelBaseDeleteFileA)
+DEFINE_REPLACEFILEW_DETOUR(DetourKernel32ReplaceFileW, g_originalKernel32ReplaceFileW)
+DEFINE_REPLACEFILEA_DETOUR(DetourKernel32ReplaceFileA, g_originalKernel32ReplaceFileA)
+DEFINE_REPLACEFILEW_DETOUR(DetourKernelBaseReplaceFileW, g_originalKernelBaseReplaceFileW)
+DEFINE_REPLACEFILEA_DETOUR(DetourKernelBaseReplaceFileA, g_originalKernelBaseReplaceFileA)
+DEFINE_SETFILEATTRIBUTESW_DETOUR(DetourKernel32SetFileAttributesW, g_originalKernel32SetFileAttributesW)
+DEFINE_SETFILEATTRIBUTESA_DETOUR(DetourKernel32SetFileAttributesA, g_originalKernel32SetFileAttributesA)
+DEFINE_SETFILEATTRIBUTESW_DETOUR(DetourKernelBaseSetFileAttributesW, g_originalKernelBaseSetFileAttributesW)
+DEFINE_SETFILEATTRIBUTESA_DETOUR(DetourKernelBaseSetFileAttributesA, g_originalKernelBaseSetFileAttributesA)
 DEFINE_CLOSEHANDLE_DETOUR(DetourKernel32CloseHandle, g_originalKernel32CloseHandle)
 DEFINE_CLOSEHANDLE_DETOUR(DetourKernelBaseCloseHandle, g_originalKernelBaseCloseHandle)
 DEFINE_GETFILESIZE_DETOUR(DetourKernel32GetFileSize, g_originalKernel32GetFileSize)
@@ -1267,6 +1783,30 @@ void FileIoHook::InitializeObserveOnly()
     {
         createdAny |= CreateApiHook(L"kernel32.dll", "WriteFile", reinterpret_cast<LPVOID>(&DetourKernel32WriteFile), reinterpret_cast<LPVOID*>(&g_originalKernel32WriteFile));
         createdAny |= CreateApiHook(L"KernelBase.dll", "WriteFile", reinterpret_cast<LPVOID>(&DetourKernelBaseWriteFile), reinterpret_cast<LPVOID*>(&g_originalKernelBaseWriteFile));
+        createdAny |= CreateApiHook(L"kernel32.dll", "MoveFileW", reinterpret_cast<LPVOID>(&DetourKernel32MoveFileW), reinterpret_cast<LPVOID*>(&g_originalKernel32MoveFileW));
+        createdAny |= CreateApiHook(L"kernel32.dll", "MoveFileA", reinterpret_cast<LPVOID>(&DetourKernel32MoveFileA), reinterpret_cast<LPVOID*>(&g_originalKernel32MoveFileA));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "MoveFileW", reinterpret_cast<LPVOID>(&DetourKernelBaseMoveFileW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseMoveFileW));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "MoveFileA", reinterpret_cast<LPVOID>(&DetourKernelBaseMoveFileA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseMoveFileA));
+        createdAny |= CreateApiHook(L"kernel32.dll", "MoveFileExW", reinterpret_cast<LPVOID>(&DetourKernel32MoveFileExW), reinterpret_cast<LPVOID*>(&g_originalKernel32MoveFileExW));
+        createdAny |= CreateApiHook(L"kernel32.dll", "MoveFileExA", reinterpret_cast<LPVOID>(&DetourKernel32MoveFileExA), reinterpret_cast<LPVOID*>(&g_originalKernel32MoveFileExA));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "MoveFileExW", reinterpret_cast<LPVOID>(&DetourKernelBaseMoveFileExW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseMoveFileExW));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "MoveFileExA", reinterpret_cast<LPVOID>(&DetourKernelBaseMoveFileExA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseMoveFileExA));
+        createdAny |= CreateApiHook(L"kernel32.dll", "CopyFileW", reinterpret_cast<LPVOID>(&DetourKernel32CopyFileW), reinterpret_cast<LPVOID*>(&g_originalKernel32CopyFileW));
+        createdAny |= CreateApiHook(L"kernel32.dll", "CopyFileA", reinterpret_cast<LPVOID>(&DetourKernel32CopyFileA), reinterpret_cast<LPVOID*>(&g_originalKernel32CopyFileA));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "CopyFileW", reinterpret_cast<LPVOID>(&DetourKernelBaseCopyFileW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseCopyFileW));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "CopyFileA", reinterpret_cast<LPVOID>(&DetourKernelBaseCopyFileA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseCopyFileA));
+        createdAny |= CreateApiHook(L"kernel32.dll", "DeleteFileW", reinterpret_cast<LPVOID>(&DetourKernel32DeleteFileW), reinterpret_cast<LPVOID*>(&g_originalKernel32DeleteFileW));
+        createdAny |= CreateApiHook(L"kernel32.dll", "DeleteFileA", reinterpret_cast<LPVOID>(&DetourKernel32DeleteFileA), reinterpret_cast<LPVOID*>(&g_originalKernel32DeleteFileA));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "DeleteFileW", reinterpret_cast<LPVOID>(&DetourKernelBaseDeleteFileW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseDeleteFileW));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "DeleteFileA", reinterpret_cast<LPVOID>(&DetourKernelBaseDeleteFileA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseDeleteFileA));
+        createdAny |= CreateApiHook(L"kernel32.dll", "ReplaceFileW", reinterpret_cast<LPVOID>(&DetourKernel32ReplaceFileW), reinterpret_cast<LPVOID*>(&g_originalKernel32ReplaceFileW));
+        createdAny |= CreateApiHook(L"kernel32.dll", "ReplaceFileA", reinterpret_cast<LPVOID>(&DetourKernel32ReplaceFileA), reinterpret_cast<LPVOID*>(&g_originalKernel32ReplaceFileA));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "ReplaceFileW", reinterpret_cast<LPVOID>(&DetourKernelBaseReplaceFileW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseReplaceFileW));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "ReplaceFileA", reinterpret_cast<LPVOID>(&DetourKernelBaseReplaceFileA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseReplaceFileA));
+        createdAny |= CreateApiHook(L"kernel32.dll", "SetFileAttributesW", reinterpret_cast<LPVOID>(&DetourKernel32SetFileAttributesW), reinterpret_cast<LPVOID*>(&g_originalKernel32SetFileAttributesW));
+        createdAny |= CreateApiHook(L"kernel32.dll", "SetFileAttributesA", reinterpret_cast<LPVOID>(&DetourKernel32SetFileAttributesA), reinterpret_cast<LPVOID*>(&g_originalKernel32SetFileAttributesA));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "SetFileAttributesW", reinterpret_cast<LPVOID>(&DetourKernelBaseSetFileAttributesW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseSetFileAttributesW));
+        createdAny |= CreateApiHook(L"KernelBase.dll", "SetFileAttributesA", reinterpret_cast<LPVOID>(&DetourKernelBaseSetFileAttributesA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseSetFileAttributesA));
     }
     createdAny |= CreateApiHook(L"kernel32.dll", "CloseHandle", reinterpret_cast<LPVOID>(&DetourKernel32CloseHandle), reinterpret_cast<LPVOID*>(&g_originalKernel32CloseHandle));
     createdAny |= CreateApiHook(L"KernelBase.dll", "CloseHandle", reinterpret_cast<LPVOID>(&DetourKernelBaseCloseHandle), reinterpret_cast<LPVOID*>(&g_originalKernelBaseCloseHandle));

@@ -8,7 +8,7 @@
 - C# 启动器将 `RuntimeHook.dll` 注入游戏进程。
 - C++ DLL 被加载后写入日志。
 - 文件读取 Hook 使用 MinHook 观察 `CreateFileW/CreateFileA`，只记录匹配扩展名的路径。
-- 事件探针 v0 使用 `CreateFileW/CreateFileA/WriteFile` 观察文件打开和写入尝试，只写日志，不修改任何游戏行为。
+- 事件探针 v0 使用 `CreateFileW/CreateFileA/WriteFile` 和文件生命周期 API 观察文件打开、写入尝试、移动、复制、删除、替换和属性变更，只写日志，不修改任何游戏行为。
 
 ## 当前边界
 
@@ -91,8 +91,13 @@ docs/architecture.md            架构说明
 - `asset.file_write_attempted`
 - `save.file_opened`
 - `save.file_write_attempted`
+- `save.file_move_attempted`
+- `save.file_copy_attempted`
+- `save.file_delete_attempted`
+- `save.file_replace_attempted`
+- `save.file_set_attributes_attempted`
 
-默认采样存档类事件，数据文件和资产事件默认关闭，避免启动期 Mod、localization、layout、贴图和 Steam overlay 日志把事件上限刷满。`eventProbeMaxLogEntries` 控制普通 `data` / `asset` 事件预算，`eventProbeMaxSaveLogEntries` 单独控制 `save` 事件预算，所以存档读写不会被普通文件噪声挤掉。`save` 分类是启发式识别：路径包含 `profile` / `save`，或文件名类似 `persist.*` 时会归为存档类。
+默认采样存档类事件，数据文件和资产事件默认关闭，避免启动期 Mod、localization、layout、贴图和 Steam overlay 日志把事件上限刷满。`eventProbeMaxLogEntries` 控制普通 `data` / `asset` 事件预算，`eventProbeMaxSaveLogEntries` 单独控制 `save` 事件预算，所以存档读写不会被普通文件噪声挤掉。`save` 分类是启发式识别：Steam userdata 下的 `262060/remote/profile_*`、Documents Darkest 下的 `profile_*`，或文件名类似 `persist.*` 时会归为存档类。
 
 ## 虚拟文件原型
 
