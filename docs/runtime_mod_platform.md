@@ -39,6 +39,7 @@ Plugin Manifest
 - 插件 manifest 支持 `id`、`version`、`capabilities`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts`。
 - `virtualFileRules.when` 支持 `modsPresent` / `modsAbsent` / `capabilitiesPresent` / `capabilitiesAbsent`，用于声明兼容补丁或条件补丁。
 - `operations` 启动前按加载顺序、基于当前虚拟文本逐步编译成 `replacements`。
+- operation 编译会保留 subject，例如 `key:.some_key`，用于解释最终来源和发现同一 key 的多插件修改。
 - validate、preview、diff。
 
 后续要增强：

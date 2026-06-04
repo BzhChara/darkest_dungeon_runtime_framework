@@ -212,6 +212,14 @@ docs/architecture.md            架构说明
 
 结构化操作会基于当前虚拟文本逐步编译：前一个插件修改后的结果，可以被后一个插件的 `operations` 继续匹配。找不到目标行或替换文本时默认记录 warning 并跳过/无效，不阻止启动；路径越界、目标文件无法读取、类型写错等框架无法安全执行的问题仍会作为 error。旧 `replacements` 也会参与顺序模拟。
 
+每条结构化操作会生成一个诊断 `subject`，用于解释和冲突报告：
+
+- `setValue` 使用 `key:<key>`。
+- `replaceLine` / `appendAfter` 会优先从 `key`、`.darkest` 风格 `prefix`、`match` 或 `line` 中提取 `key:<key>`。
+- 不能识别 key 时，会退回到 `match:<text>`、`prefix:<text>` 或操作类型。
+
+`--preview-patches` 除了同一行冲突外，还会报告同一 key 被多条替换命中的 `patch-preview-key-conflict`。
+
 补丁检查命令：
 
 ```text
@@ -224,8 +232,8 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 ```
 
 - `--list-patches`：列出发现的清单、加载顺序、启用状态、源规则和最终有效规则，不启动游戏。
-- `--explain-patches`：解释加载顺序、排序边、跳过原因、能力声明、条件规则诊断、每个 target 的来源链路和最终替换来源，不启动游戏。
-- `--validate-only`：验证启用规则的 `target` 是否存在、目标文件是否超过当前 16MB 虚拟文件限制，并按最终替换顺序统计每条 `find` 命中次数，不启动游戏。
+- `--explain-patches`：解释加载顺序、排序边、跳过原因、能力声明、条件规则诊断、每个 target 的来源链路和最终替换来源；替换来源会包含 operation subject，不启动游戏。
+- `--validate-only`：验证启用规则的 `target` 是否存在、目标文件是否超过当前 16MB 虚拟文件限制，并按最终替换顺序统计每条 `find` 命中次数和 operation subject，不启动游戏。
 - `--validate-patches`：启动前执行同样的验证；如果有错误，直接退出并返回失败码；验证通过后继续正常启动。
 - `--preview-patches`：按 RuntimeHook 的替换顺序模拟虚拟文件结果，写入 `logs/patch_preview`，不启动游戏。
 - `--strict-patches`：把补丁编译 warning 和替换未命中的验证 warning 升级为失败；同目标多规则提示仍保留为诊断 warning。默认不启用。
@@ -240,7 +248,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 
 - `summary.txt`：目标文件、原始大小、虚拟大小、替换次数。
 - `<target>.preview.txt`：游戏会读到的虚拟文本。
-- `<target>.diff.txt`：每条替换的简短差异和来源插件。
+- `<target>.diff.txt`：每条替换的简短差异、来源插件和 operation subject。
 
 `--preview-output` 必须位于框架项目目录内，避免误写游戏目录或 Workshop 目录。
 

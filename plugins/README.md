@@ -83,6 +83,9 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 - 每条排序边，例如 `mod.a -> mod.b reason=depends`。
 - 重复 id、缺依赖、声明冲突和顺序循环等加载诊断。
 - 每个 `target` 被哪些插件规则修改、哪些规则因 `when` 跳过，以及最终替换来源。
+- 每条替换的 operation subject，例如 `key:.max_campaign_log_file_size`。
+
+`--preview-patches` 会在 diff 中输出 operation subject，并在同一 `.darkest` key 被多个插件修改时记录 `patch-preview-key-conflict`。
 
 `example/patches.json` 默认 `enabled:false`，可以复制成自己的插件后再启用。
 

@@ -63,6 +63,7 @@ C++ DLL。
 - 重复 `id`、声明冲突和顺序循环默认只记录 warning；必需依赖缺失时跳过当前插件，不阻止其他插件。
 - `virtualFileRules` 可使用 `when.modsPresent` / `when.modsAbsent` / `when.capabilitiesPresent` / `when.capabilitiesAbsent` 做规则级条件；条件不满足的规则只进入 explain 诊断，不参与最终补丁链。
 - `operations` 会在启动前按加载顺序、基于当前虚拟文本逐步编译成底层字符串 `replacements`。
+- 编译后的替换会保留 operation subject，例如 `key:.some_key`，用于 explain、validate、preview diff 和 key 级冲突提示。
 
 稳定后再考虑：
 

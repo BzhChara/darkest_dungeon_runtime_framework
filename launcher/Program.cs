@@ -768,7 +768,7 @@ internal sealed class RuntimeConfig
 
             var withOrigin = WithOrigin(
                 replacement,
-                new PatchReplacementOrigin(sourceRule.SourceName, sourceRule.SourcePath, sourceRule.RuleIndex, replacementIndex, -1, "replacement"));
+                new PatchReplacementOrigin(sourceRule.SourceName, sourceRule.SourcePath, sourceRule.RuleIndex, replacementIndex, -1, "replacement", "replacement"));
             builder.Replacements.Add(withOrigin);
 
             if (TryGetCurrentVirtualText(sourceRule, targetKey, false, currentTextByTarget, compileIssues, out var currentText))
@@ -954,6 +954,11 @@ internal sealed class RuntimeConfig
         return list.Length == 0 ? "[]" : "[" + string.Join(",", list) + "]";
     }
 
+    private static string QuoteLogValue(string value)
+    {
+        return string.IsNullOrEmpty(value) ? "\"\"" : "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+    }
+
     private static string NormalizePhase(string phase)
     {
         var normalized = string.IsNullOrWhiteSpace(phase) ? "normal" : phase.Trim().ToLowerInvariant();
@@ -1121,6 +1126,7 @@ internal sealed class RuntimeConfig
         for (var operationIndex = 0; operationIndex < operations.Length; operationIndex++)
         {
             var operation = operations[operationIndex];
+            var subject = DescribeOperationSubject(operation);
             var lines = SplitLinesPreserveEndings(updatedText);
             var preferredEol = lines.FirstOrDefault(line => line.Eol.Length > 0)?.Eol ?? "\n";
             var compiled = CompileOperation(operation, lines, preferredEol, sourceName, sourcePath, ruleIndex, operationIndex, rule.Target, compileIssues);
@@ -1128,7 +1134,7 @@ internal sealed class RuntimeConfig
             {
                 compiled[replacementIndex] = WithOrigin(
                     compiled[replacementIndex],
-                    new PatchReplacementOrigin(sourceName, sourcePath, ruleIndex, replacementIndex, operationIndex, operation.Type));
+                    new PatchReplacementOrigin(sourceName, sourcePath, ruleIndex, replacementIndex, operationIndex, operation.Type, subject));
                 updatedText = ReplaceAllText(updatedText, compiled[replacementIndex].Find, compiled[replacementIndex].Replace, out var applied);
                 if (applied == 0)
                 {
@@ -1147,7 +1153,7 @@ internal sealed class RuntimeConfig
 
             log.Info(
                 $"patch-operation-compiled source={sourceName} target={rule.Target} " +
-                $"rule={ruleIndex} operation={operationIndex} type={operation.Type} replacements={compiled.Count}");
+                $"rule={ruleIndex} operation={operationIndex} type={operation.Type} subject={QuoteLogValue(subject)} replacements={compiled.Count}");
         }
 
         return replacements;
@@ -1329,6 +1335,71 @@ internal sealed class RuntimeConfig
         }
 
         return [];
+    }
+
+    private static string DescribeOperationSubject(VirtualFileOperation operation)
+    {
+        var type = operation.Type.Trim();
+        if (type.Equals("setValue", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrWhiteSpace(operation.Key) ? "key:" : "key:" + operation.Key.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(operation.Key))
+        {
+            return "key:" + operation.Key.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(operation.Prefix) && TryReadDarkestKey(operation.Prefix, out var prefixKey))
+        {
+            return "key:" + prefixKey;
+        }
+
+        if (!string.IsNullOrWhiteSpace(operation.Match) && TryReadDarkestKey(operation.Match, out var matchKey))
+        {
+            return "key:" + matchKey;
+        }
+
+        if (!string.IsNullOrWhiteSpace(operation.Line) && TryReadDarkestKey(operation.Line, out var lineKey))
+        {
+            return "key:" + lineKey;
+        }
+
+        if (!string.IsNullOrEmpty(operation.Match))
+        {
+            return "match:" + operation.Match;
+        }
+
+        if (!string.IsNullOrEmpty(operation.Prefix))
+        {
+            return "prefix:" + operation.Prefix;
+        }
+
+        if (type.Equals("appendEnd", StringComparison.OrdinalIgnoreCase))
+        {
+            return "file:end";
+        }
+
+        return string.IsNullOrWhiteSpace(type) ? "operation" : "operation:" + type;
+    }
+
+    private static bool TryReadDarkestKey(string value, out string key)
+    {
+        var trimmed = value.TrimStart();
+        if (!trimmed.StartsWith(".", StringComparison.Ordinal))
+        {
+            key = string.Empty;
+            return false;
+        }
+
+        var length = 0;
+        while (length < trimmed.Length && !char.IsWhiteSpace(trimmed[length]))
+        {
+            length++;
+        }
+
+        key = trimmed[..length];
+        return key.Length > 1;
     }
 
     private static List<TextLineSegment> SplitLinesPreserveEndings(string text)
@@ -1611,7 +1682,8 @@ internal sealed class PatchPlan
                 log.Info(
                     $"patch-explain-replacement target={effectiveRule.Target} index={i} " +
                     $"source={origin.SourceName} rule={origin.RuleIndex} operation={origin.OperationIndex} " +
-                    $"type={origin.OperationType} findChars={replacement.Find.Length} replaceChars={replacement.Replace.Length}");
+                    $"type={origin.OperationType} subject={QuoteLogValue(origin.Subject)} " +
+                    $"findChars={replacement.Find.Length} replaceChars={replacement.Replace.Length}");
             }
         }
 
@@ -1803,9 +1875,10 @@ internal sealed record PatchReplacementOrigin(
     int RuleIndex,
     int ReplacementIndex,
     int OperationIndex,
-    string OperationType)
+    string OperationType,
+    string Subject)
 {
-    public static PatchReplacementOrigin Unknown { get; } = new("unknown", string.Empty, -1, -1, -1, "unknown");
+    public static PatchReplacementOrigin Unknown { get; } = new("unknown", string.Empty, -1, -1, -1, "unknown", "unknown");
 }
 
 internal static class PatchPreviewer
@@ -1938,7 +2011,8 @@ internal static class PatchPreviewer
             var origin = application.Origin;
             builder.AppendLine(
                 $"@@ replacement={application.ReplacementIndex} line={application.FirstLine} matches={application.Matches} " +
-                $"source={origin.SourceName} rule={origin.RuleIndex} operation={origin.OperationIndex} type={origin.OperationType}");
+                $"source={origin.SourceName} rule={origin.RuleIndex} operation={origin.OperationIndex} " +
+                $"type={origin.OperationType} subject={QuoteLogValue(origin.Subject)}");
             if (application.Matches == 0)
             {
                 builder.AppendLine("! no match at preview time");
@@ -1956,7 +2030,7 @@ internal static class PatchPreviewer
 
     private static IReadOnlyList<string> BuildConflictWarnings(string target, IReadOnlyList<PatchReplacementApplication> applications)
     {
-        return applications
+        var warnings = applications
             .Where(application => application.Matches > 0 && application.FirstLine > 0)
             .GroupBy(application => application.FirstLine)
             .Where(group => group.Count() > 1)
@@ -1965,7 +2039,24 @@ internal static class PatchPreviewer
                 var sources = string.Join(", ", group.Select(application => application.Origin.SourceName).Distinct(StringComparer.OrdinalIgnoreCase));
                 return $"patch-preview-conflict target={target} line={group.Key} replacements={group.Count()} sources={sources}";
             })
-            .ToArray();
+            .ToList();
+
+        warnings.AddRange(applications
+            .Where(application => application.Matches > 0 && IsKeySubject(application.Origin.Subject))
+            .GroupBy(application => application.Origin.Subject, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group =>
+            {
+                var sources = string.Join(", ", group.Select(application => application.Origin.SourceName).Distinct(StringComparer.OrdinalIgnoreCase));
+                return $"patch-preview-key-conflict target={target} subject={group.Key} replacements={group.Count()} sources={sources}";
+            }));
+
+        return warnings.ToArray();
+    }
+
+    private static bool IsKeySubject(string subject)
+    {
+        return subject.StartsWith("key:", StringComparison.OrdinalIgnoreCase) && subject.Length > "key:".Length;
     }
 
     private static bool IsInsideDirectory(string directory, string path)
@@ -2056,6 +2147,11 @@ internal static class PatchPreviewer
         var end = replacement.IndexOf('\n', StringComparison.Ordinal);
         var line = end < 0 ? replacement : replacement[..end];
         return line.TrimEnd('\r');
+    }
+
+    private static string QuoteLogValue(string value)
+    {
+        return string.IsNullOrEmpty(value) ? "\"\"" : "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
     }
 
     private static string SafeFileName(string target)
@@ -2162,10 +2258,12 @@ internal static class PatchValidator
             for (var replacementIndex = 0; replacementIndex < rule.Replacements.Length; replacementIndex++)
             {
                 var replacement = rule.Replacements[replacementIndex];
+                var origin = replacement.Origin ?? PatchReplacementOrigin.Unknown;
                 var matches = CountOccurrences(currentText, replacement.Find);
                 log.Info(
                     $"patch-validate-match target={rule.Target} rule={ruleIndex} replacement={replacementIndex} " +
-                    $"matches={matches} findChars={replacement.Find.Length}");
+                    $"matches={matches} source={origin.SourceName} operation={origin.OperationIndex} " +
+                    $"type={origin.OperationType} subject={QuoteLogValue(origin.Subject)} findChars={replacement.Find.Length}");
 
                 if (matches == 0)
                 {
@@ -2236,6 +2334,11 @@ internal static class PatchValidator
         }
 
         return count;
+    }
+
+    private static string QuoteLogValue(string value)
+    {
+        return string.IsNullOrEmpty(value) ? "\"\"" : "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
     }
 }
 
