@@ -129,6 +129,14 @@ watcher 只记录日志，不修改存档。实时事件和退出快照差异会
 
 例如一次城镇停留可能汇总成 `profile_3` 的 `persist.game.json`、`persist.narration.json` 和 `backup/persist.*.json` 更新，而不需要先从大量临时重命名事件里手动整理。
 
+每次 watcher 会话还会写一个结构化报告：
+
+```text
+logs/save_sessions/<sessionId>.json
+```
+
+报告包含启动/结束时间、游戏进程信息、监控目录、事件计数、快照统计、按 profile 聚合的稳定 JSON 文件变化，以及 `activeProfile` 推断。`activeProfile` 只是一条带 `confidence` 和 `reasons` 的诊断提示：例如 `persist.game.json`、`persist.narration.json` 和大量 `backup/persist.*.json` 一起变化时，更像当前战役 profile；只有 `persist.circus_estate.json`、`persist.rankings.json` 等文件变化时，会降低战役 profile 置信度。框架不会因为这个推断去写存档或阻止启动。
+
 ## 虚拟文件原型
 
 默认配置中虚拟文件通道是打开的，但没有启用规则时不会改变任何游戏读取结果：
