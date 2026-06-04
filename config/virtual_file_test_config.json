@@ -1,0 +1,36 @@
+{
+  "gameExecutablePath": "E:/Steam/steamapps/common/DarkestDungeon/_windows/win64/Darkest.exe",
+  "gameWorkingDirectory": "E:/Steam/steamapps/common/DarkestDungeon",
+  "runtimeDllPath": "./runtime/bin/x64/Release/RuntimeHook.dll",
+  "logDirectory": "./logs",
+  "enableInjection": true,
+  "killGameOnInjectionFailure": false,
+  "startSuspendedForInjection": true,
+  "fileIoObserveOnly": true,
+  "fileIoLogExtensions": [
+    ".darkest",
+    ".json",
+    ".txt"
+  ],
+  "fileIoMaxLogEntries": 300,
+  "fileIoDeduplicate": true,
+  "pluginDirectories": [
+    "./plugins"
+  ],
+  "pluginPatchManifestName": "patches.json",
+  "virtualFileEnabled": true,
+  "virtualFileTarget": "",
+  "virtualFileFind": "",
+  "virtualFileReplace": "",
+  "virtualFileRules": [
+    {
+      "target": "shared/app.darkest",
+      "replacements": [
+        {
+          "find": ".max_campaign_log_file_size 0 ",
+          "replace": ".max_campaign_log_file_size 0"
+        }
+      ]
+    }
+  ]
+}

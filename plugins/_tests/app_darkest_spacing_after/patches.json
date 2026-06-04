@@ -1,0 +1,23 @@
+{
+  "id": "test.app_darkest_spacing.after",
+  "name": "App Darkest Sequential Operation Test Patch",
+  "version": "0.1.0",
+  "enabled": true,
+  "phase": "normal",
+  "priority": 10,
+  "depends": [
+    "test.app_darkest_spacing"
+  ],
+  "virtualFileRules": [
+    {
+      "target": "shared/app.darkest",
+      "operations": [
+        {
+          "type": "replaceLine",
+          "match": ".max_campaign_log_file_size 0",
+          "line": ".max_campaign_log_file_size 0"
+        }
+      ]
+    }
+  ]
+}

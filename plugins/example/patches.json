@@ -1,0 +1,25 @@
+{
+  "id": "example.virtual_file_patch",
+  "name": "Example Virtual File Patch",
+  "version": "0.1.0",
+  "enabled": false,
+  "phase": "normal",
+  "priority": 0,
+  "depends": [],
+  "optionalDepends": [],
+  "loadAfter": [],
+  "loadBefore": [],
+  "conflicts": [],
+  "virtualFileRules": [
+    {
+      "target": "shared/app.darkest",
+      "operations": [
+        {
+          "type": "setValue",
+          "key": ".max_campaign_log_file_size",
+          "value": "0"
+        }
+      ]
+    }
+  ]
+}

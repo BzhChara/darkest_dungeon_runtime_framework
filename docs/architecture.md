@@ -1,0 +1,78 @@
+# Architecture
+
+运行时平台的长期设计见 `docs/runtime_mod_platform.md`。本文档记录当前骨架和短期组件边界；平台文档记录事件、状态、动作和深层 Hook 能力的方向。
+
+## Phase 1: Injection and Logging
+
+目标是证明三件事：
+
+1. 启动器可以稳定找到游戏入口。
+2. 启动器可以加载匹配位数的 `RuntimeHook.dll`。
+3. DLL 进入游戏进程后可以写日志。
+
+这一阶段不修改游戏逻辑。
+
+## Components
+
+### DDRuntimeLoader
+
+C# 控制台启动器。
+
+职责：
+
+- 读取 `config/default_config.json` 或 `config/config.json`。
+- 校验游戏路径、DLL 路径、日志目录。
+- 计算并记录游戏 exe SHA-256。
+- 默认以 suspended 模式启动 `Darkest.exe`，先注入 DLL 再恢复主线程，避免错过早期资源读取。
+- 通过 `LoadLibraryW` 远程线程注入 RuntimeHook.dll。
+- 将 `DD_RUNTIME_FRAMEWORK_ROOT` 和 `DD_RUNTIME_LOG_DIR` 写入游戏进程环境。
+- 扫描插件补丁清单 `plugins/<plugin-id>/patches.json`，按 manifest 依赖和顺序字段生成加载计划，再把虚拟文件规则写入 `DD_RUNTIME_VIRTUAL_RULE_*` 环境变量。
+- 在启动前验证补丁规则：目标文件存在性、当前虚拟文件大小限制、按最终替换顺序统计字符串命中次数和同目标多规则提示。
+- 在不启动游戏的情况下解释和预览补丁结果，输出加载顺序、排序边、跳过原因、虚拟文件文本、简短 diff 和同一目标行冲突提示。
+
+### RuntimeHook.dll
+
+C++ DLL。
+
+职责：
+
+- 在 `DLL_PROCESS_ATTACH` 后创建初始化线程。
+- 初始化日志。
+- 记录进程、模块路径和环境变量。
+- 初始化 Hook 模块占位。
+
+### Hook Layer
+
+后续阶段会在这里加入 MinHook 或等价库。
+
+建议顺序：
+
+1. 观察文件读取路径，只记录不修改。当前阶段通过 MinHook 挂 `CreateFileW/CreateFileA`。
+2. 对 `.darkest` / localization 文件做虚拟内容返回。当前原型支持配置规则列表：每条规则匹配一个路径后缀，并按顺序执行多条字符串替换，通过虚拟句柄响应 `ReadFile` / `GetFileSize` / `SetFilePointer` / `CloseHandle`。
+3. 对数据加载函数做结构化 Hook。
+4. 最后才碰战斗、AI 和存档相关逻辑。
+
+### Plugin Layer
+
+第一版插件层先只实现补丁清单，不加载第三方代码：
+
+- 启动器扫描配置中的 `pluginDirectories`。
+- 每个插件目录读取一个 `patches.json`。
+- `enabled:false` 的清单只记录日志，不参与规则合并。
+- `enabled:true` 的清单可提供 `id`、`version`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts` 和 `virtualFileRules`。
+- 重复 `id`、声明冲突和顺序循环默认只记录 warning；必需依赖缺失时跳过当前插件，不阻止其他插件。
+- `operations` 会在启动前按加载顺序、基于当前虚拟文本逐步编译成底层字符串 `replacements`。
+
+稳定后再考虑：
+
+- native C ABI 插件
+- Lua 插件
+- C# 插件宿主
+
+## Risk Control
+
+- 所有 Hook 必须可配置关闭。
+- 所有深层 Hook 必须绑定游戏 exe hash。
+- 插件启用顺序必须记录到日志。
+- 默认不写入自定义存档状态。
+- 崩溃排查优先看最后一条 runtime 日志。

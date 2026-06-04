@@ -1,0 +1,20 @@
+{
+  "id": "test.app_darkest_spacing",
+  "name": "App Darkest Spacing Test Patch",
+  "version": "0.1.0",
+  "enabled": true,
+  "phase": "normal",
+  "priority": 0,
+  "virtualFileRules": [
+    {
+      "target": "shared/app.darkest",
+      "operations": [
+        {
+          "type": "setValue",
+          "key": ".max_campaign_log_file_size",
+          "value": "0"
+        }
+      ]
+    }
+  ]
+}

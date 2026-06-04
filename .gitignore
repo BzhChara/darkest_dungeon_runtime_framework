@@ -1,0 +1,12 @@
+/bin/
+/obj/
+/.vs/
+*.user
+*.suo
+*.log
+logs/*
+!logs/.gitkeep
+runtime/bin/
+runtime/obj/
+launcher/bin/
+launcher/obj/
