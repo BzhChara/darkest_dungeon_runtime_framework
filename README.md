@@ -143,7 +143,7 @@ logs/save_sessions/<sessionId>.json
 logs/save_states/<sessionId>.json
 ```
 
-DD1 的 `persist.*.json` 文件扩展名是 `.json`，但 Steam 存档里的实际内容是二进制容器。状态报告不会假装已经完整反序列化这些文件；它会记录文件大小、时间戳、SHA-256、二进制头、二进制字符串表、可见 marker 字符串、少量相邻字符串候选 key/value，以及访问问题。报告的 `parseStatus` 会标明当前是 `binaryStringTableDecoded`、`binaryStringIndexOnly` 还是普通 `parsedJsonText`。这给后续状态模型和二进制格式解析留出稳定契约。
+DD1 的 `persist.*.json` 文件扩展名是 `.json`，但 Steam 存档里的实际内容是二进制容器。状态报告不会假装已经完整反序列化这些文件；它会记录文件大小、时间戳、SHA-256、二进制头、二进制字符串表、可见 marker 字符串、少量短距离内联字符串候选 key/value，以及访问问题。报告的 `parseStatus` 会标明当前是 `binaryStringTableDecoded`、`binaryStringIndexOnly` 还是普通 `parsedJsonText`。这给后续状态模型和二进制格式解析留出稳定契约。
 
 ## 虚拟文件原型
 

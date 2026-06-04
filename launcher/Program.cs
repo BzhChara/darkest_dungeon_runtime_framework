@@ -3503,20 +3503,10 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             "game_mode",
             "date_time",
             "raiddungeon",
-            "dd_mode",
-            "nextGuid",
-            "dismissed_hero_count",
-            "total_quests_finished",
-            "last_quest_played_id",
-            "gold",
-            "bust",
-            "portrait",
-            "deed",
-            "crest",
-            "shard",
-            "memory",
-            "blueprint"
+            "dd_mode"
         ];
+
+        private const int MaxInlineValueDistance = 16;
 
         public static string? TryWriteReport(
             string sessionDirectory,
@@ -3617,6 +3607,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
 
                 var container = TryParseBinaryContainer(bytes, accessIssues);
                 var strings = container?.Strings ?? ExtractPrintableStrings(bytes);
+                var printableStrings = container is null ? strings : ExtractPrintableStrings(bytes);
                 var markerSet = KnownMarkers.ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var markers = strings
                     .Select(item => item.Value)
@@ -3624,7 +3615,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Take(120)
                     .ToArray();
-                var valueCandidates = ExtractValueCandidates(strings);
+                var valueCandidates = ExtractValueCandidates(strings, printableStrings);
                 var samples = strings
                     .Select(item => item.Value)
                     .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -3826,7 +3817,9 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             builder.Clear();
         }
 
-        private static IReadOnlyList<SaveStateValueCandidate> ExtractValueCandidates(IReadOnlyList<SaveStateBinaryString> strings)
+        private static IReadOnlyList<SaveStateValueCandidate> ExtractValueCandidates(
+            IReadOnlyList<SaveStateBinaryString> strings,
+            IReadOnlyList<SaveStateBinaryString> printableStrings)
         {
             var keys = ValueCandidateKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var candidates = new List<SaveStateValueCandidate>();
@@ -3835,14 +3828,14 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 var key = strings[i].Value;
                 if (!keys.Contains(key)) continue;
 
-                if (i + 1 >= strings.Count) continue;
+                var keyEnd = strings[i].Offset + key.Length + 1;
+                var value = printableStrings
+                    .Where(item => item.Offset >= keyEnd && item.Offset - keyEnd <= MaxInlineValueDistance)
+                    .OrderBy(item => item.Offset)
+                    .FirstOrDefault(item => IsLikelyScalarCandidate(item.Value, keys));
+                if (string.IsNullOrWhiteSpace(value.Value)) continue;
 
-                var next = strings[i + 1];
-                var value = next.Value;
-                if (!IsLikelyScalarCandidate(value, keys)) continue;
-                if (string.IsNullOrWhiteSpace(value)) continue;
-
-                candidates.Add(new SaveStateValueCandidate(key, value, strings[i].Offset, strings[i].StringIndex, "adjacentString"));
+                candidates.Add(new SaveStateValueCandidate(key, value.Value, value.Offset, value.StringIndex, "inlineString"));
                 if (candidates.Count >= 80) break;
             }
 
