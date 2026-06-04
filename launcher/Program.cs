@@ -3552,7 +3552,9 @@ internal sealed class SaveDirectoryWatcher : IDisposable
 
             var parseStatus = fileReports.Any(file => file.Format.Equals("jsonText", StringComparison.OrdinalIgnoreCase))
                 ? "partialJsonText"
-                : "binaryStringIndexOnly";
+                : fileReports.Any(file => file.ParseStatus.Equals("binaryStringTableDecoded", StringComparison.OrdinalIgnoreCase))
+                    ? "binaryStringTableDecoded"
+                    : "binaryStringIndexOnly";
             if (fileReports.All(file => !file.Exists))
             {
                 parseStatus = "noCandidateFiles";
@@ -3591,6 +3593,10 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     "missing",
                     "missing",
                     null,
+                    null,
+                    null,
+                    null,
+                    [],
                     [],
                     [],
                     [],
@@ -3609,7 +3615,8 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     return InspectJsonText(path, fileName, bytes, info, sha256, accessIssues);
                 }
 
-                var strings = ExtractPrintableStrings(bytes);
+                var container = TryParseBinaryContainer(bytes, accessIssues);
+                var strings = container?.Strings ?? ExtractPrintableStrings(bytes);
                 var markerSet = KnownMarkers.ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var markers = strings
                     .Select(item => item.Value)
@@ -3624,6 +3631,9 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Take(120)
                     .ToArray();
+                var parseStatus = container is not null
+                    ? "binaryStringTableDecoded"
+                    : firstByte == 0x01 ? "binaryStringIndexOnly" : "unknownBinary";
 
                 return new SaveStateFileReport(
                     fileName,
@@ -3633,12 +3643,16 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     info.LastWriteTimeUtc,
                     sha256,
                     "binaryContainer",
-                    firstByte == 0x01 ? "binaryStringIndexOnly" : "unknownBinary",
+                    parseStatus,
                     ToHex(bytes.Take(32)),
+                    container?.StringCount,
+                    container?.StringIndexOffset,
+                    container?.StringDataOffset,
                     [],
                     markers,
                     valueCandidates,
                     samples,
+                    container?.Strings.Take(240).ToArray() ?? [],
                     accessIssues);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -3654,6 +3668,10 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     "unreadable",
                     "error",
                     null,
+                    null,
+                    null,
+                    null,
+                    [],
                     [],
                     [],
                     [],
@@ -3685,7 +3703,11 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 "jsonText",
                 "parsedJsonText",
                 null,
+                null,
+                null,
+                null,
                 topLevelKeys,
+                [],
                 [],
                 [],
                 [],
@@ -3707,9 +3729,73 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             return false;
         }
 
-        private static IReadOnlyList<ExtractedString> ExtractPrintableStrings(byte[] bytes)
+        private static BinaryContainerInfo? TryParseBinaryContainer(byte[] bytes, List<string> accessIssues)
         {
-            var strings = new List<ExtractedString>();
+            if (bytes.Length < 0x40)
+            {
+                return null;
+            }
+
+            var magic = ReadUInt32LittleEndian(bytes, 0);
+            var stringCount = ReadUInt32LittleEndian(bytes, 0x2C);
+            var stringIndexOffset = ReadUInt32LittleEndian(bytes, 0x30);
+            var stringDataOffset = ReadUInt32LittleEndian(bytes, 0x3C);
+            if (magic != 0x0000B101
+                || stringCount > 100_000
+                || stringIndexOffset > bytes.Length
+                || stringDataOffset > bytes.Length
+                || stringIndexOffset + stringCount * 12 > bytes.Length
+                || stringIndexOffset + stringCount * 12 != stringDataOffset)
+            {
+                return null;
+            }
+
+            var strings = new List<SaveStateBinaryString>();
+            for (var i = 0; i < stringCount; i++)
+            {
+                var entryOffset = (int)stringIndexOffset + (int)i * 12;
+                var hash = ReadUInt32LittleEndian(bytes, entryOffset);
+                var relativeOffset = ReadUInt32LittleEndian(bytes, entryOffset + 4);
+                var metadata = ReadUInt32LittleEndian(bytes, entryOffset + 8);
+                var absoluteOffset = stringDataOffset + relativeOffset;
+                if (absoluteOffset >= bytes.Length)
+                {
+                    accessIssues.Add($"String table entry {i} points outside file: absoluteOffset={absoluteOffset}");
+                    continue;
+                }
+
+                var value = ReadNullTerminatedAscii(bytes, (int)absoluteOffset);
+                strings.Add(new SaveStateBinaryString(
+                    (int)absoluteOffset,
+                    value,
+                    (int)i,
+                    hash,
+                    metadata,
+                    (int)relativeOffset));
+            }
+
+            return new BinaryContainerInfo((int)stringCount, (int)stringIndexOffset, (int)stringDataOffset, strings);
+        }
+
+        private static uint ReadUInt32LittleEndian(byte[] bytes, int offset)
+        {
+            return BitConverter.ToUInt32(bytes, offset);
+        }
+
+        private static string ReadNullTerminatedAscii(byte[] bytes, int offset)
+        {
+            var end = offset;
+            while (end < bytes.Length && bytes[end] != 0)
+            {
+                end++;
+            }
+
+            return Encoding.ASCII.GetString(bytes, offset, end - offset);
+        }
+
+        private static IReadOnlyList<SaveStateBinaryString> ExtractPrintableStrings(byte[] bytes)
+        {
+            var strings = new List<SaveStateBinaryString>();
             var builder = new StringBuilder();
             var start = 0;
 
@@ -3730,17 +3816,17 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             return strings;
         }
 
-        private static void FlushString(List<ExtractedString> strings, StringBuilder builder, int start)
+        private static void FlushString(List<SaveStateBinaryString> strings, StringBuilder builder, int start)
         {
             if (builder.Length >= 4)
             {
-                strings.Add(new ExtractedString(start, builder.ToString()));
+                strings.Add(new SaveStateBinaryString(start, builder.ToString(), null, null, null, null));
             }
 
             builder.Clear();
         }
 
-        private static IReadOnlyList<SaveStateValueCandidate> ExtractValueCandidates(IReadOnlyList<ExtractedString> strings)
+        private static IReadOnlyList<SaveStateValueCandidate> ExtractValueCandidates(IReadOnlyList<SaveStateBinaryString> strings)
         {
             var keys = ValueCandidateKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var candidates = new List<SaveStateValueCandidate>();
@@ -3749,17 +3835,26 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 var key = strings[i].Value;
                 if (!keys.Contains(key)) continue;
 
-                var value = strings
-                    .Skip(i + 1)
-                    .Select(item => item.Value)
-                    .FirstOrDefault(value => !keys.Contains(value) && !KnownMarkers.Contains(value, StringComparer.OrdinalIgnoreCase));
+                if (i + 1 >= strings.Count) continue;
+
+                var next = strings[i + 1];
+                var value = next.Value;
+                if (!IsLikelyScalarCandidate(value, keys)) continue;
                 if (string.IsNullOrWhiteSpace(value)) continue;
 
-                candidates.Add(new SaveStateValueCandidate(key, value, strings[i].Offset));
+                candidates.Add(new SaveStateValueCandidate(key, value, strings[i].Offset, strings[i].StringIndex, "adjacentString"));
                 if (candidates.Count >= 80) break;
             }
 
             return candidates;
+        }
+
+        private static bool IsLikelyScalarCandidate(string? value, HashSet<string> keys)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            if (keys.Contains(value)) return false;
+            if (KnownMarkers.Contains(value, StringComparer.OrdinalIgnoreCase)) return false;
+            return value.All(ch => ch is >= ' ' and <= '~');
         }
 
         private static string ToHex(IEnumerable<byte> bytes)
@@ -3767,7 +3862,11 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             return string.Join(' ', bytes.Select(value => value.ToString("X2")));
         }
 
-        private readonly record struct ExtractedString(int Offset, string Value);
+        private sealed record BinaryContainerInfo(
+            int StringCount,
+            int StringIndexOffset,
+            int StringDataOffset,
+            IReadOnlyList<SaveStateBinaryString> Strings);
     }
 
     private sealed record SaveStateReport(
@@ -3791,16 +3890,30 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         string Format,
         string ParseStatus,
         string? BinaryHeaderHex,
+        int? BinaryStringCount,
+        int? BinaryStringIndexOffset,
+        int? BinaryStringDataOffset,
         IReadOnlyList<string> JsonTopLevelKeys,
         IReadOnlyList<string> MarkerStrings,
         IReadOnlyList<SaveStateValueCandidate> ValueCandidates,
         IReadOnlyList<string> StringSamples,
+        IReadOnlyList<SaveStateBinaryString> BinaryStrings,
         IReadOnlyList<string> AccessIssues);
 
     private sealed record SaveStateValueCandidate(
         string Key,
         string Value,
-        int Offset);
+        int Offset,
+        int? StringIndex,
+        string Confidence);
+
+    private readonly record struct SaveStateBinaryString(
+        int Offset,
+        string Value,
+        int? StringIndex,
+        uint? Hash,
+        uint? Metadata,
+        int? RelativeOffset);
 
     private sealed class StableSaveChangeGroupComparer : IEqualityComparer<(string ProfileRoot, string Profile)>
     {
