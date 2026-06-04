@@ -36,8 +36,8 @@ Plugin Manifest
 
 - 虚拟读取 `.darkest` / `.json` / localization / 资源文件。
 - `replacements` 底层字符串替换。
-- 插件 manifest 支持 `id`、`version`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts`。
-- `virtualFileRules.when` 支持 `modsPresent` / `modsAbsent`，用于声明兼容补丁或条件补丁。
+- 插件 manifest 支持 `id`、`version`、`capabilities`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts`。
+- `virtualFileRules.when` 支持 `modsPresent` / `modsAbsent` / `capabilitiesPresent` / `capabilitiesAbsent`，用于声明兼容补丁或条件补丁。
 - `operations` 启动前按加载顺序、基于当前虚拟文本逐步编译成 `replacements`。
 - validate、preview、diff。
 
@@ -247,6 +247,10 @@ save.attach_sidecar_state
   "name": "Delayed Building Upgrades",
   "version": "0.1.0",
   "enabled": true,
+  "capabilities": [
+    "file.virtualize",
+    "content.patch"
+  ],
 
   "phase": "normal",
   "priority": 100,

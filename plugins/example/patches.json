@@ -3,6 +3,11 @@
   "name": "Example Virtual File Patch",
   "version": "0.1.0",
   "enabled": false,
+  "capabilities": [
+    "file.virtualize",
+    "content.patch",
+    "content.app_config"
+  ],
   "phase": "normal",
   "priority": 0,
   "depends": [],

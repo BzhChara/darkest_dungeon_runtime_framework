@@ -18,6 +18,10 @@ plugins/<plugin-id>/patches.json
   "name": "Readable Mod Name",
   "version": "0.1.0",
   "enabled": true,
+  "capabilities": [
+    "file.virtualize",
+    "content.patch"
+  ],
   "phase": "normal",
   "priority": 0,
   "depends": [],
@@ -29,7 +33,9 @@ plugins/<plugin-id>/patches.json
     {
       "when": {
         "modsPresent": [],
-        "modsAbsent": []
+        "modsAbsent": [],
+        "capabilitiesPresent": [],
+        "capabilitiesAbsent": []
       },
       "target": "shared/app.darkest",
       "operations": []
@@ -51,7 +57,19 @@ plugins/<plugin-id>/patches.json
 
 - `when.modsPresent`：所有列出的插件 id 都启用且未被跳过时，规则才生效。
 - `when.modsAbsent`：所有列出的插件 id 都未启用或已被跳过时，规则才生效。
+- `when.capabilitiesPresent`：所有列出的能力都由最终启用插件声明时，规则才生效。
+- `when.capabilitiesAbsent`：所有列出的能力都未被最终启用插件声明时，规则才生效。
 - 条件不满足的规则只会出现在 explain 诊断里，不参与编译、验证、预览或运行时替换。
+
+第一批能力命名：
+
+- `file.virtualize`
+- `content.patch`
+- `content.app_config`
+- `content.quest`
+- `content.region`
+- `content.localization`
+- `asset.replace`
 
 诊断命令：
 
@@ -61,7 +79,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 
 `--explain-patches` 会输出：
 
-- 每个插件的最终 `order`、`status`、`phase`、`priority` 和跳过原因。
+- 每个插件的最终 `order`、`status`、`phase`、`priority`、`capabilities` 和跳过原因。
 - 每条排序边，例如 `mod.a -> mod.b reason=depends`。
 - 重复 id、缺依赖、声明冲突和顺序循环等加载诊断。
 - 每个 `target` 被哪些插件规则修改、哪些规则因 `when` 跳过，以及最终替换来源。

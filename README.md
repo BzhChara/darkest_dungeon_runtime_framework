@@ -110,6 +110,11 @@ docs/architecture.md            架构说明
   "name": "My Runtime Patch",
   "version": "0.1.0",
   "enabled": true,
+  "capabilities": [
+    "file.virtualize",
+    "content.patch",
+    "content.app_config"
+  ],
   "phase": "normal",
   "priority": 0,
   "depends": [],
@@ -121,7 +126,9 @@ docs/architecture.md            架构说明
     {
       "when": {
         "modsPresent": [],
-        "modsAbsent": []
+        "modsAbsent": [],
+        "capabilitiesPresent": [],
+        "capabilitiesAbsent": []
       },
       "target": "shared/app.darkest",
       "operations": [
@@ -147,6 +154,27 @@ docs/architecture.md            架构说明
 - `priority` 数值小的先加载，默认 `0`。
 - 重复 `id`、声明冲突和顺序循环默认只记录 warning，不直接阻止启动。
 
+能力声明用于表达插件打算使用或提供的框架能力：
+
+```json
+"capabilities": [
+  "file.virtualize",
+  "content.patch",
+  "content.quest",
+  "content.region"
+]
+```
+
+第一批建议命名：
+
+- `file.virtualize`：通过 RuntimeHook 虚拟化文件读取。
+- `content.patch`：修改游戏数据文本。
+- `content.app_config`：修改 `shared/app.darkest` 这类应用配置。
+- `content.quest`：任务、关卡或任务链内容。
+- `content.region`：地区、地图或区域内容。
+- `content.localization`：本地化文本。
+- `asset.replace`：贴图、字体、骨骼、atlas 等资源替换。
+
 `virtualFileRules` 支持两种写法：
 
 - `replacements`：底层字符串替换，直接提供 `find` 和 `replace`。
@@ -158,7 +186,9 @@ docs/architecture.md            架构说明
 {
   "when": {
     "modsPresent": ["author.required_mod"],
-    "modsAbsent": ["author.incompatible_mod"]
+    "modsAbsent": ["author.incompatible_mod"],
+    "capabilitiesPresent": ["content.quest"],
+    "capabilitiesAbsent": ["content.region"]
   },
   "target": "shared/app.darkest",
   "operations": []
@@ -167,6 +197,8 @@ docs/architecture.md            架构说明
 
 - `modsPresent`：列出的插件 id 都在最终启用列表中时才生效。
 - `modsAbsent`：列出的插件 id 都不在最终启用列表中时才生效。
+- `capabilitiesPresent`：列出的能力都由最终启用插件声明时才生效。
+- `capabilitiesAbsent`：列出的能力都没有被最终启用插件声明时才生效。
 
 当前支持的 `operations`：
 
@@ -192,7 +224,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 ```
 
 - `--list-patches`：列出发现的清单、加载顺序、启用状态、源规则和最终有效规则，不启动游戏。
-- `--explain-patches`：解释加载顺序、排序边、跳过原因、条件规则诊断、每个 target 的来源链路和最终替换来源，不启动游戏。
+- `--explain-patches`：解释加载顺序、排序边、跳过原因、能力声明、条件规则诊断、每个 target 的来源链路和最终替换来源，不启动游戏。
 - `--validate-only`：验证启用规则的 `target` 是否存在、目标文件是否超过当前 16MB 虚拟文件限制，并按最终替换顺序统计每条 `find` 命中次数，不启动游戏。
 - `--validate-patches`：启动前执行同样的验证；如果有错误，直接退出并返回失败码；验证通过后继续正常启动。
 - `--preview-patches`：按 RuntimeHook 的替换顺序模拟虚拟文件结果，写入 `logs/patch_preview`，不启动游戏。

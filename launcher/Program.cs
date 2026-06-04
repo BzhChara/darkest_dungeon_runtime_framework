@@ -375,8 +375,12 @@ internal sealed class RuntimeConfig
         var activePluginIds = loadPlan.OrderedEnabledPlugins
             .Select(plugin => NormalizePluginId(plugin.Id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var activeCapabilities = loadPlan.OrderedEnabledPlugins
+            .SelectMany(plugin => CleanCapabilityReferences(plugin.Manifest.Capabilities))
+            .Select(NormalizeCapability)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        AddVirtualRules(sourceRules, skippedRules, VirtualFileRules, "config virtualFileRules", string.Empty, activePluginIds);
+        AddVirtualRules(sourceRules, skippedRules, VirtualFileRules, "config virtualFileRules", string.Empty, activePluginIds, activeCapabilities);
 
         if (sourceRules.Count == 0 && !string.IsNullOrWhiteSpace(VirtualFileTarget) && !string.IsNullOrEmpty(VirtualFileFind))
         {
@@ -399,7 +403,8 @@ internal sealed class RuntimeConfig
                 ],
                 "config legacy virtualFileTarget",
                 string.Empty,
-                activePluginIds);
+                activePluginIds,
+                activeCapabilities);
         }
 
         foreach (var plugin in loadPlan.OrderedEnabledPlugins)
@@ -407,8 +412,9 @@ internal sealed class RuntimeConfig
             log.Info(
                 $"Plugin patch manifest enabled: order={plugin.LoadOrder} id={plugin.Id} " +
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
-                $"priority={plugin.Manifest.Priority} virtualRules={plugin.VirtualFileRuleCount} path={plugin.Path}");
-            AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds);
+                $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
+                $"virtualRules={plugin.VirtualFileRuleCount} path={plugin.Path}");
+            AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds, activeCapabilities);
         }
 
         return new PatchPlan(
@@ -562,6 +568,7 @@ internal sealed class RuntimeConfig
                 status,
                 candidate.Manifest.Enabled,
                 candidate.VirtualFileRuleCount,
+                CleanCapabilityReferences(candidate.Manifest.Capabilities).ToArray(),
                 NormalizePhase(candidate.Manifest.Phase),
                 candidate.Manifest.Priority,
                 loadOrder,
@@ -923,9 +930,28 @@ internal sealed class RuntimeConfig
             .Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
+    private static IEnumerable<string> CleanCapabilityReferences(IEnumerable<string>? references)
+    {
+        return (references ?? [])
+            .Where(reference => !string.IsNullOrWhiteSpace(reference))
+            .Select(reference => NormalizeCapability(reference))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
     private static string NormalizePluginId(string id)
     {
         return id.Trim().ToLowerInvariant();
+    }
+
+    private static string NormalizeCapability(string capability)
+    {
+        return capability.Trim().ToLowerInvariant();
+    }
+
+    private static string FormatLogList(IEnumerable<string> values)
+    {
+        var list = values.Where(value => !string.IsNullOrWhiteSpace(value)).ToArray();
+        return list.Length == 0 ? "[]" : "[" + string.Join(",", list) + "]";
     }
 
     private static string NormalizePhase(string phase)
@@ -972,7 +998,8 @@ internal sealed class RuntimeConfig
         IEnumerable<VirtualFileRule>? input,
         string sourceName,
         string sourcePath,
-        IReadOnlySet<string> activePluginIds)
+        IReadOnlySet<string> activePluginIds,
+        IReadOnlySet<string> activeCapabilities)
     {
         var index = 0;
         foreach (var rule in input ?? [])
@@ -990,7 +1017,7 @@ internal sealed class RuntimeConfig
                 continue;
             }
 
-            var condition = EvaluatePatchCondition(rule.When, activePluginIds);
+            var condition = EvaluatePatchCondition(rule.When, activePluginIds, activeCapabilities);
             if (!condition.Matched)
             {
                 skipped.Add(new VirtualFileRuleSkip(
@@ -1019,7 +1046,10 @@ internal sealed class RuntimeConfig
         }
     }
 
-    private static PatchConditionResult EvaluatePatchCondition(PatchCondition? condition, IReadOnlySet<string> activePluginIds)
+    private static PatchConditionResult EvaluatePatchCondition(
+        PatchCondition? condition,
+        IReadOnlySet<string> activePluginIds,
+        IReadOnlySet<string> activeCapabilities)
     {
         if (condition is null)
         {
@@ -1028,7 +1058,9 @@ internal sealed class RuntimeConfig
 
         var modsPresent = CleanModReferences(condition.ModsPresent).ToArray();
         var modsAbsent = CleanModReferences(condition.ModsAbsent).ToArray();
-        if (modsPresent.Length == 0 && modsAbsent.Length == 0)
+        var capabilitiesPresent = CleanCapabilityReferences(condition.CapabilitiesPresent).ToArray();
+        var capabilitiesAbsent = CleanCapabilityReferences(condition.CapabilitiesAbsent).ToArray();
+        if (modsPresent.Length == 0 && modsAbsent.Length == 0 && capabilitiesPresent.Length == 0 && capabilitiesAbsent.Length == 0)
         {
             return new PatchConditionResult(true, "empty condition");
         }
@@ -1047,6 +1079,22 @@ internal sealed class RuntimeConfig
         if (presentAbsent.Length > 0)
         {
             return new PatchConditionResult(false, "modsAbsent present: " + string.Join(",", presentAbsent));
+        }
+
+        var missingCapabilities = capabilitiesPresent
+            .Where(capability => !activeCapabilities.Contains(NormalizeCapability(capability)))
+            .ToArray();
+        if (missingCapabilities.Length > 0)
+        {
+            return new PatchConditionResult(false, "capabilitiesPresent missing: " + string.Join(",", missingCapabilities));
+        }
+
+        var presentCapabilities = capabilitiesAbsent
+            .Where(capability => activeCapabilities.Contains(NormalizeCapability(capability)))
+            .ToArray();
+        if (presentCapabilities.Length > 0)
+        {
+            return new PatchConditionResult(false, "capabilitiesAbsent present: " + string.Join(",", presentCapabilities));
         }
 
         return new PatchConditionResult(true, "condition matched");
@@ -1454,7 +1502,8 @@ internal sealed class PatchPlan
             log.Info(
                 $"patch-manifest status={manifest.Status} order={manifest.LoadOrder} id={manifest.Id} " +
                 $"name={manifest.Name} version={manifest.Version} phase={manifest.Phase} " +
-                $"priority={manifest.Priority} rules={manifest.VirtualFileRuleCount} path={manifest.Path}");
+                $"priority={manifest.Priority} capabilities={FormatLogList(manifest.Capabilities)} " +
+                $"rules={manifest.VirtualFileRuleCount} path={manifest.Path}");
         }
 
         log.Info($"Enabled virtual file source rules: {SourceVirtualFileRules.Count}");
@@ -1511,7 +1560,8 @@ internal sealed class PatchPlan
             log.Info(
                 $"patch-explain-manifest order={manifest.LoadOrder} status={manifest.Status} id={manifest.Id} " +
                 $"name={manifest.Name} phase={manifest.Phase} priority={manifest.Priority} " +
-                $"rules={manifest.VirtualFileRuleCount} skipReason={QuoteLogValue(manifest.SkipReason)} path={manifest.Path}");
+                $"capabilities={FormatLogList(manifest.Capabilities)} rules={manifest.VirtualFileRuleCount} " +
+                $"skipReason={QuoteLogValue(manifest.SkipReason)} path={manifest.Path}");
         }
 
         foreach (var rule in LoadRules)
@@ -1584,6 +1634,12 @@ internal sealed class PatchPlan
     {
         return string.IsNullOrEmpty(value) ? "\"\"" : "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
     }
+
+    private static string FormatLogList(IEnumerable<string> values)
+    {
+        var list = values.Where(value => !string.IsNullOrWhiteSpace(value)).ToArray();
+        return list.Length == 0 ? "[]" : "[" + string.Join(",", list) + "]";
+    }
 }
 
 internal sealed record PatchManifestInfo(
@@ -1594,6 +1650,7 @@ internal sealed record PatchManifestInfo(
     string Status,
     bool Enabled,
     int VirtualFileRuleCount,
+    string[] Capabilities,
     string Phase,
     int Priority,
     int LoadOrder,
@@ -2196,6 +2253,9 @@ internal sealed class PluginPatchManifest
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; }
 
+    [JsonPropertyName("capabilities")]
+    public string[] Capabilities { get; set; } = [];
+
     [JsonPropertyName("phase")]
     public string Phase { get; set; } = "normal";
 
@@ -2235,6 +2295,7 @@ internal sealed class PluginPatchManifest
             manifest.Name ??= string.Empty;
             manifest.Id ??= string.Empty;
             manifest.Version ??= string.Empty;
+            manifest.Capabilities ??= [];
             manifest.Phase ??= "normal";
             manifest.Depends ??= [];
             manifest.OptionalDepends ??= [];
@@ -2273,6 +2334,12 @@ internal sealed class PatchCondition
 
     [JsonPropertyName("modsAbsent")]
     public string[] ModsAbsent { get; set; } = [];
+
+    [JsonPropertyName("capabilitiesPresent")]
+    public string[] CapabilitiesPresent { get; set; } = [];
+
+    [JsonPropertyName("capabilitiesAbsent")]
+    public string[] CapabilitiesAbsent { get; set; } = [];
 }
 
 internal sealed class VirtualFileReplacement

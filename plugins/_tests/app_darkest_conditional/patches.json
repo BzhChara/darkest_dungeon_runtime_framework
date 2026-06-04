@@ -3,6 +3,11 @@
   "name": "App Darkest Conditional Patch Test",
   "version": "0.1.0",
   "enabled": true,
+  "capabilities": [
+    "file.virtualize",
+    "content.patch",
+    "content.app_config"
+  ],
   "phase": "normal",
   "priority": 20,
   "depends": [
@@ -26,6 +31,21 @@
     },
     {
       "when": {
+        "capabilitiesPresent": [
+          "content.app_config"
+        ]
+      },
+      "target": "shared/app.darkest",
+      "operations": [
+        {
+          "type": "replaceLine",
+          "match": ".max_campaign_log_file_size 0",
+          "line": ".max_campaign_log_file_size 0"
+        }
+      ]
+    },
+    {
+      "when": {
         "modsAbsent": [
           "test.app_darkest_spacing.after"
         ]
@@ -35,6 +55,21 @@
         {
           "type": "setValue",
           "key": ".condition_should_be_skipped",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "when": {
+        "capabilitiesAbsent": [
+          "content.patch"
+        ]
+      },
+      "target": "shared/app.darkest",
+      "operations": [
+        {
+          "type": "setValue",
+          "key": ".capability_condition_should_be_skipped",
           "value": "1"
         }
       ]
