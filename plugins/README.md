@@ -25,7 +25,16 @@ plugins/<plugin-id>/patches.json
   "loadAfter": [],
   "loadBefore": [],
   "conflicts": [],
-  "virtualFileRules": []
+  "virtualFileRules": [
+    {
+      "when": {
+        "modsPresent": [],
+        "modsAbsent": []
+      },
+      "target": "shared/app.darkest",
+      "operations": []
+    }
+  ]
 }
 ```
 
@@ -38,6 +47,12 @@ plugins/<plugin-id>/patches.json
 - `priority` 数值小的先加载，默认 `0`。
 - 重复 `id` 和 `conflicts` 默认只记录 warning；不会直接阻止启动。
 
+规则级条件：
+
+- `when.modsPresent`：所有列出的插件 id 都启用且未被跳过时，规则才生效。
+- `when.modsAbsent`：所有列出的插件 id 都未启用或已被跳过时，规则才生效。
+- 条件不满足的规则只会出现在 explain 诊断里，不参与编译、验证、预览或运行时替换。
+
 诊断命令：
 
 ```text
@@ -49,7 +64,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 - 每个插件的最终 `order`、`status`、`phase`、`priority` 和跳过原因。
 - 每条排序边，例如 `mod.a -> mod.b reason=depends`。
 - 重复 id、缺依赖、声明冲突和顺序循环等加载诊断。
-- 每个 `target` 被哪些插件规则修改，以及最终替换来源。
+- 每个 `target` 被哪些插件规则修改、哪些规则因 `when` 跳过，以及最终替换来源。
 
 `example/patches.json` 默认 `enabled:false`，可以复制成自己的插件后再启用。
 

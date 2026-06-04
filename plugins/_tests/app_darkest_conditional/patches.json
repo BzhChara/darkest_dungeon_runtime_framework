@@ -1,0 +1,43 @@
+{
+  "id": "test.app_darkest_conditional",
+  "name": "App Darkest Conditional Patch Test",
+  "version": "0.1.0",
+  "enabled": true,
+  "phase": "normal",
+  "priority": 20,
+  "depends": [
+    "test.app_darkest_spacing.after"
+  ],
+  "virtualFileRules": [
+    {
+      "when": {
+        "modsPresent": [
+          "test.app_darkest_spacing.after"
+        ]
+      },
+      "target": "shared/app.darkest",
+      "operations": [
+        {
+          "type": "replaceLine",
+          "match": ".max_campaign_log_file_size 0",
+          "line": ".max_campaign_log_file_size 0"
+        }
+      ]
+    },
+    {
+      "when": {
+        "modsAbsent": [
+          "test.app_darkest_spacing.after"
+        ]
+      },
+      "target": "shared/app.darkest",
+      "operations": [
+        {
+          "type": "setValue",
+          "key": ".condition_should_be_skipped",
+          "value": "1"
+        }
+      ]
+    }
+  ]
+}

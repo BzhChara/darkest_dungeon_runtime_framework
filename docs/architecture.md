@@ -61,6 +61,7 @@ C++ DLL。
 - `enabled:false` 的清单只记录日志，不参与规则合并。
 - `enabled:true` 的清单可提供 `id`、`version`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts` 和 `virtualFileRules`。
 - 重复 `id`、声明冲突和顺序循环默认只记录 warning；必需依赖缺失时跳过当前插件，不阻止其他插件。
+- `virtualFileRules` 可使用 `when.modsPresent` / `when.modsAbsent` 做规则级条件；条件不满足的规则只进入 explain 诊断，不参与最终补丁链。
 - `operations` 会在启动前按加载顺序、基于当前虚拟文本逐步编译成底层字符串 `replacements`。
 
 稳定后再考虑：

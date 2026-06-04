@@ -367,13 +367,22 @@ internal sealed class RuntimeConfig
     public PatchPlan BuildPatchPlan(string projectRoot, LauncherLog log)
     {
         var sourceRules = new List<VirtualFileRuleSource>();
+        var skippedRules = new List<VirtualFileRuleSkip>();
         var compileIssues = new List<PatchCompileIssue>();
-        AddVirtualRules(sourceRules, VirtualFileRules, "config virtualFileRules", string.Empty);
+        var manifestName = string.IsNullOrWhiteSpace(PluginPatchManifestName) ? "patches.json" : PluginPatchManifestName;
+        var pluginCandidates = DiscoverPluginPatchManifests(projectRoot, manifestName, log).ToList();
+        var loadPlan = BuildPluginLoadPlan(pluginCandidates, log);
+        var activePluginIds = loadPlan.OrderedEnabledPlugins
+            .Select(plugin => NormalizePluginId(plugin.Id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        AddVirtualRules(sourceRules, skippedRules, VirtualFileRules, "config virtualFileRules", string.Empty, activePluginIds);
 
         if (sourceRules.Count == 0 && !string.IsNullOrWhiteSpace(VirtualFileTarget) && !string.IsNullOrEmpty(VirtualFileFind))
         {
             AddVirtualRules(
                 sourceRules,
+                skippedRules,
                 [
                     new VirtualFileRule
                     {
@@ -389,12 +398,9 @@ internal sealed class RuntimeConfig
                     }
                 ],
                 "config legacy virtualFileTarget",
-                string.Empty);
+                string.Empty,
+                activePluginIds);
         }
-
-        var manifestName = string.IsNullOrWhiteSpace(PluginPatchManifestName) ? "patches.json" : PluginPatchManifestName;
-        var pluginCandidates = DiscoverPluginPatchManifests(projectRoot, manifestName, log).ToList();
-        var loadPlan = BuildPluginLoadPlan(pluginCandidates, log);
 
         foreach (var plugin in loadPlan.OrderedEnabledPlugins)
         {
@@ -402,7 +408,7 @@ internal sealed class RuntimeConfig
                 $"Plugin patch manifest enabled: order={plugin.LoadOrder} id={plugin.Id} " +
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
                 $"priority={plugin.Manifest.Priority} virtualRules={plugin.VirtualFileRuleCount} path={plugin.Path}");
-            AddVirtualRules(sourceRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path);
+            AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds);
         }
 
         return new PatchPlan(
@@ -410,6 +416,7 @@ internal sealed class RuntimeConfig
             loadPlan.LoadRules,
             loadPlan.Diagnostics,
             sourceRules,
+            skippedRules,
             BuildEffectiveVirtualRules(sourceRules, compileIssues, log),
             compileIssues);
     }
@@ -961,9 +968,11 @@ internal sealed class RuntimeConfig
 
     private static void AddVirtualRules(
         List<VirtualFileRuleSource> output,
+        List<VirtualFileRuleSkip> skipped,
         IEnumerable<VirtualFileRule>? input,
         string sourceName,
-        string sourcePath)
+        string sourcePath,
+        IReadOnlySet<string> activePluginIds)
     {
         var index = 0;
         foreach (var rule in input ?? [])
@@ -981,6 +990,20 @@ internal sealed class RuntimeConfig
                 continue;
             }
 
+            var condition = EvaluatePatchCondition(rule.When, activePluginIds);
+            if (!condition.Matched)
+            {
+                skipped.Add(new VirtualFileRuleSkip(
+                    sourceName,
+                    sourcePath,
+                    index,
+                    rule.Target,
+                    rule.Replacements?.Length ?? 0,
+                    rule.Operations?.Length ?? 0,
+                    condition.Reason));
+                continue;
+            }
+
             output.Add(new VirtualFileRuleSource(
                 sourceName,
                 sourcePath,
@@ -989,9 +1012,44 @@ internal sealed class RuntimeConfig
                 {
                     Target = rule.Target,
                     Replacements = rule.Replacements ?? [],
-                    Operations = rule.Operations ?? []
-                }));
+                    Operations = rule.Operations ?? [],
+                    When = rule.When
+                },
+                condition.Reason));
         }
+    }
+
+    private static PatchConditionResult EvaluatePatchCondition(PatchCondition? condition, IReadOnlySet<string> activePluginIds)
+    {
+        if (condition is null)
+        {
+            return new PatchConditionResult(true, "no condition");
+        }
+
+        var modsPresent = CleanModReferences(condition.ModsPresent).ToArray();
+        var modsAbsent = CleanModReferences(condition.ModsAbsent).ToArray();
+        if (modsPresent.Length == 0 && modsAbsent.Length == 0)
+        {
+            return new PatchConditionResult(true, "empty condition");
+        }
+
+        var missingPresent = modsPresent
+            .Where(modId => !activePluginIds.Contains(NormalizePluginId(modId)))
+            .ToArray();
+        if (missingPresent.Length > 0)
+        {
+            return new PatchConditionResult(false, "modsPresent missing: " + string.Join(",", missingPresent));
+        }
+
+        var presentAbsent = modsAbsent
+            .Where(modId => activePluginIds.Contains(NormalizePluginId(modId)))
+            .ToArray();
+        if (presentAbsent.Length > 0)
+        {
+            return new PatchConditionResult(false, "modsAbsent present: " + string.Join(",", presentAbsent));
+        }
+
+        return new PatchConditionResult(true, "condition matched");
     }
 
     private List<VirtualFileReplacement> CompileVirtualFileOperations(
@@ -1366,6 +1424,7 @@ internal sealed class PatchPlan
         IReadOnlyList<PluginLoadRule> loadRules,
         IReadOnlyList<PluginLoadDiagnostic> loadDiagnostics,
         IReadOnlyList<VirtualFileRuleSource> sourceVirtualFileRules,
+        IReadOnlyList<VirtualFileRuleSkip> skippedVirtualFileRules,
         IReadOnlyList<VirtualFileRule> effectiveVirtualFileRules,
         IReadOnlyList<PatchCompileIssue> compileIssues)
     {
@@ -1373,6 +1432,7 @@ internal sealed class PatchPlan
         LoadRules = loadRules;
         LoadDiagnostics = loadDiagnostics;
         SourceVirtualFileRules = sourceVirtualFileRules;
+        SkippedVirtualFileRules = skippedVirtualFileRules;
         EffectiveVirtualFileRules = effectiveVirtualFileRules;
         CompileIssues = compileIssues;
     }
@@ -1381,6 +1441,7 @@ internal sealed class PatchPlan
     public IReadOnlyList<PluginLoadRule> LoadRules { get; }
     public IReadOnlyList<PluginLoadDiagnostic> LoadDiagnostics { get; }
     public IReadOnlyList<VirtualFileRuleSource> SourceVirtualFileRules { get; }
+    public IReadOnlyList<VirtualFileRuleSkip> SkippedVirtualFileRules { get; }
     public IReadOnlyList<VirtualFileRule> EffectiveVirtualFileRules { get; }
     public IReadOnlyList<PatchCompileIssue> CompileIssues { get; }
     public bool HasCompileErrors => CompileIssues.Any(issue => issue.IsError);
@@ -1388,7 +1449,7 @@ internal sealed class PatchPlan
     public void LogSummary(LauncherLog log)
     {
         log.Info($"Patch manifests discovered: {Manifests.Count}");
-        foreach (var manifest in Manifests)
+        foreach (var manifest in OrderedManifestsForDisplay())
         {
             log.Info(
                 $"patch-manifest status={manifest.Status} order={manifest.LoadOrder} id={manifest.Id} " +
@@ -1402,7 +1463,16 @@ internal sealed class PatchPlan
             log.Info(
                 $"patch-source-rule source={sourceRule.SourceName} index={sourceRule.RuleIndex} " +
                 $"target={sourceRule.Rule.Target} replacements={sourceRule.Rule.Replacements.Length} " +
-                $"operations={sourceRule.Rule.Operations.Length}");
+                $"operations={sourceRule.Rule.Operations.Length} condition={QuoteLogValue(sourceRule.ConditionReason)}");
+        }
+
+        log.Info($"Skipped virtual file source rules: {SkippedVirtualFileRules.Count}");
+        foreach (var skipped in SkippedVirtualFileRules)
+        {
+            log.Info(
+                $"patch-source-rule-skipped source={skipped.SourceName} index={skipped.RuleIndex} " +
+                $"target={skipped.Target} replacements={skipped.ReplacementCount} " +
+                $"operations={skipped.OperationCount} reason={QuoteLogValue(skipped.Reason)}");
         }
 
         log.Info($"Effective virtual file rules: {EffectiveVirtualFileRules.Count}");
@@ -1436,7 +1506,7 @@ internal sealed class PatchPlan
     {
         log.Info("Patch explanation started.");
 
-        foreach (var manifest in Manifests.OrderBy(manifest => manifest.LoadOrder < 0 ? int.MaxValue : manifest.LoadOrder).ThenBy(manifest => manifest.Id, StringComparer.OrdinalIgnoreCase))
+        foreach (var manifest in OrderedManifestsForDisplay())
         {
             log.Info(
                 $"patch-explain-manifest order={manifest.LoadOrder} status={manifest.Status} id={manifest.Id} " +
@@ -1468,10 +1538,18 @@ internal sealed class PatchPlan
             foreach (var source in group)
             {
                 log.Info(
-                    $"patch-explain-target-source target={group.Key} source={source.SourceName} " +
+                    $"patch-explain-target-source target={group.Key} status=active source={source.SourceName} " +
                     $"rule={source.RuleIndex} replacements={source.Rule.Replacements.Length} " +
-                    $"operations={source.Rule.Operations.Length} path={source.SourcePath}");
+                    $"operations={source.Rule.Operations.Length} reason={QuoteLogValue(source.ConditionReason)} path={source.SourcePath}");
             }
+        }
+
+        foreach (var skipped in SkippedVirtualFileRules.OrderBy(rule => NormalizeTargetKey(rule.Target), StringComparer.OrdinalIgnoreCase))
+        {
+            log.Info(
+                $"patch-explain-target-source target={NormalizeTargetKey(skipped.Target)} status=skipped " +
+                $"source={skipped.SourceName} rule={skipped.RuleIndex} replacements={skipped.ReplacementCount} " +
+                $"operations={skipped.OperationCount} reason={QuoteLogValue(skipped.Reason)} path={skipped.SourcePath}");
         }
 
         foreach (var effectiveRule in EffectiveVirtualFileRules)
@@ -1488,6 +1566,13 @@ internal sealed class PatchPlan
         }
 
         log.Info("Patch explanation completed.");
+    }
+
+    private IOrderedEnumerable<PatchManifestInfo> OrderedManifestsForDisplay()
+    {
+        return Manifests
+            .OrderBy(manifest => manifest.LoadOrder < 0 ? int.MaxValue : manifest.LoadOrder)
+            .ThenBy(manifest => manifest.Id, StringComparer.OrdinalIgnoreCase);
     }
 
     private static string NormalizeTargetKey(string target)
@@ -1577,7 +1662,23 @@ internal sealed class SequentialVirtualRuleBuilder
     public List<VirtualFileReplacement> Replacements { get; } = [];
 }
 
-internal sealed record VirtualFileRuleSource(string SourceName, string SourcePath, int RuleIndex, VirtualFileRule Rule);
+internal sealed record VirtualFileRuleSource(
+    string SourceName,
+    string SourcePath,
+    int RuleIndex,
+    VirtualFileRule Rule,
+    string ConditionReason);
+
+internal sealed record VirtualFileRuleSkip(
+    string SourceName,
+    string SourcePath,
+    int RuleIndex,
+    string Target,
+    int ReplacementCount,
+    int OperationCount,
+    string Reason);
+
+internal sealed record PatchConditionResult(bool Matched, string Reason);
 
 internal sealed record PatchCompileIssue(
     bool IsError,
@@ -2152,6 +2253,9 @@ internal sealed class PluginPatchManifest
 
 internal sealed class VirtualFileRule
 {
+    [JsonPropertyName("when")]
+    public PatchCondition? When { get; set; }
+
     [JsonPropertyName("target")]
     public string Target { get; set; } = string.Empty;
 
@@ -2160,6 +2264,15 @@ internal sealed class VirtualFileRule
 
     [JsonPropertyName("operations")]
     public VirtualFileOperation[] Operations { get; set; } = [];
+}
+
+internal sealed class PatchCondition
+{
+    [JsonPropertyName("modsPresent")]
+    public string[] ModsPresent { get; set; } = [];
+
+    [JsonPropertyName("modsAbsent")]
+    public string[] ModsAbsent { get; set; } = [];
 }
 
 internal sealed class VirtualFileReplacement
