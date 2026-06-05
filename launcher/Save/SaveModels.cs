@@ -88,9 +88,99 @@ internal sealed partial class SaveDirectoryWatcher
         SaveStateProgressionFacts Progression,
         IReadOnlyDictionary<string, int> Wallet,
         SaveStateUpgradeFacts Upgrades,
+        SaveStateTownFacts Town,
         IReadOnlyList<string> BuildingIds,
         IReadOnlyList<string> HeroIds,
         IReadOnlyList<SaveStateHeroFacts> Heroes);
+
+    private sealed record SaveStateTownFacts(
+        int? Version,
+        int BuildingCount,
+        int StoreCount,
+        int StoreItemCount,
+        int RecruitCount,
+        int ActivitySlotCount,
+        int OccupiedActivitySlotCount,
+        int QuirkTreatmentCount,
+        int DeckHistoryEntryCount,
+        IReadOnlyList<SaveStateTownBuildingFacts> Buildings,
+        IReadOnlyList<SaveStateTownStoreFacts> Stores,
+        IReadOnlyList<SaveStateTownStoreItemFacts> StoreItems,
+        IReadOnlyList<SaveStateTownRecruitFacts> Recruits,
+        IReadOnlyList<SaveStateTownActivitySlotFacts> ActivitySlots,
+        IReadOnlyList<SaveStateTownQuirkTreatmentFacts> QuirkTreatments,
+        IReadOnlyList<SaveStateTownDeckHistoryFacts> DeckHistory);
+
+    private sealed record SaveStateTownBuildingFacts(
+        string Id,
+        bool HasActivities,
+        bool HasStore,
+        int ActivityCount,
+        int StoreCount,
+        int ActivitySlotCount,
+        int StoreItemCount,
+        int RecruitCount,
+        IReadOnlyList<string> ActivityIds,
+        IReadOnlyList<string> StoreIds);
+
+    private sealed record SaveStateTownStoreFacts(
+        string BuildingId,
+        string StoreId,
+        int InventoryItemCount,
+        int RecruitCount,
+        int DeckHistoryEntryCount);
+
+    private sealed record SaveStateTownStoreItemFacts(
+        string BuildingId,
+        string StoreId,
+        string SlotId,
+        string? ItemId,
+        string? ItemType,
+        int? Amount);
+
+    private sealed record SaveStateTownRecruitFacts(
+        string BuildingId,
+        string StoreId,
+        string RecruitId,
+        string? Name,
+        string? HeroClass,
+        int? ResolveXp,
+        double? CurrentHp,
+        double? Stress,
+        int? WeaponRank,
+        int? ArmourRank,
+        bool? Rescued,
+        bool? BackerHero,
+        bool? IsFromTownEvent,
+        IReadOnlyList<string> QuirkIds,
+        IReadOnlyList<string> CombatSkillIds,
+        IReadOnlyList<string> CampingSkillIds,
+        IReadOnlyList<string> TrinketIds);
+
+    private sealed record SaveStateTownActivitySlotFacts(
+        string BuildingId,
+        string ActivityId,
+        int SlotIndex,
+        int? HeroId,
+        int? VisitsRemaining,
+        int? ResidentOccupied,
+        bool? IsSideEffectResult,
+        bool HasHero);
+
+    private sealed record SaveStateTownQuirkTreatmentFacts(
+        string BuildingId,
+        string ActivityId,
+        int SlotIndex,
+        string QuirkBucket,
+        string? QuirkId,
+        int? Action);
+
+    private sealed record SaveStateTownDeckHistoryFacts(
+        string BuildingId,
+        string StoreId,
+        string DeckVersionId,
+        string EntryId,
+        int? Count);
 
     private sealed record SaveStateUpgradeFacts(
         int? Version,

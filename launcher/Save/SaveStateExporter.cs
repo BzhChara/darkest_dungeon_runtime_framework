@@ -524,6 +524,7 @@ internal sealed partial class SaveDirectoryWatcher
                     TryGetBool(progression, "base_root.last_raid_was_a_plot_quest")),
                 BuildWalletFacts(estate),
                 BuildUpgradeFacts(upgrades, upgradeCatalog),
+                BuildTownFacts(town),
                 ExtractDirectChildIds(town?.DsonObjectPaths ?? [], "base_root.buildings"),
                 ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"),
                 roster?.Heroes ?? []);
