@@ -92,7 +92,31 @@ internal sealed partial class SaveDirectoryWatcher
         SaveStateTownFacts Town,
         IReadOnlyList<string> BuildingIds,
         IReadOnlyList<string> HeroIds,
+        IReadOnlyList<SaveStateHeroLoadoutFacts> HeroLoadouts,
         IReadOnlyList<SaveStateHeroFacts> Heroes);
+
+    private sealed record SaveStateHeroLoadoutFacts(
+        string HeroId,
+        string? Name,
+        string? HeroClass,
+        bool DefinitionFound,
+        int? RosterStatus,
+        int? ResolveXp,
+        int? SelectedCombatSkillsMax,
+        IReadOnlyList<string> SelectedCombatSkillIds,
+        IReadOnlyList<string> AllCombatSkillIds,
+        IReadOnlyList<string> UnselectedCombatSkillIds,
+        IReadOnlyList<string> UnknownSelectedCombatSkillIds,
+        IReadOnlyList<string> SelectedCampingSkillIds,
+        IReadOnlyList<string> AllCampingSkillIds,
+        IReadOnlyList<string> UnselectedCampingSkillIds,
+        IReadOnlyList<string> UnknownSelectedCampingSkillIds,
+        int? CurrentWeaponRank,
+        int? MaxWeaponRank,
+        SaveStateHeroEquipmentDefinitionFacts? CurrentWeapon,
+        int? CurrentArmourRank,
+        int? MaxArmourRank,
+        SaveStateHeroEquipmentDefinitionFacts? CurrentArmour);
 
     private sealed record SaveStateHeroDefinitionFacts(
         string SourceScope,

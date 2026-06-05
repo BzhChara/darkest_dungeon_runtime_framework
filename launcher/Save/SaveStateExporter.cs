@@ -507,6 +507,7 @@ internal sealed partial class SaveDirectoryWatcher
             var upgrades = files.FirstOrDefault(file => file.FileName.Equals("persist.upgrades.json", StringComparison.OrdinalIgnoreCase));
             var town = files.FirstOrDefault(file => file.FileName.Equals("persist.town.json", StringComparison.OrdinalIgnoreCase));
             var roster = files.FirstOrDefault(file => file.FileName.Equals("persist.roster.json", StringComparison.OrdinalIgnoreCase));
+            var heroes = roster?.Heroes ?? [];
 
             return new SaveStateFacts(
                 new SaveStateCampaignFacts(
@@ -532,7 +533,8 @@ internal sealed partial class SaveDirectoryWatcher
                 BuildTownFacts(town),
                 ExtractDirectChildIds(town?.DsonObjectPaths ?? [], "base_root.buildings"),
                 ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"),
-                roster?.Heroes ?? []);
+                BuildHeroLoadoutFacts(heroes, heroDefinitions),
+                heroes);
         }
 
         private static IReadOnlyDictionary<string, int> BuildWalletFacts(SaveStateFileReport? estate)
