@@ -6,6 +6,7 @@
 *.log
 logs/*
 !logs/.gitkeep
+.research/
 runtime/bin/
 runtime/obj/
 launcher/bin/
