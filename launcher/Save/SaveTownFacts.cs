@@ -362,16 +362,5 @@ internal sealed partial class SaveDirectoryWatcher
                 : null;
         }
 
-        private static string NumericAwareSortKey(string value)
-        {
-            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-                ? parsed.ToString("D10", CultureInfo.InvariantCulture)
-                : value;
-        }
-
-        private static string? EmptyToNull(string? value)
-        {
-            return string.IsNullOrEmpty(value) ? null : value;
-        }
     }
 }

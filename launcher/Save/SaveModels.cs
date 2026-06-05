@@ -240,19 +240,57 @@ internal sealed partial class SaveDirectoryWatcher
         string? Name,
         string? HeroClass,
         int? RosterStatus,
+        int? BeforeOnStartTownVisitStatus,
+        int? MissingDuration,
+        int? StoryVariation,
+        string? MissingFrom,
+        string? BuildingName,
+        int? Timestamp,
         int? ResolveXp,
         double? CurrentHp,
         double? Stress,
         int? WeaponRank,
         int? ArmourRank,
+        int? ColourVariation,
         bool? BackerHero,
+        bool? CombatReady,
+        int? Stunned,
+        bool? DeathHeartAttackCompleted,
+        bool? VisitedDeathsDoor,
+        int? DeathsDoorEnterEffectRoundCooldown,
+        bool? HasHadHeartAttack,
+        int? StepsTaken,
+        int? EnemiesKilled,
+        int? ProvisionsConsumed,
+        int? SuccessfulDarkestDungeonQuestCount,
+        bool? IsFromTownEvent,
+        string? AfflictionTypeId,
+        int? AfflictionSeverity,
+        string? VirtueTypeId,
         int RawDataLength,
         int NestedObjectCount,
         int NestedFieldCount,
         IReadOnlyList<string> QuirkIds,
+        IReadOnlyList<SaveStateHeroQuirkFacts> Quirks,
         IReadOnlyList<string> CombatSkillIds,
         IReadOnlyList<string> CampingSkillIds,
-        IReadOnlyList<string> TrinketIds);
+        IReadOnlyList<string> TrinketIds,
+        IReadOnlyList<SaveStateHeroTrinketFacts> Trinkets);
+
+    private sealed record SaveStateHeroQuirkFacts(
+        string Id,
+        bool? IsNew,
+        bool? IsLocked,
+        int? MissionCount,
+        int? ReplacesQuirk,
+        bool? ReplacesQuirkViewed,
+        int? EvolutionDurationRemaining);
+
+    private sealed record SaveStateHeroTrinketFacts(
+        string SlotId,
+        string? ItemId,
+        string? ItemType,
+        int? Amount);
 
     private sealed record SaveStateCampaignFacts(
         int? Version,

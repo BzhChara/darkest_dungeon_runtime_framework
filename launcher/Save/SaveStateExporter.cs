@@ -621,117 +621,6 @@ internal sealed partial class SaveDirectoryWatcher
                 : values.ToArray();
         }
 
-        private static IReadOnlyList<SaveStateHeroFacts> ExtractHeroFactsFromRoster(
-            string fileName,
-            byte[] bytes,
-            BinaryContainerInfo? container,
-            List<string> accessIssues)
-        {
-            if (!fileName.Equals("persist.roster.json", StringComparison.OrdinalIgnoreCase) || container is null)
-            {
-                return [];
-            }
-
-            var heroes = new List<SaveStateHeroFacts>();
-            foreach (var scalar in container.DsonScalars
-                         .Where(scalar => scalar.Path.EndsWith(".hero_file_data.raw_data", StringComparison.OrdinalIgnoreCase))
-                         .OrderBy(scalar => scalar.Path, StringComparer.OrdinalIgnoreCase))
-            {
-                var heroId = ExtractHeroIdFromRawDataPath(scalar.Path);
-                if (string.IsNullOrWhiteSpace(heroId))
-                {
-                    continue;
-                }
-
-                var nameLength = Encoding.UTF8.GetByteCount(scalar.Name) + 1;
-                var valueStart = Align4(scalar.Offset + nameLength);
-                var fieldEnd = scalar.Offset + scalar.Size;
-                if (fieldEnd > bytes.Length || valueStart + 4 > fieldEnd)
-                {
-                    accessIssues.Add($"{fileName}: hero raw_data has no length prefix path={scalar.Path}");
-                    continue;
-                }
-
-                var nestedLength = ReadInt32LittleEndian(bytes, valueStart);
-                var nestedOffset = valueStart + 4;
-                var availableLength = fieldEnd - nestedOffset;
-                if (nestedLength < 0
-                    || availableLength < 0
-                    || nestedLength > availableLength
-                    || nestedOffset > bytes.Length
-                    || bytes.Length - nestedOffset < nestedLength)
-                {
-                    accessIssues.Add($"{fileName}: hero raw_data length is invalid path={scalar.Path} length={nestedLength}");
-                    continue;
-                }
-
-                if (nestedLength < 0x40 || ReadUInt32LittleEndian(bytes, nestedOffset) != 0x0000B101)
-                {
-                    accessIssues.Add($"{fileName}: hero raw_data is not a DSON container path={scalar.Path}");
-                    continue;
-                }
-
-                var nestedIssues = new List<string>();
-                var nested = TryParseDsonContainer(bytes, nestedOffset, nestedLength, nestedIssues);
-                foreach (var issue in nestedIssues)
-                {
-                    accessIssues.Add($"{fileName}: hero={heroId} {issue}");
-                }
-
-                if (nested is null)
-                {
-                    accessIssues.Add($"{fileName}: failed to parse nested hero DSON path={scalar.Path}");
-                    continue;
-                }
-
-                heroes.Add(BuildSaveStateHeroFacts(heroId, nestedLength, nested));
-            }
-
-            return heroes
-                .OrderBy(hero => int.TryParse(hero.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : int.MaxValue)
-                .ThenBy(hero => hero.Id, StringComparer.OrdinalIgnoreCase)
-                .Take(120)
-                .ToArray();
-        }
-
-        private static string? ExtractHeroIdFromRawDataPath(string path)
-        {
-            const string prefix = "base_root.heroes.";
-            const string suffix = ".hero_file_data.raw_data";
-            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                || !path.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-                || path.Length <= prefix.Length + suffix.Length)
-            {
-                return null;
-            }
-
-            return path[prefix.Length..^suffix.Length];
-        }
-
-        private static SaveStateHeroFacts BuildSaveStateHeroFacts(string heroId, int rawDataLength, BinaryContainerInfo nested)
-        {
-            return new SaveStateHeroFacts(
-                heroId,
-                TryGetString(nested.DsonScalars, "base_root.actor.name"),
-                TryGetString(nested.DsonScalars, "base_root.heroClass"),
-                TryGetInt(nested.DsonScalars, "base_root.roster.status"),
-                TryGetInt(nested.DsonScalars, "base_root.resolveXp"),
-                TryGetDouble(nested.DsonScalars, "base_root.actor.current_hp"),
-                TryGetDouble(nested.DsonScalars, "base_root.m_Stress"),
-                TryGetInt(nested.DsonScalars, "base_root.weapon_rank"),
-                TryGetInt(nested.DsonScalars, "base_root.armour_rank"),
-                TryGetBool(nested.DsonScalars, "base_root.backer_hero"),
-                rawDataLength,
-                nested.DsonSummary.ObjectCount,
-                nested.DsonSummary.FieldCount,
-                ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.quirks"),
-                ExtractDirectChildIds(nested.DsonScalars, "base_root.skills.selected_combat_skills"),
-                ExtractDirectChildIds(nested.DsonScalars, "base_root.skills.selected_camping_skills"),
-                MergeDirectChildIds(
-                    ExtractDirectChildIds(nested.DsonObjectPaths, "base_root.trinkets.items"),
-                    ExtractDirectChildIds(nested.DsonScalars, "base_root.trinkets.items")));
-        }
-
         private static string? TryGetString(SaveStateFileReport? file, string path)
         {
             var scalar = FindDsonScalar(file, path);
@@ -824,5 +713,16 @@ internal sealed partial class SaveDirectoryWatcher
             return file.AllDsonScalars.Count > 0 ? file.AllDsonScalars : file.DsonScalars;
         }
 
+        private static string NumericAwareSortKey(string value)
+        {
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed.ToString("D10", CultureInfo.InvariantCulture)
+                : value;
+        }
+
+        private static string? EmptyToNull(string? value)
+        {
+            return string.IsNullOrEmpty(value) ? null : value;
+        }
     }
 }
