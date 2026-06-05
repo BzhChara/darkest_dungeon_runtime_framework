@@ -115,6 +115,7 @@ internal sealed partial class SaveDirectoryWatcher
             var gameReport = fileReports.FirstOrDefault(file => file.FileName.Equals("persist.game.json", StringComparison.OrdinalIgnoreCase));
             var gameMode = TryGetString(gameReport, "base_root.game_mode");
             var upgradeCatalog = UpgradeDefinitionCatalog.Load(gameWorkingDirectory, gameMode, accessIssues);
+            var heroDefinitions = BuildHeroDefinitionFacts(gameWorkingDirectory, gameMode, accessIssues);
 
             var parseStatus = fileReports.Any(file => file.Format.Equals("jsonText", StringComparison.OrdinalIgnoreCase))
                 ? "partialJsonText"
@@ -125,7 +126,7 @@ internal sealed partial class SaveDirectoryWatcher
             {
                 parseStatus = "noCandidateFiles";
             }
-            var facts = BuildSaveStateFacts(fileReports, upgradeCatalog);
+            var facts = BuildSaveStateFacts(fileReports, upgradeCatalog, heroDefinitions);
 
             var report = new SaveStateReport(
                 1,
@@ -495,7 +496,10 @@ internal sealed partial class SaveDirectoryWatcher
             return false;
         }
 
-        private static SaveStateFacts BuildSaveStateFacts(IReadOnlyList<SaveStateFileReport> files, UpgradeDefinitionCatalog upgradeCatalog)
+        private static SaveStateFacts BuildSaveStateFacts(
+            IReadOnlyList<SaveStateFileReport> files,
+            UpgradeDefinitionCatalog upgradeCatalog,
+            SaveStateHeroDefinitionFacts heroDefinitions)
         {
             var game = files.FirstOrDefault(file => file.FileName.Equals("persist.game.json", StringComparison.OrdinalIgnoreCase));
             var progression = files.FirstOrDefault(file => file.FileName.Equals("persist.progression.json", StringComparison.OrdinalIgnoreCase));
@@ -524,6 +528,7 @@ internal sealed partial class SaveDirectoryWatcher
                     TryGetBool(progression, "base_root.last_raid_was_a_plot_quest")),
                 BuildWalletFacts(estate),
                 BuildUpgradeFacts(upgrades, upgradeCatalog),
+                heroDefinitions,
                 BuildTownFacts(town),
                 ExtractDirectChildIds(town?.DsonObjectPaths ?? [], "base_root.buildings"),
                 ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"),

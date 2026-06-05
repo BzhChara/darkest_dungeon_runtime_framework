@@ -88,10 +88,90 @@ internal sealed partial class SaveDirectoryWatcher
         SaveStateProgressionFacts Progression,
         IReadOnlyDictionary<string, int> Wallet,
         SaveStateUpgradeFacts Upgrades,
+        SaveStateHeroDefinitionFacts HeroDefinitions,
         SaveStateTownFacts Town,
         IReadOnlyList<string> BuildingIds,
         IReadOnlyList<string> HeroIds,
         IReadOnlyList<SaveStateHeroFacts> Heroes);
+
+    private sealed record SaveStateHeroDefinitionFacts(
+        string SourceScope,
+        string GameMode,
+        int SourceFileCount,
+        int HeroClassCount,
+        int CombatSkillCount,
+        int CampingSkillCount,
+        int WeaponLevelCount,
+        int ArmourLevelCount,
+        IReadOnlyList<SaveStateHeroClassDefinitionFacts> Classes);
+
+    private sealed record SaveStateHeroClassDefinitionFacts(
+        string HeroClass,
+        string SourceRelativePath,
+        int? IdIndex,
+        IReadOnlyList<string> Tags,
+        bool? CanSelectCombatSkills,
+        int? SelectedCombatSkillsMax,
+        SaveStateHeroGenerationDefinitionFacts? Generation,
+        IReadOnlyList<SaveStateHeroEquipmentDefinitionFacts> Weapons,
+        IReadOnlyList<SaveStateHeroEquipmentDefinitionFacts> Armours,
+        IReadOnlyList<SaveStateHeroCombatSkillDefinitionFacts> CombatSkills,
+        IReadOnlyList<SaveStateHeroCampingSkillDefinitionFacts> CampingSkills);
+
+    private sealed record SaveStateHeroGenerationDefinitionFacts(
+        bool? IsGenerationEnabled,
+        int? PositiveQuirksMin,
+        int? PositiveQuirksMax,
+        int? NegativeQuirksMin,
+        int? NegativeQuirksMax,
+        int? ClassSpecificCampingSkills,
+        int? SharedCampingSkills,
+        int? RandomCombatSkills,
+        int? CardsInDeck,
+        double? CardChance);
+
+    private sealed record SaveStateHeroEquipmentDefinitionFacts(
+        string Kind,
+        int? Level,
+        string? Name,
+        int? UpgradeRequirementCode,
+        string? Attack,
+        string? Defense,
+        int? DamageMin,
+        int? DamageMax,
+        string? Crit,
+        string? Protection,
+        int? Hp,
+        int? Speed);
+
+    private sealed record SaveStateHeroCombatSkillDefinitionFacts(
+        string Id,
+        int LevelCount,
+        bool GenerationGuaranteed,
+        IReadOnlyList<SaveStateHeroCombatSkillLevelDefinitionFacts> Levels);
+
+    private sealed record SaveStateHeroCombatSkillLevelDefinitionFacts(
+        int? Level,
+        string? Type,
+        string? Attack,
+        string? Damage,
+        string? Crit,
+        string? Launch,
+        string? Target,
+        string? Move,
+        string? Heal,
+        int? PerBattleLimit,
+        bool? IsCritValid,
+        bool? IsStallInvalidating,
+        IReadOnlyList<string> Effects);
+
+    private sealed record SaveStateHeroCampingSkillDefinitionFacts(
+        string Id,
+        int? Level,
+        int? Cost,
+        int? UseLimit,
+        string SourceRelativePath,
+        IReadOnlyList<string> UpgradeRequirementCodes);
 
     private sealed record SaveStateTownFacts(
         int? Version,
