@@ -3563,7 +3563,9 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 accessIssues.Add(issue);
             }
 
-            var upgradeCatalog = UpgradeDefinitionCatalog.Load(gameWorkingDirectory, accessIssues);
+            var gameReport = fileReports.FirstOrDefault(file => file.FileName.Equals("persist.game.json", StringComparison.OrdinalIgnoreCase));
+            var gameMode = TryGetString(gameReport, "base_root.game_mode");
+            var upgradeCatalog = UpgradeDefinitionCatalog.Load(gameWorkingDirectory, gameMode, accessIssues);
 
             var parseStatus = fileReports.Any(file => file.Format.Equals("jsonText", StringComparison.OrdinalIgnoreCase))
                 ? "partialJsonText"
@@ -4190,7 +4192,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
 
             public int NameCandidateCount { get; }
 
-            public static UpgradeDefinitionCatalog Load(string gameWorkingDirectory, List<string> accessIssues)
+            public static UpgradeDefinitionCatalog Load(string gameWorkingDirectory, string? gameMode, List<string> accessIssues)
             {
                 if (string.IsNullOrWhiteSpace(gameWorkingDirectory) || !Directory.Exists(gameWorkingDirectory))
                 {
@@ -4198,6 +4200,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     return new UpgradeDefinitionCatalog(new Dictionary<uint, UpgradeDefinitionLookup>(), 0, 0, 0);
                 }
 
+                var normalizedGameMode = NormalizeGameMode(gameMode);
                 var definitions = new List<UpgradeTreeDefinition>();
                 var sourceFileCount = 0;
                 foreach (var path in Directory.EnumerateFiles(gameWorkingDirectory, "*.upgrades.json", SearchOption.AllDirectories)
@@ -4205,7 +4208,13 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 {
                     try
                     {
-                        var fileDefinitions = ReadUpgradeDefinitionFile(gameWorkingDirectory, path);
+                        var relativePath = GetRelativeCatalogPath(gameWorkingDirectory, path);
+                        if (!IsApplicableToGameMode(relativePath, normalizedGameMode))
+                        {
+                            continue;
+                        }
+
+                        var fileDefinitions = ReadUpgradeDefinitionFile(path, relativePath);
                         if (fileDefinitions.Count == 0)
                         {
                             continue;
@@ -4225,7 +4234,13 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 {
                     try
                     {
-                        var fileDefinitions = ReadCampingSkillDefinitionFile(gameWorkingDirectory, path);
+                        var relativePath = GetRelativeCatalogPath(gameWorkingDirectory, path);
+                        if (!IsApplicableToGameMode(relativePath, normalizedGameMode))
+                        {
+                            continue;
+                        }
+
+                        var fileDefinitions = ReadCampingSkillDefinitionFile(path, relativePath);
                         if (fileDefinitions.Count == 0)
                         {
                             continue;
@@ -4245,7 +4260,13 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 {
                     try
                     {
-                        definitions.AddRange(ReadStartingSaveUpgradeAliases(gameWorkingDirectory, path));
+                        var relativePath = GetRelativeCatalogPath(gameWorkingDirectory, path);
+                        if (!IsApplicableToGameMode(relativePath, normalizedGameMode))
+                        {
+                            continue;
+                        }
+
+                        definitions.AddRange(ReadStartingSaveUpgradeAliases(path, relativePath));
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
                     {
@@ -4272,7 +4293,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 return _byTreeId.TryGetValue(treeId, out var lookup) ? lookup : null;
             }
 
-            private static IReadOnlyList<UpgradeTreeDefinition> ReadUpgradeDefinitionFile(string gameWorkingDirectory, string path)
+            private static IReadOnlyList<UpgradeTreeDefinition> ReadUpgradeDefinitionFile(string path, string relativePath)
             {
                 using var document = JsonDocument.Parse(File.ReadAllBytes(path), UpgradeJsonOptions);
                 if (document.RootElement.ValueKind != JsonValueKind.Object
@@ -4282,9 +4303,6 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     return [];
                 }
 
-                var relativePath = Path.GetRelativePath(gameWorkingDirectory, path)
-                    .Replace(Path.DirectorySeparatorChar, '/')
-                    .Replace(Path.AltDirectorySeparatorChar, '/');
                 var sourcePriority = GetUpgradeDefinitionSourcePriority(relativePath);
                 var definitions = new List<UpgradeTreeDefinition>();
                 foreach (var treeElement in treesElement.EnumerateArray())
@@ -4325,7 +4343,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 return definitions;
             }
 
-            private static IReadOnlyList<UpgradeTreeDefinition> ReadCampingSkillDefinitionFile(string gameWorkingDirectory, string path)
+            private static IReadOnlyList<UpgradeTreeDefinition> ReadCampingSkillDefinitionFile(string path, string relativePath)
             {
                 using var document = JsonDocument.Parse(File.ReadAllBytes(path), UpgradeJsonOptions);
                 if (document.RootElement.ValueKind != JsonValueKind.Object
@@ -4335,9 +4353,6 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     return [];
                 }
 
-                var relativePath = Path.GetRelativePath(gameWorkingDirectory, path)
-                    .Replace(Path.DirectorySeparatorChar, '/')
-                    .Replace(Path.AltDirectorySeparatorChar, '/');
                 var sourcePriority = GetUpgradeDefinitionSourcePriority(relativePath);
                 var definitions = new List<UpgradeTreeDefinition>();
                 foreach (var skillElement in skillsElement.EnumerateArray())
@@ -4385,7 +4400,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 return definitions;
             }
 
-            private static IReadOnlyList<UpgradeTreeDefinition> ReadStartingSaveUpgradeAliases(string gameWorkingDirectory, string path)
+            private static IReadOnlyList<UpgradeTreeDefinition> ReadStartingSaveUpgradeAliases(string path, string relativePath)
             {
                 using var document = JsonDocument.Parse(File.ReadAllBytes(path), UpgradeJsonOptions);
                 if (document.RootElement.ValueKind != JsonValueKind.Object
@@ -4397,9 +4412,6 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     return [];
                 }
 
-                var relativePath = Path.GetRelativePath(gameWorkingDirectory, path)
-                    .Replace(Path.DirectorySeparatorChar, '/')
-                    .Replace(Path.AltDirectorySeparatorChar, '/');
                 var definitions = new List<UpgradeTreeDefinition>();
                 foreach (var purchaseProperty in purchasesElement.EnumerateObject())
                 {
@@ -4425,14 +4437,55 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 return definitions;
             }
 
+            private static string GetRelativeCatalogPath(string gameWorkingDirectory, string path)
+            {
+                return Path.GetRelativePath(gameWorkingDirectory, path)
+                    .Replace(Path.DirectorySeparatorChar, '/')
+                    .Replace(Path.AltDirectorySeparatorChar, '/');
+            }
+
+            private static string NormalizeGameMode(string? gameMode)
+            {
+                if (string.IsNullOrWhiteSpace(gameMode))
+                {
+                    return "base";
+                }
+
+                var normalized = gameMode.Trim().ToLowerInvariant();
+                return normalized switch
+                {
+                    "darkest" => "base",
+                    "normal" => "base",
+                    _ => normalized
+                };
+            }
+
+            private static bool IsApplicableToGameMode(string relativePath, string gameMode)
+            {
+                var parts = relativePath
+                    .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                for (var i = 0; i < parts.Length - 1; i++)
+                {
+                    if (!parts[i].Equals("modes", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    return parts[i + 1].Equals(gameMode, StringComparison.OrdinalIgnoreCase);
+                }
+
+                return true;
+            }
+
             private static int GetUpgradeDefinitionSourcePriority(string relativePath)
             {
                 if (relativePath.StartsWith("mods/", StringComparison.OrdinalIgnoreCase))
                 {
-                    return 30;
+                    return -10;
                 }
 
-                if (relativePath.Contains("/modes/", StringComparison.OrdinalIgnoreCase))
+                if (relativePath.StartsWith("modes/", StringComparison.OrdinalIgnoreCase)
+                    || relativePath.Contains("/modes/", StringComparison.OrdinalIgnoreCase))
                 {
                     return 20;
                 }
