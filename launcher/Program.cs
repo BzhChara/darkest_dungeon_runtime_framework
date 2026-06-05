@@ -2683,6 +2683,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
 
     private readonly LauncherLog _log;
     private readonly List<string> _directories;
+    private readonly string _gameWorkingDirectory;
     private readonly string _sessionDirectory;
     private readonly string _sessionId;
     private readonly DateTimeOffset _startedAt;
@@ -2697,9 +2698,10 @@ internal sealed class SaveDirectoryWatcher : IDisposable
     private DateTimeOffset? _gameExitedAt;
     private bool _disposed;
 
-    private SaveDirectoryWatcher(IReadOnlyList<string> directories, string logDirectory, LauncherLog log)
+    private SaveDirectoryWatcher(IReadOnlyList<string> directories, string logDirectory, string gameWorkingDirectory, LauncherLog log)
     {
         _directories = directories.ToList();
+        _gameWorkingDirectory = gameWorkingDirectory;
         _sessionDirectory = Path.Combine(logDirectory, "save_sessions");
         _startedAt = DateTimeOffset.Now;
         _sessionId = $"{_startedAt:yyyyMMdd_HHmmss_fff}_launcher_{Environment.ProcessId}";
@@ -2731,7 +2733,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             log.Info($"Save sidecar watcher directory: {directory}");
         }
 
-        return new SaveDirectoryWatcher(directories, config.LogDirectory, log);
+        return new SaveDirectoryWatcher(directories, config.LogDirectory, config.GameWorkingDirectory, log);
     }
 
     public void WaitForGameExit(int processId, int afterExitSeconds)
@@ -3211,7 +3213,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         CountEvent("save.sidecar_session_report_written");
         _log.Info($"event name=save.sidecar_session_report_written path={Quote(path)}");
 
-        var stateReportPath = SaveStateExporter.TryWriteReport(_sessionDirectory, _sessionId, completedAt, report, _log);
+        var stateReportPath = SaveStateExporter.TryWriteReport(_sessionDirectory, _sessionId, completedAt, report, _gameWorkingDirectory, _log);
         if (!string.IsNullOrWhiteSpace(stateReportPath))
         {
             CountEvent("save.state_report_written");
@@ -3533,6 +3535,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             string sessionId,
             DateTimeOffset generatedAt,
             SaveSessionReport sessionReport,
+            string gameWorkingDirectory,
             LauncherLog log)
         {
             if (sessionReport.ActiveProfile is null)
@@ -3560,6 +3563,8 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 accessIssues.Add(issue);
             }
 
+            var upgradeCatalog = UpgradeDefinitionCatalog.Load(gameWorkingDirectory, accessIssues);
+
             var parseStatus = fileReports.Any(file => file.Format.Equals("jsonText", StringComparison.OrdinalIgnoreCase))
                 ? "partialJsonText"
                 : fileReports.Any(file => file.ParseStatus.Equals("dsonPartialDecoded", StringComparison.OrdinalIgnoreCase))
@@ -3569,7 +3574,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             {
                 parseStatus = "noCandidateFiles";
             }
-            var facts = BuildSaveStateFacts(fileReports);
+            var facts = BuildSaveStateFacts(fileReports, upgradeCatalog);
 
             var report = new SaveStateReport(
                 1,
@@ -3939,7 +3944,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             return false;
         }
 
-        private static SaveStateFacts BuildSaveStateFacts(IReadOnlyList<SaveStateFileReport> files)
+        private static SaveStateFacts BuildSaveStateFacts(IReadOnlyList<SaveStateFileReport> files, UpgradeDefinitionCatalog upgradeCatalog)
         {
             var game = files.FirstOrDefault(file => file.FileName.Equals("persist.game.json", StringComparison.OrdinalIgnoreCase));
             var progression = files.FirstOrDefault(file => file.FileName.Equals("persist.progression.json", StringComparison.OrdinalIgnoreCase));
@@ -3967,7 +3972,7 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                     TryGetBool(progression, "base_root.last_raid_success"),
                     TryGetBool(progression, "base_root.last_raid_was_a_plot_quest")),
                 BuildWalletFacts(estate),
-                BuildUpgradeFacts(upgrades),
+                BuildUpgradeFacts(upgrades, upgradeCatalog),
                 ExtractDirectChildIds(town?.DsonObjectPaths ?? [], "base_root.buildings"),
                 ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"),
                 roster?.Heroes ?? []);
@@ -4001,11 +4006,11 @@ internal sealed class SaveDirectoryWatcher : IDisposable
             return result;
         }
 
-        private static SaveStateUpgradeFacts BuildUpgradeFacts(SaveStateFileReport? upgrades)
+        private static SaveStateUpgradeFacts BuildUpgradeFacts(SaveStateFileReport? upgrades, UpgradeDefinitionCatalog upgradeCatalog)
         {
             if (upgrades is null)
             {
-                return EmptyUpgradeFacts(null);
+                return EmptyUpgradeFacts(null, upgradeCatalog);
             }
 
             var purchaseIds = MergeAllDirectChildIds(
@@ -4018,18 +4023,27 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 .ToArray();
             if (purchaseIds.Length == 0)
             {
-                return EmptyUpgradeFacts(TryGetInt(upgrades, "base_root.version"));
+                return EmptyUpgradeFacts(TryGetInt(upgrades, "base_root.version"), upgradeCatalog);
             }
 
             var purchases = new List<SaveStateUpgradePurchaseFacts>();
             foreach (var purchaseId in purchaseIds)
             {
                 var path = $"base_root.purchases.{purchaseId.ToString(CultureInfo.InvariantCulture)}";
+                var treeId = TryGetUInt(upgrades, $"{path}.tree_id");
+                var requirementCode = TryGetString(upgrades, $"{path}.requirement_code");
+                var lookup = treeId.HasValue ? upgradeCatalog.Find(treeId.Value) : null;
+                var definition = lookup is { IsAmbiguous: false } ? lookup.PreferredDefinition : null;
                 purchases.Add(new SaveStateUpgradePurchaseFacts(
                     purchaseId,
                     TryGetInt(upgrades, $"{path}.instance_number"),
-                    TryGetUInt(upgrades, $"{path}.tree_id"),
-                    TryGetString(upgrades, $"{path}.requirement_code"),
+                    treeId,
+                    ResolveTreeName(lookup),
+                    lookup?.IsAmbiguous == true,
+                    definition?.SourceRelativePath,
+                    definition?.Tags ?? [],
+                    BuildRequirementDefinitionFacts(definition, requirementCode),
+                    requirementCode,
                     TryGetBool(upgrades, $"{path}.is_purchased")));
             }
 
@@ -4040,8 +4054,16 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 .Select(group =>
                 {
                     var groupPurchases = group.ToArray();
+                    var lookup = upgradeCatalog.Find(group.Key);
+                    var definition = lookup is { IsAmbiguous: false } ? lookup.PreferredDefinition : null;
                     return new SaveStateUpgradeTreeFacts(
                         group.Key,
+                        ResolveTreeName(lookup),
+                        lookup?.IsAmbiguous == true,
+                        definition?.SourceRelativePath,
+                        definition?.IsInstanced,
+                        definition?.Tags ?? [],
+                        definition?.Requirements.Select(BuildRequirementDefinitionFacts).ToArray() ?? [],
                         groupPurchases.Length,
                         groupPurchases.Count(purchase => purchase.IsPurchased == true),
                         groupPurchases.Count(purchase => purchase.IsPurchased == false),
@@ -4077,14 +4099,555 @@ internal sealed class SaveDirectoryWatcher : IDisposable
                 purchases.Count(purchase => purchase.IsPurchased == false),
                 purchases.Count(purchase => !purchase.IsPurchased.HasValue),
                 treeFacts.Length,
+                upgradeCatalog.SourceFileCount,
+                upgradeCatalog.DefinitionCount,
+                upgradeCatalog.NameCandidateCount,
+                treeFacts.Count(tree => !string.IsNullOrWhiteSpace(tree.TreeName) && !tree.TreeNameAmbiguous),
+                treeFacts.Count(tree => string.IsNullOrWhiteSpace(tree.TreeName)),
+                treeFacts.Count(tree => tree.TreeNameAmbiguous),
                 purchases.Take(1000).ToArray(),
                 treeFacts.Take(1000).ToArray());
         }
 
-        private static SaveStateUpgradeFacts EmptyUpgradeFacts(int? version)
+        private static SaveStateUpgradeFacts EmptyUpgradeFacts(int? version, UpgradeDefinitionCatalog upgradeCatalog)
         {
-            return new SaveStateUpgradeFacts(version, 0, 0, 0, 0, 0, [], []);
+            return new SaveStateUpgradeFacts(
+                version,
+                0,
+                0,
+                0,
+                0,
+                0,
+                upgradeCatalog.SourceFileCount,
+                upgradeCatalog.DefinitionCount,
+                upgradeCatalog.NameCandidateCount,
+                0,
+                0,
+                0,
+                [],
+                []);
         }
+
+        private static string? ResolveTreeName(UpgradeDefinitionLookup? lookup)
+        {
+            return lookup is { IsAmbiguous: false }
+                ? lookup.PreferredDefinition?.Id
+                : null;
+        }
+
+        private static SaveStateUpgradeRequirementDefinitionFacts? BuildRequirementDefinitionFacts(
+            UpgradeTreeDefinition? definition,
+            string? requirementCode)
+        {
+            if (definition is null || string.IsNullOrWhiteSpace(requirementCode))
+            {
+                return null;
+            }
+
+            return definition.Requirements
+                .FirstOrDefault(requirement => requirement.Code.Equals(requirementCode, StringComparison.OrdinalIgnoreCase))
+                is { } requirement
+                ? BuildRequirementDefinitionFacts(requirement)
+                : null;
+        }
+
+        private static SaveStateUpgradeRequirementDefinitionFacts BuildRequirementDefinitionFacts(UpgradeRequirementDefinition requirement)
+        {
+            return new SaveStateUpgradeRequirementDefinitionFacts(
+                requirement.Code,
+                requirement.CurrencyCost,
+                requirement.PrerequisiteResolveLevel,
+                requirement.Prerequisites
+                    .Select(prerequisite => new SaveStateUpgradePrerequisiteDefinitionFacts(prerequisite.TreeId, prerequisite.RequirementCode))
+                    .ToArray());
+        }
+
+        private sealed class UpgradeDefinitionCatalog
+        {
+            private static readonly JsonDocumentOptions UpgradeJsonOptions = new()
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            };
+
+            private readonly IReadOnlyDictionary<uint, UpgradeDefinitionLookup> _byTreeId;
+
+            private UpgradeDefinitionCatalog(
+                IReadOnlyDictionary<uint, UpgradeDefinitionLookup> byTreeId,
+                int sourceFileCount,
+                int definitionCount,
+                int nameCandidateCount)
+            {
+                _byTreeId = byTreeId;
+                SourceFileCount = sourceFileCount;
+                DefinitionCount = definitionCount;
+                NameCandidateCount = nameCandidateCount;
+            }
+
+            public int SourceFileCount { get; }
+
+            public int DefinitionCount { get; }
+
+            public int NameCandidateCount { get; }
+
+            public static UpgradeDefinitionCatalog Load(string gameWorkingDirectory, List<string> accessIssues)
+            {
+                if (string.IsNullOrWhiteSpace(gameWorkingDirectory) || !Directory.Exists(gameWorkingDirectory))
+                {
+                    accessIssues.Add($"Upgrade definition catalog skipped because game directory was not found: {gameWorkingDirectory}");
+                    return new UpgradeDefinitionCatalog(new Dictionary<uint, UpgradeDefinitionLookup>(), 0, 0, 0);
+                }
+
+                var definitions = new List<UpgradeTreeDefinition>();
+                var sourceFileCount = 0;
+                foreach (var path in Directory.EnumerateFiles(gameWorkingDirectory, "*.upgrades.json", SearchOption.AllDirectories)
+                             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var fileDefinitions = ReadUpgradeDefinitionFile(gameWorkingDirectory, path);
+                        if (fileDefinitions.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        sourceFileCount++;
+                        definitions.AddRange(fileDefinitions);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+                    {
+                        accessIssues.Add($"Upgrade definition catalog skipped file {path}: {ex.Message}");
+                    }
+                }
+
+                foreach (var path in Directory.EnumerateFiles(gameWorkingDirectory, "*.camping_skills.json", SearchOption.AllDirectories)
+                             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var fileDefinitions = ReadCampingSkillDefinitionFile(gameWorkingDirectory, path);
+                        if (fileDefinitions.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        sourceFileCount++;
+                        definitions.AddRange(fileDefinitions);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+                    {
+                        accessIssues.Add($"Upgrade definition catalog skipped camping file {path}: {ex.Message}");
+                    }
+                }
+
+                foreach (var path in Directory.EnumerateFiles(gameWorkingDirectory, "persist.upgrades.json", SearchOption.AllDirectories)
+                             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        definitions.AddRange(ReadStartingSaveUpgradeAliases(gameWorkingDirectory, path));
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+                    {
+                        accessIssues.Add($"Upgrade definition catalog skipped save template file {path}: {ex.Message}");
+                    }
+                }
+
+                var byTreeId = definitions
+                    .GroupBy(definition => definition.TreeId)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => new UpgradeDefinitionLookup(group.Key, group.ToArray()),
+                        EqualityComparer<uint>.Default);
+
+                return new UpgradeDefinitionCatalog(
+                    byTreeId,
+                    sourceFileCount,
+                    definitions.Count(definition => definition.HasDefinition),
+                    definitions.Count(definition => !definition.HasDefinition));
+            }
+
+            public UpgradeDefinitionLookup? Find(uint treeId)
+            {
+                return _byTreeId.TryGetValue(treeId, out var lookup) ? lookup : null;
+            }
+
+            private static IReadOnlyList<UpgradeTreeDefinition> ReadUpgradeDefinitionFile(string gameWorkingDirectory, string path)
+            {
+                using var document = JsonDocument.Parse(File.ReadAllBytes(path), UpgradeJsonOptions);
+                if (document.RootElement.ValueKind != JsonValueKind.Object
+                    || !document.RootElement.TryGetProperty("trees", out var treesElement)
+                    || treesElement.ValueKind != JsonValueKind.Array)
+                {
+                    return [];
+                }
+
+                var relativePath = Path.GetRelativePath(gameWorkingDirectory, path)
+                    .Replace(Path.DirectorySeparatorChar, '/')
+                    .Replace(Path.AltDirectorySeparatorChar, '/');
+                var sourcePriority = GetUpgradeDefinitionSourcePriority(relativePath);
+                var definitions = new List<UpgradeTreeDefinition>();
+                foreach (var treeElement in treesElement.EnumerateArray())
+                {
+                    if (treeElement.ValueKind != JsonValueKind.Object
+                        || !treeElement.TryGetProperty("id", out var idElement)
+                        || idElement.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    var id = idElement.GetString();
+                    if (string.IsNullOrWhiteSpace(id))
+                    {
+                        continue;
+                    }
+
+                    var isInstanced = TryGetBool(treeElement, "is_instanced");
+                    var tags = treeElement.TryGetProperty("tags", out var tagsElement)
+                        ? ReadStringArray(tagsElement)
+                        : [];
+                    var requirements = treeElement.TryGetProperty("requirements", out var requirementsElement)
+                        ? ReadRequirements(requirementsElement)
+                        : [];
+
+                    definitions.Add(new UpgradeTreeDefinition(
+                        id,
+                        HashDsonName(id),
+                        isInstanced,
+                        tags,
+                        relativePath,
+                        sourcePriority,
+                        requirements,
+                        true,
+                        "upgrade_tree"));
+                }
+
+                return definitions;
+            }
+
+            private static IReadOnlyList<UpgradeTreeDefinition> ReadCampingSkillDefinitionFile(string gameWorkingDirectory, string path)
+            {
+                using var document = JsonDocument.Parse(File.ReadAllBytes(path), UpgradeJsonOptions);
+                if (document.RootElement.ValueKind != JsonValueKind.Object
+                    || !document.RootElement.TryGetProperty("skills", out var skillsElement)
+                    || skillsElement.ValueKind != JsonValueKind.Array)
+                {
+                    return [];
+                }
+
+                var relativePath = Path.GetRelativePath(gameWorkingDirectory, path)
+                    .Replace(Path.DirectorySeparatorChar, '/')
+                    .Replace(Path.AltDirectorySeparatorChar, '/');
+                var sourcePriority = GetUpgradeDefinitionSourcePriority(relativePath);
+                var definitions = new List<UpgradeTreeDefinition>();
+                foreach (var skillElement in skillsElement.EnumerateArray())
+                {
+                    if (skillElement.ValueKind != JsonValueKind.Object
+                        || !skillElement.TryGetProperty("id", out var idElement)
+                        || idElement.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    var skillId = idElement.GetString();
+                    if (string.IsNullOrWhiteSpace(skillId))
+                    {
+                        continue;
+                    }
+
+                    var heroClasses = skillElement.TryGetProperty("hero_classes", out var heroClassesElement)
+                        ? ReadStringArray(heroClassesElement)
+                        : [];
+                    if (heroClasses.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var requirements = skillElement.TryGetProperty("upgrade_requirements", out var requirementsElement)
+                        ? ReadRequirements(requirementsElement)
+                        : [];
+                    foreach (var heroClass in heroClasses)
+                    {
+                        var id = $"{heroClass}.{skillId}";
+                        definitions.Add(new UpgradeTreeDefinition(
+                            id,
+                            HashDsonName(id),
+                            true,
+                            ["camping_skill"],
+                            relativePath,
+                            sourcePriority,
+                            requirements,
+                            true,
+                            "camping_skill"));
+                    }
+                }
+
+                return definitions;
+            }
+
+            private static IReadOnlyList<UpgradeTreeDefinition> ReadStartingSaveUpgradeAliases(string gameWorkingDirectory, string path)
+            {
+                using var document = JsonDocument.Parse(File.ReadAllBytes(path), UpgradeJsonOptions);
+                if (document.RootElement.ValueKind != JsonValueKind.Object
+                    || !document.RootElement.TryGetProperty("data", out var dataElement)
+                    || dataElement.ValueKind != JsonValueKind.Object
+                    || !dataElement.TryGetProperty("purchases", out var purchasesElement)
+                    || purchasesElement.ValueKind != JsonValueKind.Object)
+                {
+                    return [];
+                }
+
+                var relativePath = Path.GetRelativePath(gameWorkingDirectory, path)
+                    .Replace(Path.DirectorySeparatorChar, '/')
+                    .Replace(Path.AltDirectorySeparatorChar, '/');
+                var definitions = new List<UpgradeTreeDefinition>();
+                foreach (var purchaseProperty in purchasesElement.EnumerateObject())
+                {
+                    if (string.IsNullOrWhiteSpace(purchaseProperty.Name)
+                        || purchaseProperty.Value.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    var treeId = TryGetUInt(purchaseProperty.Value, "tree_id") ?? HashDsonName(purchaseProperty.Name);
+                    definitions.Add(new UpgradeTreeDefinition(
+                        purchaseProperty.Name,
+                        treeId,
+                        null,
+                        [],
+                        relativePath,
+                        -100,
+                        [],
+                        false,
+                        "starting_save_alias"));
+                }
+
+                return definitions;
+            }
+
+            private static int GetUpgradeDefinitionSourcePriority(string relativePath)
+            {
+                if (relativePath.StartsWith("mods/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return 30;
+                }
+
+                if (relativePath.Contains("/modes/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return 20;
+                }
+
+                if (relativePath.StartsWith("dlc/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return 10;
+                }
+
+                return 0;
+            }
+
+            private static IReadOnlyList<UpgradeRequirementDefinition> ReadRequirements(JsonElement requirementsElement)
+            {
+                if (requirementsElement.ValueKind != JsonValueKind.Array)
+                {
+                    return [];
+                }
+
+                var requirements = new List<UpgradeRequirementDefinition>();
+                foreach (var requirementElement in requirementsElement.EnumerateArray())
+                {
+                    if (requirementElement.ValueKind != JsonValueKind.Object
+                        || !requirementElement.TryGetProperty("code", out var codeElement)
+                        || codeElement.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    var code = codeElement.GetString();
+                    if (string.IsNullOrWhiteSpace(code))
+                    {
+                        continue;
+                    }
+
+                    requirements.Add(new UpgradeRequirementDefinition(
+                        code,
+                        requirementElement.TryGetProperty("currency_cost", out var currencyElement)
+                            ? ReadCurrencyCost(currencyElement)
+                            : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                        TryGetInt(requirementElement, "prerequisite_resolve_level"),
+                        requirementElement.TryGetProperty("prerequisite_requirements", out var prerequisitesElement)
+                            ? ReadPrerequisites(prerequisitesElement)
+                            : []));
+                }
+
+                return requirements;
+            }
+
+            private static IReadOnlyDictionary<string, int> ReadCurrencyCost(JsonElement currencyElement)
+            {
+                var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                if (currencyElement.ValueKind != JsonValueKind.Array)
+                {
+                    return result;
+                }
+
+                foreach (var entry in currencyElement.EnumerateArray())
+                {
+                    if (entry.ValueKind != JsonValueKind.Object
+                        || !entry.TryGetProperty("type", out var typeElement)
+                        || typeElement.ValueKind != JsonValueKind.String
+                        || !entry.TryGetProperty("amount", out var amountElement)
+                        || amountElement.ValueKind != JsonValueKind.Number
+                        || !amountElement.TryGetInt32(out var amount))
+                    {
+                        continue;
+                    }
+
+                    var type = typeElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(type))
+                    {
+                        result[type] = amount;
+                    }
+                }
+
+                return result;
+            }
+
+            private static IReadOnlyList<UpgradePrerequisiteDefinition> ReadPrerequisites(JsonElement prerequisitesElement)
+            {
+                if (prerequisitesElement.ValueKind != JsonValueKind.Array)
+                {
+                    return [];
+                }
+
+                var prerequisites = new List<UpgradePrerequisiteDefinition>();
+                foreach (var prerequisiteElement in prerequisitesElement.EnumerateArray())
+                {
+                    if (prerequisiteElement.ValueKind != JsonValueKind.Object
+                        || !prerequisiteElement.TryGetProperty("tree_id", out var treeElement)
+                        || treeElement.ValueKind != JsonValueKind.String
+                        || !prerequisiteElement.TryGetProperty("requirement_code", out var codeElement)
+                        || codeElement.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    var treeId = treeElement.GetString();
+                    var code = codeElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(treeId) && !string.IsNullOrWhiteSpace(code))
+                    {
+                        prerequisites.Add(new UpgradePrerequisiteDefinition(treeId, code));
+                    }
+                }
+
+                return prerequisites;
+            }
+
+            private static IReadOnlyList<string> ReadStringArray(JsonElement element)
+            {
+                if (element.ValueKind != JsonValueKind.Array)
+                {
+                    return [];
+                }
+
+                return element
+                    .EnumerateArray()
+                    .Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString())
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
+
+            private static bool? TryGetBool(JsonElement element, string propertyName)
+            {
+                return element.TryGetProperty(propertyName, out var property)
+                    ? property.ValueKind switch
+                    {
+                        JsonValueKind.True => true,
+                        JsonValueKind.False => false,
+                        _ => null
+                    }
+                    : null;
+            }
+
+            private static int? TryGetInt(JsonElement element, string propertyName)
+            {
+                return element.TryGetProperty(propertyName, out var property)
+                    && property.ValueKind == JsonValueKind.Number
+                    && property.TryGetInt32(out var value)
+                    ? value
+                    : null;
+            }
+
+            private static uint? TryGetUInt(JsonElement element, string propertyName)
+            {
+                return element.TryGetProperty(propertyName, out var property)
+                    && property.ValueKind == JsonValueKind.Number
+                    && property.TryGetUInt32(out var value)
+                    ? value
+                    : null;
+            }
+        }
+
+        private static uint HashDsonName(string value)
+        {
+            var hash = 0u;
+            foreach (var b in Encoding.UTF8.GetBytes(value))
+            {
+                unchecked
+                {
+                    hash = hash * 53u + b;
+                }
+            }
+
+            return hash;
+        }
+
+        private sealed record UpgradeDefinitionLookup(
+            uint TreeId,
+            IReadOnlyList<UpgradeTreeDefinition> Definitions)
+        {
+            public bool IsAmbiguous { get; } = Definitions
+                .Select(definition => definition.Id)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Skip(1)
+                .Any();
+
+            public UpgradeTreeDefinition? PreferredDefinition { get; } = Definitions
+                .GroupBy(definition => definition.Id, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(group => group.Any(definition => definition.HasDefinition))
+                .ThenByDescending(group => group.Max(definition => definition.SourcePriority))
+                .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group
+                    .OrderByDescending(definition => definition.HasDefinition)
+                    .ThenByDescending(definition => definition.SourcePriority)
+                    .ThenBy(definition => definition.SourceRelativePath, StringComparer.OrdinalIgnoreCase)
+                    .First())
+                .FirstOrDefault();
+        }
+
+        private sealed record UpgradeTreeDefinition(
+            string Id,
+            uint TreeId,
+            bool? IsInstanced,
+            IReadOnlyList<string> Tags,
+            string SourceRelativePath,
+            int SourcePriority,
+            IReadOnlyList<UpgradeRequirementDefinition> Requirements,
+            bool HasDefinition,
+            string DefinitionKind);
+
+        private sealed record UpgradeRequirementDefinition(
+            string Code,
+            IReadOnlyDictionary<string, int> CurrencyCost,
+            int? PrerequisiteResolveLevel,
+            IReadOnlyList<UpgradePrerequisiteDefinition> Prerequisites);
+
+        private sealed record UpgradePrerequisiteDefinition(
+            string TreeId,
+            string RequirementCode);
 
         private static IReadOnlyList<string> ExtractDirectChildIds(IReadOnlyList<string> paths, string parentPath)
         {
@@ -4904,6 +5467,12 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         int UnpurchasedCount,
         int UnknownPurchaseStateCount,
         int TreeCount,
+        int DefinitionSourceFileCount,
+        int DefinitionTreeCount,
+        int NameCandidateCount,
+        int MappedTreeCount,
+        int UnmappedTreeCount,
+        int AmbiguousTreeCount,
         IReadOnlyList<SaveStateUpgradePurchaseFacts> Purchases,
         IReadOnlyList<SaveStateUpgradeTreeFacts> Trees);
 
@@ -4911,17 +5480,38 @@ internal sealed class SaveDirectoryWatcher : IDisposable
         int Index,
         int? InstanceNumber,
         uint? TreeId,
+        string? TreeName,
+        bool TreeNameAmbiguous,
+        string? DefinitionSource,
+        IReadOnlyList<string> TreeTags,
+        SaveStateUpgradeRequirementDefinitionFacts? RequirementDefinition,
         string? RequirementCode,
         bool? IsPurchased);
 
     private sealed record SaveStateUpgradeTreeFacts(
         uint TreeId,
+        string? TreeName,
+        bool TreeNameAmbiguous,
+        string? DefinitionSource,
+        bool? IsInstanced,
+        IReadOnlyList<string> Tags,
+        IReadOnlyList<SaveStateUpgradeRequirementDefinitionFacts> DefinedRequirements,
         int PurchaseCount,
         int PurchasedCount,
         int UnpurchasedCount,
         IReadOnlyList<int> InstanceNumbers,
         IReadOnlyList<string> RequirementCodes,
         IReadOnlyList<string> PurchasedRequirementCodes);
+
+    private sealed record SaveStateUpgradeRequirementDefinitionFacts(
+        string Code,
+        IReadOnlyDictionary<string, int> CurrencyCost,
+        int? PrerequisiteResolveLevel,
+        IReadOnlyList<SaveStateUpgradePrerequisiteDefinitionFacts> Prerequisites);
+
+    private sealed record SaveStateUpgradePrerequisiteDefinitionFacts(
+        string TreeId,
+        string RequirementCode);
 
     private sealed record SaveStateHeroFacts(
         string Id,
