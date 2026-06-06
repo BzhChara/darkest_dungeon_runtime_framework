@@ -7,11 +7,19 @@ internal sealed partial class SaveDirectoryWatcher
         private static readonly string[] CandidateFiles =
         [
             "persist.game.json",
-            "persist.town.json",
+            "persist.estate.json",
             "persist.roster.json",
-            "persist.progression.json",
             "persist.upgrades.json",
-            "persist.estate.json"
+            "persist.quest.json",
+            "persist.town_event.json",
+            "persist.town.json",
+            "persist.progression.json",
+            "persist.game_knowledge.json",
+            "persist.journal.json",
+            "persist.narration.json",
+            "persist.tutorial.json",
+            "persist.campaign_log.json",
+            "persist.campaign_mash.json"
         ];
 
         private static readonly string[] KnownMarkers =
@@ -503,6 +511,8 @@ internal sealed partial class SaveDirectoryWatcher
         {
             var game = files.FirstOrDefault(file => file.FileName.Equals("persist.game.json", StringComparison.OrdinalIgnoreCase));
             var progression = files.FirstOrDefault(file => file.FileName.Equals("persist.progression.json", StringComparison.OrdinalIgnoreCase));
+            var quest = files.FirstOrDefault(file => file.FileName.Equals("persist.quest.json", StringComparison.OrdinalIgnoreCase));
+            var townEvent = files.FirstOrDefault(file => file.FileName.Equals("persist.town_event.json", StringComparison.OrdinalIgnoreCase));
             var estate = files.FirstOrDefault(file => file.FileName.Equals("persist.estate.json", StringComparison.OrdinalIgnoreCase));
             var upgrades = files.FirstOrDefault(file => file.FileName.Equals("persist.upgrades.json", StringComparison.OrdinalIgnoreCase));
             var town = files.FirstOrDefault(file => file.FileName.Equals("persist.town.json", StringComparison.OrdinalIgnoreCase));
@@ -510,6 +520,7 @@ internal sealed partial class SaveDirectoryWatcher
             var heroes = roster?.Heroes ?? [];
 
             return new SaveStateFacts(
+                BuildPersistFileFacts(files),
                 new SaveStateCampaignFacts(
                     TryGetInt(game, "base_root.version"),
                     TryGetDouble(game, "base_root.totalelapsed"),
@@ -527,6 +538,8 @@ internal sealed partial class SaveDirectoryWatcher
                     TryGetInt(progression, "base_root.last_quest_played_xp"),
                     TryGetBool(progression, "base_root.last_raid_success"),
                     TryGetBool(progression, "base_root.last_raid_was_a_plot_quest")),
+                BuildQuestFacts(quest),
+                BuildTownEventFacts(townEvent),
                 BuildWalletFacts(estate),
                 BuildUpgradeFacts(upgrades, upgradeCatalog),
                 heroDefinitions,

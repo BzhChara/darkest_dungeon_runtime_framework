@@ -84,8 +84,11 @@ internal sealed partial class SaveDirectoryWatcher
         string Area);
 
     private sealed record SaveStateFacts(
+        IReadOnlyList<SaveStatePersistFileFacts> PersistFiles,
         SaveStateCampaignFacts Campaign,
         SaveStateProgressionFacts Progression,
+        SaveStateQuestFacts Quest,
+        SaveStateTownEventFacts TownEvents,
         IReadOnlyDictionary<string, int> Wallet,
         SaveStateUpgradeFacts Upgrades,
         SaveStateHeroDefinitionFacts HeroDefinitions,
@@ -94,6 +97,81 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<string> HeroIds,
         IReadOnlyList<SaveStateHeroLoadoutFacts> HeroLoadouts,
         IReadOnlyList<SaveStateHeroFacts> Heroes);
+
+    private sealed record SaveStatePersistFileFacts(
+        string FileName,
+        string Category,
+        string ModRelevance,
+        bool Exists,
+        string Format,
+        string ParseStatus,
+        int ScalarCount,
+        int ObjectPathCount,
+        int RootChildCount,
+        IReadOnlyList<string> RootChildIds,
+        IReadOnlyList<SaveStatePersistScalarFieldFacts> ScalarFields);
+
+    private sealed record SaveStatePersistScalarFieldFacts(
+        string Path,
+        string Name,
+        string Type,
+        string? Value);
+
+    private sealed record SaveStateQuestFacts(
+        int? Version,
+        int? PlotQuestTotal,
+        int QuestCount,
+        int PlotQuestCount,
+        int TownEventQuestCount,
+        IReadOnlyList<SaveStateQuestEntryFacts> Quests);
+
+    private sealed record SaveStateQuestEntryFacts(
+        string SlotId,
+        string? Id,
+        string? Dungeon,
+        string? Type,
+        string? MapName,
+        int? Difficulty,
+        int? Length,
+        bool? IsPlotQuest,
+        bool? CountedInGeneration,
+        bool? IsFromTownEvent,
+        int? CompletionThreshold,
+        bool? UseDefaultProgressionGoals,
+        string? RaidRulesOverride,
+        string? TorchSetting,
+        SaveStateQuestRewardFacts CompletionReward);
+
+    private sealed record SaveStateQuestRewardFacts(
+        int? ResolveXp,
+        int? ResolveXpPerWaveKill,
+        int? MaxTimesDungeonXpAwarded,
+        IReadOnlyList<SaveStateQuestRewardItemFacts> Items);
+
+    private sealed record SaveStateQuestRewardItemFacts(
+        string SlotId,
+        string? Type,
+        string? Id,
+        int? Amount);
+
+    private sealed record SaveStateTownEventFacts(
+        int? Version,
+        int? CurrentResultEventId,
+        bool? HasUnclaimedInteraction,
+        int? LastTownEventWeek,
+        int? RngSeed,
+        int ResultEventHistoryCount,
+        int DeadHeroEntryCount,
+        int BonusHeroEntryCount,
+        int EventCostCount,
+        int FreeUpgradeTagCount,
+        int NonRolledAdditionalChanceCount,
+        IReadOnlyList<string> ResultEventHistoryIds,
+        IReadOnlyList<string> DeadHeroEntryIds,
+        IReadOnlyList<string> BonusHeroEntryIds,
+        IReadOnlyList<string> EventCostIds,
+        IReadOnlyList<string> FreeUpgradeTags,
+        IReadOnlyList<string> NonRolledAdditionalChanceIds);
 
     private sealed record SaveStateHeroLoadoutFacts(
         string HeroId,
