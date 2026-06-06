@@ -513,6 +513,8 @@ internal sealed partial class SaveDirectoryWatcher
             var progression = files.FirstOrDefault(file => file.FileName.Equals("persist.progression.json", StringComparison.OrdinalIgnoreCase));
             var quest = files.FirstOrDefault(file => file.FileName.Equals("persist.quest.json", StringComparison.OrdinalIgnoreCase));
             var townEvent = files.FirstOrDefault(file => file.FileName.Equals("persist.town_event.json", StringComparison.OrdinalIgnoreCase));
+            var narration = files.FirstOrDefault(file => file.FileName.Equals("persist.narration.json", StringComparison.OrdinalIgnoreCase));
+            var campaignLog = files.FirstOrDefault(file => file.FileName.Equals("persist.campaign_log.json", StringComparison.OrdinalIgnoreCase));
             var estate = files.FirstOrDefault(file => file.FileName.Equals("persist.estate.json", StringComparison.OrdinalIgnoreCase));
             var upgrades = files.FirstOrDefault(file => file.FileName.Equals("persist.upgrades.json", StringComparison.OrdinalIgnoreCase));
             var town = files.FirstOrDefault(file => file.FileName.Equals("persist.town.json", StringComparison.OrdinalIgnoreCase));
@@ -525,6 +527,8 @@ internal sealed partial class SaveDirectoryWatcher
                 BuildProgressionFacts(progression),
                 BuildQuestFacts(quest),
                 BuildTownEventFacts(townEvent),
+                BuildNarrationFacts(narration),
+                BuildCampaignLogFacts(campaignLog),
                 BuildEstateFacts(estate),
                 BuildWalletFacts(estate),
                 BuildUpgradeFacts(upgrades, upgradeCatalog),

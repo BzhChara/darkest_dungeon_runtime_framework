@@ -89,6 +89,8 @@ internal sealed partial class SaveDirectoryWatcher
         SaveStateProgressionFacts Progression,
         SaveStateQuestFacts Quest,
         SaveStateTownEventFacts TownEvents,
+        SaveStateNarrationFacts Narration,
+        SaveStateCampaignLogFacts CampaignLog,
         SaveStateEstateFacts Estate,
         IReadOnlyDictionary<string, int> Wallet,
         SaveStateUpgradeFacts Upgrades,
@@ -193,6 +195,81 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<string> EventCostIds,
         IReadOnlyList<string> FreeUpgradeTags,
         IReadOnlyList<string> NonRolledAdditionalChanceIds);
+
+    private sealed record SaveStateNarrationFacts(
+        int? Version,
+        int LogCount,
+        int EntryCount,
+        int CampaignEntryCount,
+        int RaidEntryCount,
+        int TownVisitEntryCount,
+        int TotalPlaybackCount,
+        int DistinctEntryTypeCount,
+        int DistinctAudioEventTypeCount,
+        IReadOnlyList<SaveStateNarrationLogFacts> Logs,
+        IReadOnlyList<SaveStateNarrationSummaryFacts> EntryTypeCounts,
+        IReadOnlyList<SaveStateNarrationSummaryFacts> AudioEventTypeCounts);
+
+    private sealed record SaveStateNarrationLogFacts(
+        string LogId,
+        string SourcePath,
+        int EntryCount,
+        int TotalPlaybackCount,
+        IReadOnlyList<SaveStateNarrationEntryFacts> Entries);
+
+    private sealed record SaveStateNarrationEntryFacts(
+        string LogId,
+        string SlotId,
+        string? EntryType,
+        string? AudioEventType,
+        int? Count);
+
+    private sealed record SaveStateNarrationSummaryFacts(
+        string Key,
+        int EntryCount,
+        int TotalPlaybackCount);
+
+    private sealed record SaveStateCampaignLogFacts(
+        int? Version,
+        int? TotalWeeks,
+        int ChapterCount,
+        int EntryCount,
+        int HeroRosterEntryCount,
+        int PartyEntryCount,
+        int DungeonEntryCount,
+        IReadOnlyList<SaveStateCampaignLogChapterFacts> Chapters);
+
+    private sealed record SaveStateCampaignLogChapterFacts(
+        string ChapterSlotId,
+        int? ChapterIndex,
+        int EntryCount,
+        IReadOnlyList<SaveStateCampaignLogEntryFacts> Entries);
+
+    private sealed record SaveStateCampaignLogEntryFacts(
+        string SlotId,
+        int? Rtti,
+        string EntryKind,
+        string? Name,
+        int? Guid,
+        int? ClassHash,
+        int? Level,
+        int? DungeonId,
+        int HeroCount,
+        IReadOnlyList<SaveStateCampaignLogHeroFacts> Heroes,
+        IReadOnlyList<SaveStateCampaignLogScalarFacts> ExtraScalarFields);
+
+    private sealed record SaveStateCampaignLogHeroFacts(
+        string SlotId,
+        string? Name,
+        int? Guid,
+        int? ClassHash,
+        bool? Died);
+
+    private sealed record SaveStateCampaignLogScalarFacts(
+        string LocalPath,
+        string Name,
+        string Type,
+        string? Value);
 
     private sealed record SaveStateHeroLoadoutFacts(
         string HeroId,

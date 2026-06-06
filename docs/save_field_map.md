@@ -1,6 +1,6 @@
 # Save Field Map
 
-Source snapshot: `logs/save_states/quest_town_event_probe_20260606_154125_113.json`.
+Source snapshot: `logs/save_states/narration_campaign_log_probe_20260606_162954_473.json`.
 
 This document summarizes the current campaign save field coverage before any gameplay-rule work. Numeric slots and dynamic ids are normalized as `[]` so repeated entries are represented once. The full scalar path list remains in `facts.persistFiles[].scalarFields` in the source snapshot.
 
@@ -25,9 +25,9 @@ This document summarizes the current campaign save field coverage before any gam
 | `persist.progression.json` | 476 | achievements, dungeon, infestation, last quest/raid, totals | strong partial: counters, dungeon XP, infestation, achievements, real achievements | story gates, boss progress, post-game unlocks |
 | `persist.game_knowledge.json` | 3 | dungeons, combat skills, videos | scalar only | UI/knowledge unlocks |
 | `persist.journal.json` | 4 | page index lists | scalar only | journal/collection state |
-| `persist.narration.json` | 193 | narration entry logs | scalar only | narration replay/gating |
+| `persist.narration.json` | 193 | narration entry logs | semantic: campaign/raid/town visit entry logs and summaries | narration replay/gating |
 | `persist.tutorial.json` | 2 | dispatched tutorial events | scalar/raw only | tutorial prompt gating |
-| `persist.campaign_log.json` | 25 | chapters, total weeks | scalar only | campaign history and recap |
+| `persist.campaign_log.json` | 25 | chapters, total weeks | semantic: chapters, party/hero/dungeon log entries | campaign history and recap |
 | `persist.campaign_mash.json` | 2 | roaming/dungeon mash roots | scalar/raw only | roaming state, infestation support |
 
 ## Field Patterns
@@ -277,7 +277,7 @@ Still scalar:
 
 ### `persist.narration.json`
 
-Still scalar:
+Semantic now:
 
 - `base_root.version`
 - `base_root.campaign_entry_log.[].entry_type`
@@ -289,6 +289,8 @@ Still scalar:
 - `base_root.town_visit_entry_log.[].entry_type`
 - `base_root.town_visit_entry_log.[].audio_event_type`
 - `base_root.town_visit_entry_log.[].count`
+- per-log entry counts and playback-count totals
+- global entry-type and audio-event summaries
 
 ### `persist.tutorial.json`
 
@@ -299,7 +301,7 @@ Still scalar/raw:
 
 ### `persist.campaign_log.json`
 
-Still scalar:
+Semantic now:
 
 - `base_root.version`
 - `base_root.total_weeks`
@@ -314,6 +316,8 @@ Still scalar:
 - `base_root.chapters.[].[].class`
 - `base_root.chapters.[].[].level`
 - `base_root.chapters.[].[].dungeon_id`
+- derived entry kind: `party`, `heroRoster`, `dungeon`, or `unknown`
+- non-standard entry scalar fields are preserved as `extraScalarFields`
 
 ### `persist.campaign_mash.json`
 
@@ -329,8 +333,7 @@ Object-only roots:
 
 ## Parsing Backlog Before Gameplay Rules
 
-1. `persist.narration.json` and `persist.campaign_log.json`: promote entry logs and campaign chapters into semantic facts.
-2. `persist.game_knowledge.json`, `persist.journal.json`, `persist.tutorial.json`, `persist.campaign_mash.json`: promote simple scalar facts first, then investigate raw/object-only branches when a mod concept needs them.
-3. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, knowledge unlock sets, completed plot quest data, flashback completion counts, trinkets, and Darkest Dungeon trinket unlocks need deeper raw-array decoding before they can be considered complete.
+1. `persist.game_knowledge.json`, `persist.journal.json`, `persist.tutorial.json`, `persist.campaign_mash.json`: promote simple scalar facts first, then investigate raw/object-only branches when a mod concept needs them.
+2. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, knowledge unlock sets, completed plot quest data, flashback completion counts, trinkets, and Darkest Dungeon trinket unlocks need deeper raw-array decoding before they can be considered complete.
 
 Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait until the relevant backlog items are either parsed or explicitly marked unnecessary.
