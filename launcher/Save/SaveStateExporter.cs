@@ -521,19 +521,11 @@ internal sealed partial class SaveDirectoryWatcher
 
             return new SaveStateFacts(
                 BuildPersistFileFacts(files),
-                new SaveStateCampaignFacts(
-                    TryGetInt(game, "base_root.version"),
-                    TryGetDouble(game, "base_root.totalelapsed"),
-                    TryGetBool(game, "base_root.inraid"),
-                    TryGetString(game, "base_root.raiddungeon"),
-                    TryGetString(game, "base_root.estatename"),
-                    TryGetString(game, "base_root.game_mode"),
-                    TryGetString(game, "base_root.date_time"),
-                    TryGetString(game, "base_root.town_events"),
-                    TryGetString(game, "base_root.never_again")),
+                BuildCampaignFacts(game),
                 BuildProgressionFacts(progression),
                 BuildQuestFacts(quest),
                 BuildTownEventFacts(townEvent),
+                BuildEstateFacts(estate),
                 BuildWalletFacts(estate),
                 BuildUpgradeFacts(upgrades, upgradeCatalog),
                 heroDefinitions,

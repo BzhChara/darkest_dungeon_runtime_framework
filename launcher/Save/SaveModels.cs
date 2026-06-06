@@ -89,6 +89,7 @@ internal sealed partial class SaveDirectoryWatcher
         SaveStateProgressionFacts Progression,
         SaveStateQuestFacts Quest,
         SaveStateTownEventFacts TownEvents,
+        SaveStateEstateFacts Estate,
         IReadOnlyDictionary<string, int> Wallet,
         SaveStateUpgradeFacts Upgrades,
         SaveStateHeroDefinitionFacts HeroDefinitions,
@@ -116,6 +117,26 @@ internal sealed partial class SaveDirectoryWatcher
         string Name,
         string Type,
         string? Value);
+
+    private sealed record SaveStateEstateFacts(
+        int? Version,
+        int WalletItemCount,
+        IReadOnlyList<SaveStateEstateItemFacts> WalletItems,
+        int EstateItemCount,
+        IReadOnlyList<SaveStateEstateItemFacts> EstateItems,
+        int? EndlessWaveHighscore,
+        bool? WasEndlessWaveHighscoreTampered,
+        bool? PerformedBlueprintCorrectionCheck,
+        bool? FoundGlobalTamperedFile,
+        bool? FoundLocalTamperedFile,
+        IReadOnlyList<string> TrinketRootIds,
+        IReadOnlyList<string> DarkestDungeonTrinketUnlockIds);
+
+    private sealed record SaveStateEstateItemFacts(
+        string SlotId,
+        string? Type,
+        string? Id,
+        int? Amount);
 
     private sealed record SaveStateQuestFacts(
         int? Version,
@@ -504,11 +525,31 @@ internal sealed partial class SaveDirectoryWatcher
         double? TotalElapsed,
         bool? InRaid,
         string? RaidDungeon,
+        string? RaidSave,
         string? EstateName,
         string? GameMode,
         string? DateTime,
+        bool? DlcInit,
+        bool? DdOptionsAltered,
         string? TownEvents,
-        string? NeverAgain);
+        string? NeverAgain,
+        int DlcCount,
+        IReadOnlyList<SaveStateCampaignDlcFacts> Dlcs,
+        int PresentedDlcCount,
+        IReadOnlyList<SaveStateCampaignDlcFacts> PresentedDlcs,
+        int ProfileOptionCount,
+        IReadOnlyList<SaveStateCampaignProfileOptionFacts> ProfileOptions,
+        IReadOnlyList<string> PersistentUgcIds);
+
+    private sealed record SaveStateCampaignDlcFacts(
+        string SlotId,
+        string? Name,
+        string? Source);
+
+    private sealed record SaveStateCampaignProfileOptionFacts(
+        string Key,
+        string Type,
+        string? Value);
 
     private sealed record SaveStateProgressionFacts(
         int? Version,

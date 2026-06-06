@@ -15,8 +15,8 @@ This document summarizes the current campaign save field coverage before any gam
 
 | File | Scalars | Roots | Current semantic coverage | Mod value |
 | --- | ---: | --- | --- | --- |
-| `persist.game.json` | 48 | `date_time`, `dlc`, `profile_options`, `raid_save`, `totalelapsed` | partial: campaign identity and core flags | campaign mode, DLC gates, option-dependent rules |
-| `persist.estate.json` | 25 | `wallet`, `estate_items`, `tampering`, `trinkets` | partial: wallet only | resources, item economy, anti-tamper diagnostics |
+| `persist.game.json` | 48 | `date_time`, `dlc`, `profile_options`, `raid_save`, `totalelapsed` | strong partial: campaign identity, DLC, presented DLC, profile options | campaign mode, DLC gates, option-dependent rules |
+| `persist.estate.json` | 25 | `wallet`, `estate_items`, `tampering`, `trinkets` | strong partial: wallet, estate items, highscore, tamper flags | resources, item economy, anti-tamper diagnostics |
 | `persist.roster.json` | 9 plus nested hero payloads | `heroes`, `last_party`, counters | strong partial: hero nested facts and loadouts | party rules, hero availability, unlock-all modes |
 | `persist.upgrades.json` | 913 | `purchases` | strong partial: purchases, tree definitions, missing requirements | building/hero upgrade state |
 | `persist.quest.json` | 62 | `quests`, `plot_quest_total` | partial: quest entries and rewards | quest generation, post-game map/story chains |
@@ -45,16 +45,17 @@ Semantic now:
 - `base_root.date_time`
 - `base_root.profile_options.values.town_events`
 - `base_root.profile_options.values.never_again`
+- `base_root.raid_save`
+- `base_root.dlc_init`
+- `base_root.dd_options_altered`
+- `base_root.dlc.[].name` as `campaign.dlcs[]`
+- `base_root.dlc.[].source`
+- `base_root.presented_dlc.dlc.[].name` as `campaign.presentedDlcs[]`
+- `base_root.presented_dlc.dlc.[].source`
+- `base_root.profile_options.values.*` as `campaign.profileOptions[]`, preserving raw option names and types
 
 Still scalar/raw:
 
-- `base_root.dlc.[].name`
-- `base_root.dlc.[].source`
-- `base_root.presented_dlc.dlc.[].name`
-- `base_root.presented_dlc.dlc.[].source`
-- `base_root.dlc_init`
-- `base_root.dd_options_altered`
-- `base_root.raid_save`
 - `base_root.profile_options.values.corpses`
 - `base_root.profile_options.values.curio_tracker`
 - `base_root.profile_options.values.dd_mode`
@@ -76,10 +77,6 @@ Semantic now:
 
 - `base_root.wallet.[].type`
 - `base_root.wallet.[].amount`
-
-Still scalar:
-
-- `base_root.version`
 - `base_root.estate_items.items.[].type`
 - `base_root.estate_items.items.[].id`
 - `base_root.estate_items.items.[].amount`
@@ -88,6 +85,10 @@ Still scalar:
 - `base_root.performed_blueprint_correction_check`
 - `base_root.tampering.tampering_manager.foundGlobalTamperedFile`
 - `base_root.tampering.tampering_manager.foundLocalTamperedFile`
+
+Still scalar:
+
+- `base_root.version`
 
 Object-only roots:
 
@@ -328,9 +329,8 @@ Object-only roots:
 
 ## Parsing Backlog Before Gameplay Rules
 
-1. `persist.game.json` and `persist.estate.json`: promote DLC lists, profile options, estate items, tamper flags, and highscore fields.
-2. `persist.narration.json` and `persist.campaign_log.json`: promote entry logs and campaign chapters into semantic facts.
-3. `persist.game_knowledge.json`, `persist.journal.json`, `persist.tutorial.json`, `persist.campaign_mash.json`: promote simple scalar facts first, then investigate raw/object-only branches when a mod concept needs them.
-4. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, knowledge unlock sets, completed plot quest data, and flashback completion counts need deeper raw-array decoding before they can be considered complete.
+1. `persist.narration.json` and `persist.campaign_log.json`: promote entry logs and campaign chapters into semantic facts.
+2. `persist.game_knowledge.json`, `persist.journal.json`, `persist.tutorial.json`, `persist.campaign_mash.json`: promote simple scalar facts first, then investigate raw/object-only branches when a mod concept needs them.
+3. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, knowledge unlock sets, completed plot quest data, flashback completion counts, trinkets, and Darkest Dungeon trinket unlocks need deeper raw-array decoding before they can be considered complete.
 
 Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait until the relevant backlog items are either parsed or explicitly marked unnecessary.
