@@ -4,7 +4,9 @@ internal sealed partial class SaveDirectoryWatcher
 {
     private static partial class SaveStateExporter
     {
-        private static SaveStateGameKnowledgeFacts BuildGameKnowledgeFacts(SaveStateFileReport? gameKnowledge)
+        private static SaveStateGameKnowledgeFacts BuildGameKnowledgeFacts(
+            SaveStateFileReport? gameKnowledge,
+            ContentHashCatalog contentHashCatalog)
         {
             if (gameKnowledge is null)
             {
@@ -19,8 +21,8 @@ internal sealed partial class SaveDirectoryWatcher
                 TryGetInt(gameKnowledge, "base_root.version"),
                 combatSkillIds.Length,
                 combatSkillIds,
-                BuildSimpleScalarFacts(gameKnowledge, "base_root.dungeons_unlocked"),
-                BuildSimpleScalarFacts(gameKnowledge, "base_root.played_video_list"));
+                BuildSimpleScalarFacts(gameKnowledge, "base_root.dungeons_unlocked", contentHashCatalog, resolveIntValues: true),
+                BuildSimpleScalarFacts(gameKnowledge, "base_root.played_video_list", contentHashCatalog, resolveIntValues: true));
         }
 
         private static SaveStateJournalFacts BuildJournalFacts(SaveStateFileReport? journal)
@@ -37,7 +39,9 @@ internal sealed partial class SaveDirectoryWatcher
                 BuildSimpleScalarFacts(journal, "base_root.raid_unread_page_indexes"));
         }
 
-        private static SaveStateTutorialFacts BuildTutorialFacts(SaveStateFileReport? tutorial)
+        private static SaveStateTutorialFacts BuildTutorialFacts(
+            SaveStateFileReport? tutorial,
+            ContentHashCatalog contentHashCatalog)
         {
             if (tutorial is null)
             {
@@ -46,10 +50,12 @@ internal sealed partial class SaveDirectoryWatcher
 
             return new SaveStateTutorialFacts(
                 TryGetInt(tutorial, "base_root.version"),
-                BuildSimpleScalarFacts(tutorial, "base_root.dispatched_events"));
+                BuildSimpleScalarFacts(tutorial, "base_root.dispatched_events", contentHashCatalog, resolveIntValues: true));
         }
 
-        private static SaveStateCampaignMashFacts BuildCampaignMashFacts(SaveStateFileReport? campaignMash)
+        private static SaveStateCampaignMashFacts BuildCampaignMashFacts(
+            SaveStateFileReport? campaignMash,
+            ContentHashCatalog contentHashCatalog)
         {
             if (campaignMash is null)
             {
@@ -65,7 +71,7 @@ internal sealed partial class SaveDirectoryWatcher
 
             return new SaveStateCampaignMashFacts(
                 TryGetInt(campaignMash, "base_root.version"),
-                BuildSimpleScalarFacts(campaignMash, "base_root.additional_mash_disabled_infestation_monster_class_ids"),
+                BuildSimpleScalarFacts(campaignMash, "base_root.additional_mash_disabled_infestation_monster_class_ids", contentHashCatalog, resolveIntValues: true),
                 roamingDungeonToIdKeys.Length,
                 roamingDungeonToIdKeys,
                 roamingIdToDungeonKeys.Length,
@@ -74,7 +80,9 @@ internal sealed partial class SaveDirectoryWatcher
 
         private static SaveStateSimpleScalarFacts? BuildSimpleScalarFacts(
             SaveStateFileReport file,
-            string path)
+            string path,
+            ContentHashCatalog? contentHashCatalog = null,
+            bool resolveIntValues = false)
         {
             var scalar = FindDsonScalar(file, path);
             if (scalar is null)
@@ -90,7 +98,28 @@ internal sealed partial class SaveDirectoryWatcher
                 !string.IsNullOrEmpty(scalar.Value),
                 CountSimpleScalarItems(scalar),
                 ParseIntVector(scalar),
+                resolveIntValues && contentHashCatalog is not null
+                    ? ResolveIntVectorValues(ParseIntVector(scalar), contentHashCatalog)
+                    : [],
                 ParseStringVector(scalar));
+        }
+
+        private static IReadOnlyList<SaveStateResolvedHashFacts> ResolveIntVectorValues(
+            IReadOnlyList<int> values,
+            ContentHashCatalog contentHashCatalog)
+        {
+            return values
+                .Select(value =>
+                {
+                    var names = contentHashCatalog.Resolve(value);
+                    return new SaveStateResolvedHashFacts(
+                        value,
+                        unchecked((uint)value),
+                        names.Count > 0,
+                        names.Count > 1,
+                        names);
+                })
+                .ToArray();
         }
 
         private static IReadOnlyList<int> TryGetIntVector(SaveStateFileReport? file, string path)

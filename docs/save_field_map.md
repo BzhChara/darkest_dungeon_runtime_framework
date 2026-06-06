@@ -1,6 +1,6 @@
 # Save Field Map
 
-Source snapshot: `logs/save_states/vector_facts_final_probe_20260606_165649_579.json`.
+Source snapshot: `logs/save_states/hash_resolution_final_probe_20260606_170955_850.json`.
 
 This document summarizes the current campaign save field coverage before any gameplay-rule work. Numeric slots and dynamic ids are normalized as `[]` so repeated entries are represented once. The full scalar path list remains in `facts.persistFiles[].scalarFields` in the source snapshot.
 
@@ -23,14 +23,23 @@ This document summarizes the current campaign save field coverage before any gam
 | `persist.town_event.json` | 7 | current event, history, cost/free-upgrade roots | initial semantic facts | town event rules, temporary bonuses |
 | `persist.town.json` | 570 | `buildings` | strong partial: buildings, stores, recruits, activity slots | town workflows, store/recruit/activity changes |
 | `persist.progression.json` | 476 | achievements, dungeon, infestation, last quest/raid, totals | strong partial: counters, dungeon XP, infestation, achievements, real achievements | story gates, boss progress, post-game unlocks |
-| `persist.game_knowledge.json` | 3 | dungeons, combat skills, videos | semantic: combat skill ids and scalar/raw snapshots | UI/knowledge unlocks |
+| `persist.game_knowledge.json` | 3 | dungeons, combat skills, videos | semantic: combat skill ids, int vectors, resolved hash names | UI/knowledge unlocks |
 | `persist.journal.json` | 4 | page index lists | semantic: page index scalar snapshots | journal/collection state |
 | `persist.narration.json` | 193 | narration entry logs | semantic: campaign/raid/town visit entry logs and summaries | narration replay/gating |
-| `persist.tutorial.json` | 2 | dispatched tutorial events | semantic: dispatched-events raw snapshot | tutorial prompt gating |
+| `persist.tutorial.json` | 2 | dispatched tutorial events | semantic: dispatched-events int vector with resolved names | tutorial prompt gating |
 | `persist.campaign_log.json` | 25 | chapters, total weeks | semantic: chapters, party/hero/dungeon log entries | campaign history and recap |
-| `persist.campaign_mash.json` | 2 | roaming/dungeon mash roots | semantic: mash scalar snapshot and roaming map keys | roaming state, infestation support |
+| `persist.campaign_mash.json` | 2 | roaming/dungeon mash roots | semantic: mash int vector snapshot and roaming map keys | roaming state, infestation support |
 
 ## Field Patterns
+
+### Content hash catalog
+
+Semantic now:
+
+- `facts.hashCatalog.sourceScope` is `game_install_no_local_mods`.
+- Hash names are scanned from the original game install, including official DLC, while local `DarkestDungeon/mods` is skipped.
+- Current probe stats: 658 parsed source files, 5 skipped official source files with non-JSON content despite JSON extensions, 2178 names, 2178 hashes, 0 ambiguous hashes.
+- `SaveStateSimpleScalarFacts.resolvedIntValues[]` maps decoded int-vector values to stable content ids when a catalog entry exists.
 
 ### `persist.game.json`
 
@@ -260,9 +269,10 @@ Semantic now:
 - `base_root.played_video_list` as an int vector snapshot
 - `base_root.combat_skills.<skill_id>` as `gameKnowledge.combatSkillIds[]`
 
-Still deeper:
+Hash resolution:
 
-- `dungeons_unlocked` and `played_video_list` values are decoded as integer/hash ids; resolving those hashes to stable content names is still pending.
+- `dungeons_unlocked` and `played_video_list` values are resolved through `resolvedIntValues[]` when a matching catalog name exists.
+- Current sample resolves dungeon hash `-630469331` to `crypts`.
 
 Object-only roots:
 
@@ -303,9 +313,10 @@ Semantic now:
 - `base_root.version`
 - `base_root.dispatched_events` as an int vector snapshot
 
-Still deeper:
+Hash resolution:
 
-- `dispatched_events` values are decoded as integer/hash ids; resolving those hashes to tutorial event names is still pending.
+- `dispatched_events` values are resolved through `resolvedIntValues[]`.
+- Current sample resolves all 15 tutorial event hashes, including `loot`, `death_class`, `embark`, `hallway_nav`, `map_nav`, and `curio`.
 
 ### `persist.campaign_log.json`
 
@@ -336,9 +347,9 @@ Semantic now:
 - child keys under `base_root.roaming_dungeon_2_ids`
 - child keys under `base_root.roaming_id_2_dungeon`
 
-Still deeper:
+Hash resolution:
 
-- `additional_mash_disabled_infestation_monster_class_ids` values are decoded as integer/hash ids; resolving those hashes to monster class names is still pending.
+- `additional_mash_disabled_infestation_monster_class_ids` values are resolved through `resolvedIntValues[]` when non-empty and when a matching catalog name exists.
 
 Object-only roots:
 
@@ -347,7 +358,7 @@ Object-only roots:
 
 ## Parsing Backlog Before Gameplay Rules
 
-1. Hash/name resolution: decoded int vectors such as tutorial dispatched events, knowledge unlock sets, campaign mash monster class lists, and dungeon/video ids still need mapping from integer hashes to stable content ids.
-2. Remaining uncertain containers: `progression_goal_ids`, `completed_plot_quests_data`, `flashback_completion_counts`, estate trinkets, and Darkest Dungeon trinket unlocks need non-empty samples or deeper object/raw decoding before they can be considered complete.
+1. Remaining uncertain containers: `progression_goal_ids`, `completed_plot_quests_data`, `flashback_completion_counts`, estate trinkets, and Darkest Dungeon trinket unlocks need non-empty samples or deeper object/raw decoding before they can be considered complete.
+2. Hash catalog coverage should be expanded only when future probes expose unresolved hash values that matter to a gameplay rule.
 
 Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait until the relevant backlog items are either parsed or explicitly marked unnecessary.

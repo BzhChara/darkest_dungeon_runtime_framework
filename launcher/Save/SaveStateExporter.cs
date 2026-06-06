@@ -163,6 +163,7 @@ internal sealed partial class SaveDirectoryWatcher
             var gameMode = TryGetString(gameReport, "base_root.game_mode");
             var upgradeCatalog = UpgradeDefinitionCatalog.Load(gameWorkingDirectory, gameMode, accessIssues);
             var heroDefinitions = BuildHeroDefinitionFacts(gameWorkingDirectory, gameMode, accessIssues);
+            var contentHashCatalog = ContentHashCatalog.Load(gameWorkingDirectory, accessIssues);
 
             var parseStatus = fileReports.Any(file => file.Format.Equals("jsonText", StringComparison.OrdinalIgnoreCase))
                 ? "partialJsonText"
@@ -173,7 +174,7 @@ internal sealed partial class SaveDirectoryWatcher
             {
                 parseStatus = "noCandidateFiles";
             }
-            var facts = BuildSaveStateFacts(fileReports, upgradeCatalog, heroDefinitions);
+            var facts = BuildSaveStateFacts(fileReports, upgradeCatalog, heroDefinitions, contentHashCatalog);
 
             var report = new SaveStateReport(
                 1,
@@ -546,7 +547,8 @@ internal sealed partial class SaveDirectoryWatcher
         private static SaveStateFacts BuildSaveStateFacts(
             IReadOnlyList<SaveStateFileReport> files,
             UpgradeDefinitionCatalog upgradeCatalog,
-            SaveStateHeroDefinitionFacts heroDefinitions)
+            SaveStateHeroDefinitionFacts heroDefinitions,
+            ContentHashCatalog contentHashCatalog)
         {
             var game = files.FirstOrDefault(file => file.FileName.Equals("persist.game.json", StringComparison.OrdinalIgnoreCase));
             var progression = files.FirstOrDefault(file => file.FileName.Equals("persist.progression.json", StringComparison.OrdinalIgnoreCase));
@@ -566,16 +568,17 @@ internal sealed partial class SaveDirectoryWatcher
 
             return new SaveStateFacts(
                 BuildPersistFileFacts(files),
+                contentHashCatalog.ToFacts(),
                 BuildCampaignFacts(game),
                 BuildProgressionFacts(progression),
                 BuildQuestFacts(quest),
                 BuildTownEventFacts(townEvent),
-                BuildGameKnowledgeFacts(gameKnowledge),
+                BuildGameKnowledgeFacts(gameKnowledge, contentHashCatalog),
                 BuildJournalFacts(journal),
                 BuildNarrationFacts(narration),
-                BuildTutorialFacts(tutorial),
+                BuildTutorialFacts(tutorial, contentHashCatalog),
                 BuildCampaignLogFacts(campaignLog),
-                BuildCampaignMashFacts(campaignMash),
+                BuildCampaignMashFacts(campaignMash, contentHashCatalog),
                 BuildEstateFacts(estate),
                 BuildWalletFacts(estate),
                 BuildUpgradeFacts(upgrades, upgradeCatalog),

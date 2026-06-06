@@ -85,6 +85,7 @@ internal sealed partial class SaveDirectoryWatcher
 
     private sealed record SaveStateFacts(
         IReadOnlyList<SaveStatePersistFileFacts> PersistFiles,
+        SaveStateHashCatalogFacts HashCatalog,
         SaveStateCampaignFacts Campaign,
         SaveStateProgressionFacts Progression,
         SaveStateQuestFacts Quest,
@@ -133,7 +134,23 @@ internal sealed partial class SaveDirectoryWatcher
         bool HasDecodedValue,
         int ItemCount,
         IReadOnlyList<int> IntValues,
+        IReadOnlyList<SaveStateResolvedHashFacts> ResolvedIntValues,
         IReadOnlyList<string> StringValues);
+
+    private sealed record SaveStateHashCatalogFacts(
+        string SourceScope,
+        int SourceFileCount,
+        int SkippedSourceFileCount,
+        int NameCount,
+        int HashCount,
+        int AmbiguousHashCount);
+
+    private sealed record SaveStateResolvedHashFacts(
+        int Value,
+        uint UnsignedValue,
+        bool IsResolved,
+        bool IsAmbiguous,
+        IReadOnlyList<string> Names);
 
     private sealed record SaveStateEstateFacts(
         int? Version,
