@@ -91,6 +91,28 @@ internal sealed partial class SaveDirectoryWatcher
             return path[prefix.Length..^suffix.Length];
         }
 
+        private static SaveStateRosterFacts BuildRosterFacts(SaveStateFileReport? roster)
+        {
+            if (roster is null)
+            {
+                return new SaveStateRosterFacts(null, null, null, null, 0, [], []);
+            }
+
+            var lastPartyGuids = TryGetIntVector(roster, "base_root.last_party.last_party_guids");
+            return new SaveStateRosterFacts(
+                TryGetInt(roster, "base_root.version"),
+                TryGetInt(roster, "base_root.dismissed_hero_count"),
+                TryGetInt(roster, "base_root.highest_resolve_xp"),
+                TryGetInt(roster, "base_root.nextGuid"),
+                lastPartyGuids.Count,
+                lastPartyGuids,
+                lastPartyGuids
+                    .Where(value => value >= 0)
+                    .Distinct()
+                    .OrderBy(value => value)
+                    .ToArray());
+        }
+
         private static SaveStateHeroFacts BuildSaveStateHeroFacts(string heroId, int rawDataLength, BinaryContainerInfo nested)
         {
             var quirkIds = MergeAllDirectChildIds(

@@ -1,6 +1,6 @@
 # Save Field Map
 
-Source snapshot: `logs/save_states/secondary_persist_probe_20260606_163736_616.json`.
+Source snapshot: `logs/save_states/vector_facts_final_probe_20260606_165649_579.json`.
 
 This document summarizes the current campaign save field coverage before any gameplay-rule work. Numeric slots and dynamic ids are normalized as `[]` so repeated entries are represented once. The full scalar path list remains in `facts.persistFiles[].scalarFields` in the source snapshot.
 
@@ -107,14 +107,12 @@ Semantic now:
 - skills: selected combat and camping skill ids
 - trinkets: slot, id, type, amount
 - loadouts: current skills and equipment linked to base hero definitions
-
-Still scalar/raw:
-
 - `base_root.version`
 - `base_root.dismissed_hero_count`
 - `base_root.highest_resolve_xp`
 - `base_root.nextGuid`
-- `base_root.last_party.last_party_guids`
+- `base_root.last_party.last_party_guids` as `roster.lastPartyGuids[]`
+- `roster.lastPartyActiveHeroGuids[]` filters out empty `-1` slots
 
 ### `persist.upgrades.json`
 
@@ -150,19 +148,20 @@ Semantic now:
 - `base_root.quests.[].use_default_progression_goals`
 - `base_root.quests.[].raid_rules_override`
 - `base_root.quests.[].torch_setting`
+- `base_root.quests.[].goal_ids` as `quests[].goalIds[]`
+- `base_root.quests.[].progression_goal_ids` as scalar snapshot pending type confirmation
 - `base_root.quests.[].completion_reward.resolve_xp`
 - `base_root.quests.[].completion_reward.resolve_xp_per_wave_kill`
 - `base_root.quests.[].completion_reward.max_times_dungeon_xp_awarded`
+- `base_root.quests.[].completion_reward.trinket_retention_ids` as `completionReward.trinketRetentionIds[]`
 - `base_root.quests.[].completion_reward.items_definition.items.[].type`
 - `base_root.quests.[].completion_reward.items_definition.items.[].id`
 - `base_root.quests.[].completion_reward.items_definition.items.[].amount`
+- `base_root.trinket_retention_ids` as `quest.rootTrinketRetentionIds[]`
 
-Still raw/scalar:
+Still scalar/deeper:
 
-- `base_root.quests.[].goal_ids`
-- `base_root.quests.[].progression_goal_ids`
-- `base_root.quests.[].completion_reward.trinket_retention_ids`
-- `base_root.trinket_retention_ids`
+- `base_root.quests.[].progression_goal_ids` is not in the referenced DSON vector type table; keep it as a scalar snapshot until a non-empty sample or static rule confirms the encoding.
 
 ### `persist.town_event.json`
 
@@ -174,10 +173,8 @@ Semantic now:
 - `base_root.last_town_event_week`
 - `base_root.rng_seed`
 - collection ids/counts for `result_event_history`, `dead_hero_entries`, `bonus_hero_entries`, `event_cost`, `free_upgrade_tags`, `non_rolled_additional_chances`
-
-Still scalar/raw:
-
-- This sample exposes `base_root.result_event_history` and `base_root.dead_hero_entries` as scalar zero values when empty.
+- `base_root.result_event_history` as `townEvents.resultEventHistoryValues[]`
+- `base_root.dead_hero_entries` as `townEvents.deadHeroEntryValues[]`
 
 Object-only roots:
 
@@ -259,14 +256,13 @@ Object-only/raw roots:
 Semantic now:
 
 - `base_root.version`
-- `base_root.dungeons_unlocked`
-- `base_root.played_video_list`
+- `base_root.dungeons_unlocked` as an int vector snapshot
+- `base_root.played_video_list` as an int vector snapshot
 - `base_root.combat_skills.<skill_id>` as `gameKnowledge.combatSkillIds[]`
 
-Still raw/deeper:
+Still deeper:
 
-- `base_root.dungeons_unlocked` is exposed as a raw scalar snapshot in this sample; individual dungeon ids are not decoded yet.
-- `base_root.played_video_list` is exposed as a scalar snapshot; individual video ids are not decoded yet.
+- `dungeons_unlocked` and `played_video_list` values are decoded as integer/hash ids; resolving those hashes to stable content names is still pending.
 
 Object-only roots:
 
@@ -277,13 +273,11 @@ Object-only roots:
 Semantic now:
 
 - `base_root.version`
-- `base_root.read_page_indexes`
-- `base_root.raid_read_page_indexes`
-- `base_root.raid_unread_page_indexes`
+- `base_root.read_page_indexes` as an int vector snapshot
+- `base_root.raid_read_page_indexes` as an int vector snapshot
+- `base_root.raid_unread_page_indexes` as an int vector snapshot
 
-Still raw/deeper:
-
-- Journal page index collections are currently exposed as scalar snapshots; individual page ids are not decoded yet.
+This sample has empty page-index vectors.
 
 ### `persist.narration.json`
 
@@ -307,11 +301,11 @@ Semantic now:
 Semantic now:
 
 - `base_root.version`
-- `base_root.dispatched_events`
+- `base_root.dispatched_events` as an int vector snapshot
 
-Still raw/deeper:
+Still deeper:
 
-- `base_root.dispatched_events` is exposed as a raw scalar snapshot; individual tutorial event ids are not decoded yet.
+- `dispatched_events` values are decoded as integer/hash ids; resolving those hashes to tutorial event names is still pending.
 
 ### `persist.campaign_log.json`
 
@@ -338,13 +332,13 @@ Semantic now:
 Semantic now:
 
 - `base_root.version`
-- `base_root.additional_mash_disabled_infestation_monster_class_ids`
+- `base_root.additional_mash_disabled_infestation_monster_class_ids` as an int vector snapshot
 - child keys under `base_root.roaming_dungeon_2_ids`
 - child keys under `base_root.roaming_id_2_dungeon`
 
-Still raw/deeper:
+Still deeper:
 
-- `base_root.additional_mash_disabled_infestation_monster_class_ids` is exposed as a scalar snapshot; individual monster class ids are not decoded yet.
+- `additional_mash_disabled_infestation_monster_class_ids` values are decoded as integer/hash ids; resolving those hashes to monster class names is still pending.
 
 Object-only roots:
 
@@ -353,6 +347,7 @@ Object-only roots:
 
 ## Parsing Backlog Before Gameplay Rules
 
-1. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, knowledge unlock sets, completed plot quest data, flashback completion counts, journal page indexes, campaign mash scalar lists, trinkets, and Darkest Dungeon trinket unlocks need deeper raw-array decoding before they can be considered complete.
+1. Hash/name resolution: decoded int vectors such as tutorial dispatched events, knowledge unlock sets, campaign mash monster class lists, and dungeon/video ids still need mapping from integer hashes to stable content ids.
+2. Remaining uncertain containers: `progression_goal_ids`, `completed_plot_quests_data`, `flashback_completion_counts`, estate trinkets, and Darkest Dungeon trinket unlocks need non-empty samples or deeper object/raw decoding before they can be considered complete.
 
 Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait until the relevant backlog items are either parsed or explicitly marked unnecessary.

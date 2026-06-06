@@ -102,6 +102,7 @@ internal sealed partial class SaveDirectoryWatcher
         SaveStateTownFacts Town,
         IReadOnlyList<string> BuildingIds,
         IReadOnlyList<string> HeroIds,
+        SaveStateRosterFacts Roster,
         IReadOnlyList<SaveStateHeroLoadoutFacts> HeroLoadouts,
         IReadOnlyList<SaveStateHeroFacts> Heroes);
 
@@ -129,7 +130,10 @@ internal sealed partial class SaveDirectoryWatcher
         string Name,
         string Type,
         string? Value,
-        bool HasDecodedValue);
+        bool HasDecodedValue,
+        int ItemCount,
+        IReadOnlyList<int> IntValues,
+        IReadOnlyList<string> StringValues);
 
     private sealed record SaveStateEstateFacts(
         int? Version,
@@ -154,6 +158,8 @@ internal sealed partial class SaveDirectoryWatcher
     private sealed record SaveStateQuestFacts(
         int? Version,
         int? PlotQuestTotal,
+        int RootTrinketRetentionIdCount,
+        IReadOnlyList<int> RootTrinketRetentionIds,
         int QuestCount,
         int PlotQuestCount,
         int TownEventQuestCount,
@@ -174,12 +180,17 @@ internal sealed partial class SaveDirectoryWatcher
         bool? UseDefaultProgressionGoals,
         string? RaidRulesOverride,
         string? TorchSetting,
+        int GoalIdCount,
+        IReadOnlyList<string> GoalIds,
+        SaveStateSimpleScalarFacts? ProgressionGoalIds,
         SaveStateQuestRewardFacts CompletionReward);
 
     private sealed record SaveStateQuestRewardFacts(
         int? ResolveXp,
         int? ResolveXpPerWaveKill,
         int? MaxTimesDungeonXpAwarded,
+        int TrinketRetentionIdCount,
+        IReadOnlyList<int> TrinketRetentionIds,
         IReadOnlyList<SaveStateQuestRewardItemFacts> Items);
 
     private sealed record SaveStateQuestRewardItemFacts(
@@ -200,6 +211,8 @@ internal sealed partial class SaveDirectoryWatcher
         int EventCostCount,
         int FreeUpgradeTagCount,
         int NonRolledAdditionalChanceCount,
+        IReadOnlyList<int> ResultEventHistoryValues,
+        IReadOnlyList<int> DeadHeroEntryValues,
         IReadOnlyList<string> ResultEventHistoryIds,
         IReadOnlyList<string> DeadHeroEntryIds,
         IReadOnlyList<string> BonusHeroEntryIds,
@@ -306,6 +319,15 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<string> RoamingDungeonToIdKeys,
         int RoamingIdToDungeonCount,
         IReadOnlyList<string> RoamingIdToDungeonKeys);
+
+    private sealed record SaveStateRosterFacts(
+        int? Version,
+        int? DismissedHeroCount,
+        int? HighestResolveXp,
+        int? NextGuid,
+        int LastPartyGuidCount,
+        IReadOnlyList<int> LastPartyGuids,
+        IReadOnlyList<int> LastPartyActiveHeroGuids);
 
     private sealed record SaveStateHeroLoadoutFacts(
         string HeroId,

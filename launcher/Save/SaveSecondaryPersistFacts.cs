@@ -87,7 +87,87 @@ internal sealed partial class SaveDirectoryWatcher
                 scalar.Name,
                 scalar.Type,
                 scalar.Value,
-                !string.IsNullOrEmpty(scalar.Value));
+                !string.IsNullOrEmpty(scalar.Value),
+                CountSimpleScalarItems(scalar),
+                ParseIntVector(scalar),
+                ParseStringVector(scalar));
+        }
+
+        private static IReadOnlyList<int> TryGetIntVector(SaveStateFileReport? file, string path)
+        {
+            var scalar = FindDsonScalar(file, path);
+            return ParseIntVector(scalar);
+        }
+
+        private static IReadOnlyList<string> TryGetStringVector(SaveStateFileReport? file, string path)
+        {
+            var scalar = FindDsonScalar(file, path);
+            return ParseStringVector(scalar);
+        }
+
+        private static IReadOnlyList<int> TryGetIntVector(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
+        {
+            var scalar = FindDsonScalar(scalars, path);
+            return ParseIntVector(scalar);
+        }
+
+        private static IReadOnlyList<string> TryGetStringVector(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
+        {
+            var scalar = FindDsonScalar(scalars, path);
+            return ParseStringVector(scalar);
+        }
+
+        private static int CountSimpleScalarItems(SaveStateDsonScalar scalar)
+        {
+            if (scalar.Type.Equals("intVector", StringComparison.OrdinalIgnoreCase))
+            {
+                return ParseIntVector(scalar).Count;
+            }
+
+            if (scalar.Type.Equals("stringVector", StringComparison.OrdinalIgnoreCase))
+            {
+                return ParseStringVector(scalar).Count;
+            }
+
+            return 0;
+        }
+
+        private static IReadOnlyList<int> ParseIntVector(SaveStateDsonScalar? scalar)
+        {
+            if (scalar is null
+                || !scalar.Type.Equals("intVector", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(scalar.Value))
+            {
+                return [];
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<int[]>(scalar.Value) ?? [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
+        }
+
+        private static IReadOnlyList<string> ParseStringVector(SaveStateDsonScalar? scalar)
+        {
+            if (scalar is null
+                || !scalar.Type.Equals("stringVector", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(scalar.Value))
+            {
+                return [];
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<string[]>(scalar.Value) ?? [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
         }
 
         private static IReadOnlyList<string> ExtractSecondaryPersistChildIds(

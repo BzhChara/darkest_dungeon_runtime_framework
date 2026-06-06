@@ -17,6 +17,8 @@ internal sealed partial class SaveDirectoryWatcher
             var eventCostIds = ExtractTownEventChildIds(townEvent, "base_root.event_cost");
             var freeUpgradeTags = ExtractTownEventChildIds(townEvent, "base_root.free_upgrade_tags");
             var nonRolledAdditionalChanceIds = ExtractTownEventChildIds(townEvent, "base_root.non_rolled_additional_chances");
+            var resultEventHistoryValues = TryGetIntVector(townEvent, "base_root.result_event_history");
+            var deadHeroEntryValues = TryGetIntVector(townEvent, "base_root.dead_hero_entries");
 
             return new SaveStateTownEventFacts(
                 TryGetInt(townEvent, "base_root.version"),
@@ -30,6 +32,8 @@ internal sealed partial class SaveDirectoryWatcher
                 eventCostIds.Count,
                 freeUpgradeTags.Count,
                 nonRolledAdditionalChanceIds.Count,
+                resultEventHistoryValues,
+                deadHeroEntryValues,
                 resultEventHistoryIds,
                 deadHeroEntryIds,
                 bonusHeroEntryIds,
@@ -52,6 +56,8 @@ internal sealed partial class SaveDirectoryWatcher
                 0,
                 0,
                 0,
+                [],
+                [],
                 [],
                 [],
                 [],

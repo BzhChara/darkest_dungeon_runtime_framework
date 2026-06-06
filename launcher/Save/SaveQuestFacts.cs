@@ -27,6 +27,8 @@ internal sealed partial class SaveDirectoryWatcher
             return new SaveStateQuestFacts(
                 TryGetInt(quest, "base_root.version"),
                 TryGetInt(quest, "base_root.plot_quest_total"),
+                TryGetIntVector(quest, "base_root.trinket_retention_ids").Count,
+                TryGetIntVector(quest, "base_root.trinket_retention_ids"),
                 quests.Length,
                 quests.Count(item => item.IsPlotQuest == true),
                 quests.Count(item => item.IsFromTownEvent == true),
@@ -35,12 +37,13 @@ internal sealed partial class SaveDirectoryWatcher
 
         private static SaveStateQuestFacts EmptyQuestFacts(int? version)
         {
-            return new SaveStateQuestFacts(version, null, 0, 0, 0, []);
+            return new SaveStateQuestFacts(version, null, 0, [], 0, 0, 0, []);
         }
 
         private static SaveStateQuestEntryFacts BuildQuestEntryFacts(SaveStateFileReport quest, string slotId)
         {
             var path = $"base_root.quests.{slotId}";
+            var goalIds = TryGetStringVector(quest, $"{path}.goal_ids");
             return new SaveStateQuestEntryFacts(
                 slotId,
                 TryGetString(quest, $"{path}.id"),
@@ -56,6 +59,9 @@ internal sealed partial class SaveDirectoryWatcher
                 TryGetBool(quest, $"{path}.use_default_progression_goals"),
                 EmptyToNull(TryGetString(quest, $"{path}.raid_rules_override")),
                 EmptyToNull(TryGetString(quest, $"{path}.torch_setting")),
+                goalIds.Count,
+                goalIds,
+                BuildSimpleScalarFacts(quest, $"{path}.progression_goal_ids"),
                 BuildQuestRewardFacts(quest, $"{path}.completion_reward"));
         }
 
@@ -70,6 +76,8 @@ internal sealed partial class SaveDirectoryWatcher
                 TryGetInt(quest, $"{rewardPath}.resolve_xp"),
                 TryGetInt(quest, $"{rewardPath}.resolve_xp_per_wave_kill"),
                 TryGetInt(quest, $"{rewardPath}.max_times_dungeon_xp_awarded"),
+                TryGetIntVector(quest, $"{rewardPath}.trinket_retention_ids").Count,
+                TryGetIntVector(quest, $"{rewardPath}.trinket_retention_ids"),
                 itemIds
                     .OrderBy(NumericAwareSortKey, StringComparer.OrdinalIgnoreCase)
                     .Select(slotId =>

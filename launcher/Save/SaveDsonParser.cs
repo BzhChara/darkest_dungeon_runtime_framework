@@ -230,6 +230,34 @@ internal sealed partial class SaveDirectoryWatcher
                     continue;
                 }
 
+                if (IsDsonVectorPath(path, IntVectorPathPatterns)
+                    && TryReadDsonIntVector(bytes, valueStart, alignedRemaining, out var intVector))
+                {
+                    scalars.Add(new SaveStateDsonScalar(
+                        path,
+                        field.Name,
+                        "intVector",
+                        JsonSerializer.Serialize(intVector),
+                        field.AbsoluteOffset,
+                        size,
+                        rawHex));
+                    continue;
+                }
+
+                if (IsDsonVectorPath(path, StringVectorPathPatterns)
+                    && TryReadDsonStringVector(bytes, valueStart, alignedRemaining, out var stringVector))
+                {
+                    scalars.Add(new SaveStateDsonScalar(
+                        path,
+                        field.Name,
+                        "stringVector",
+                        JsonSerializer.Serialize(stringVector),
+                        field.AbsoluteOffset,
+                        size,
+                        rawHex));
+                    continue;
+                }
+
                 if (alignedRemaining >= 4 && TryReadDsonString(bytes, valueStart, alignedRemaining, out var stringValue))
                 {
                     scalars.Add(new SaveStateDsonScalar(path, field.Name, "string", stringValue, field.AbsoluteOffset, size, rawHex));
@@ -279,6 +307,126 @@ internal sealed partial class SaveDirectoryWatcher
             }
 
             return scalars;
+        }
+
+        private static bool IsDsonVectorPath(string path, IReadOnlyList<string[]> patterns)
+        {
+            var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var pattern in patterns)
+            {
+                if (pattern.Length > segments.Length)
+                {
+                    continue;
+                }
+
+                var matches = true;
+                for (var i = 0; i < pattern.Length; i++)
+                {
+                    var expected = pattern[pattern.Length - 1 - i];
+                    var actual = segments[segments.Length - 1 - i];
+                    if (!expected.Equals("*", StringComparison.Ordinal)
+                        && !expected.Equals(actual, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+
+                if (matches)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadDsonIntVector(
+            byte[] bytes,
+            int offset,
+            int remaining,
+            out IReadOnlyList<int> values)
+        {
+            values = [];
+            if (remaining < 4 || offset < 0 || offset + remaining > bytes.Length)
+            {
+                return false;
+            }
+
+            var count = ReadInt32LittleEndian(bytes, offset);
+            if (count < 0 || count > 100_000 || remaining != (count + 1) * 4)
+            {
+                return false;
+            }
+
+            var result = new int[count];
+            for (var i = 0; i < result.Length; i++)
+            {
+                result[i] = ReadInt32LittleEndian(bytes, offset + 4 + i * 4);
+            }
+
+            values = result;
+            return true;
+        }
+
+        private static bool TryReadDsonStringVector(
+            byte[] bytes,
+            int offset,
+            int remaining,
+            out IReadOnlyList<string> values)
+        {
+            values = [];
+            if (remaining < 4 || offset < 0 || offset + remaining > bytes.Length)
+            {
+                return false;
+            }
+
+            var count = ReadInt32LittleEndian(bytes, offset);
+            if (count < 0 || count > 100_000)
+            {
+                return false;
+            }
+
+            var cursor = offset + 4;
+            var end = offset + remaining;
+            var result = new List<string>(count);
+            for (var i = 0; i < count; i++)
+            {
+                if (cursor + 4 > end)
+                {
+                    return false;
+                }
+
+                var length = ReadInt32LittleEndian(bytes, cursor);
+                cursor += 4;
+                if (length < 1 || cursor + length > end || bytes[cursor + length - 1] != 0)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    result.Add(StrictUtf8.GetString(bytes, cursor, length - 1));
+                }
+                catch (DecoderFallbackException)
+                {
+                    return false;
+                }
+
+                cursor += length;
+                if (i < count - 1)
+                {
+                    cursor += (4 - ((cursor - (offset + 4)) % 4)) % 4;
+                }
+            }
+
+            if (cursor != end)
+            {
+                return false;
+            }
+
+            values = result;
+            return true;
         }
 
         private static string BuildDsonFieldPath(

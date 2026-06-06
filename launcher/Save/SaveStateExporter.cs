@@ -83,6 +83,45 @@ internal sealed partial class SaveDirectoryWatcher
             "requirement_code"
         ];
 
+        private static readonly string[][] IntVectorPathPatterns =
+        [
+            ["read_page_indexes"],
+            ["raid_read_page_indexes"],
+            ["raid_unread_page_indexes"],
+            ["dungeons_unlocked"],
+            ["played_video_list"],
+            ["trinket_retention_ids"],
+            ["last_party_guids"],
+            ["dungeon_history"],
+            ["buff_group_guids"],
+            ["result_event_history"],
+            ["dead_hero_entries"],
+            ["additional_mash_disabled_infestation_monster_class_ids"],
+            ["mash", "valid_additional_mash_entry_indexes"],
+            ["party", "heroes"],
+            ["skill_cooldown_keys"],
+            ["skill_cooldown_values"],
+            ["bufferedSpawningSlotsAvailable"],
+            ["curioGroups", "*", "curios"],
+            ["curioGroups", "*", "curio_table_entries"],
+            ["raid_finish_quirk_monster_class_ids"],
+            ["narration_audio_event_queue_tags"],
+            ["dispatched_events"],
+            ["backer_heroes", "*", "combat_skills"],
+            ["backer_heroes", "*", "camping_skills"],
+            ["backer_heroes", "*", "quirks"]
+        ];
+
+        private static readonly string[][] StringVectorPathPatterns =
+        [
+            ["goal_ids"],
+            ["roaming_dungeon_2_ids", "*", "s"],
+            ["quirk_group"],
+            ["backgroundNames"],
+            ["backgroundGroups", "*", "backgrounds"],
+            ["backgroundGroups", "*", "background_table_entries"]
+        ];
+
         private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
         private const int MaxInlineValueDistance = 16;
@@ -544,6 +583,7 @@ internal sealed partial class SaveDirectoryWatcher
                 BuildTownFacts(town),
                 ExtractDirectChildIds(town?.DsonObjectPaths ?? [], "base_root.buildings"),
                 ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"),
+                BuildRosterFacts(roster),
                 BuildHeroLoadoutFacts(heroes, heroDefinitions),
                 heroes);
         }
