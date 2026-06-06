@@ -22,7 +22,7 @@ This document summarizes the current campaign save field coverage before any gam
 | `persist.quest.json` | 62 | `quests`, `plot_quest_total` | partial: quest entries and rewards | quest generation, post-game map/story chains |
 | `persist.town_event.json` | 7 | current event, history, cost/free-upgrade roots | initial semantic facts | town event rules, temporary bonuses |
 | `persist.town.json` | 570 | `buildings` | strong partial: buildings, stores, recruits, activity slots | town workflows, store/recruit/activity changes |
-| `persist.progression.json` | 476 | achievements, dungeon, infestation, last quest/raid, totals | thin: only top counters and last raid fields | story gates, boss progress, post-game unlocks |
+| `persist.progression.json` | 476 | achievements, dungeon, infestation, last quest/raid, totals | strong partial: counters, dungeon XP, infestation, achievements, real achievements | story gates, boss progress, post-game unlocks |
 | `persist.game_knowledge.json` | 3 | dungeons, combat skills, videos | scalar only | UI/knowledge unlocks |
 | `persist.journal.json` | 4 | page index lists | scalar only | journal/collection state |
 | `persist.narration.json` | 193 | narration entry logs | scalar only | narration replay/gating |
@@ -222,33 +222,31 @@ Visible field patterns:
 
 Semantic now:
 
+- `base_root.version`
 - `base_root.total_quests_finished`
 - `base_root.total_successful_quests_finished`
+- `base_root.total_recruited_stage_coach_heroes`
 - `base_root.last_quest_played_id`
+- `base_root.last_quest_played_successfully`
 - `base_root.last_quest_played_xp`
+- `base_root.last_raid_quest_id`
 - `base_root.last_raid_success`
 - `base_root.last_raid_was_a_plot_quest`
-
-Still scalar:
-
-- `base_root.version`
-- `base_root.total_recruited_stage_coach_heroes`
-- `base_root.last_quest_played_successfully`
-- `base_root.last_raid_quest_id`
-- `base_root.dungeon.<dungeon>.xp`
+- `base_root.dungeon.<dungeon>.xp` as `progression.dungeons[]`
 - `base_root.infestation.sequence_element_id`
 - `base_root.infestation.rng_seed`
 - `base_root.infestation.number_of_weeks_left_in_sequence_element`
 - `base_root.infestation.number_of_weeks_total_in_sequence_element`
-- `base_root.achievements.<id>.id`
+- `base_root.achievements.<id>.id` as `progression.achievements[]`
 - `base_root.achievements.<id>.rtti`
 - `base_root.achievements.<id>.completed`
 - `base_root.achievements.<id>.awarded`
-- `base_root.real_achievements.<id>.id`
+- `base_root.real_achievements.<id>.id` as `progression.realAchievements[]`
 - `base_root.real_achievements.<id>.rtti`
 - `base_root.real_achievements.<id>.completed`
 - `base_root.real_achievements.<id>.awarded`
 - `base_root.real_achievements.<id>.conditions.[].enemies_killed`
+- non-standard achievement fields, such as `boss_battle`, as `extraScalarFields`
 
 Object-only/raw roots:
 
@@ -330,10 +328,9 @@ Object-only roots:
 
 ## Parsing Backlog Before Gameplay Rules
 
-1. `persist.progression.json`: promote dungeon XP, infestation, achievements, real achievements, last raid ids, and total recruited heroes into semantic facts.
-2. `persist.game.json` and `persist.estate.json`: promote DLC lists, profile options, estate items, tamper flags, and highscore fields.
-3. `persist.narration.json` and `persist.campaign_log.json`: promote entry logs and campaign chapters into semantic facts.
-4. `persist.game_knowledge.json`, `persist.journal.json`, `persist.tutorial.json`, `persist.campaign_mash.json`: promote simple scalar facts first, then investigate raw/object-only branches when a mod concept needs them.
-5. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, and knowledge unlock sets need deeper raw-array decoding before they can be considered complete.
+1. `persist.game.json` and `persist.estate.json`: promote DLC lists, profile options, estate items, tamper flags, and highscore fields.
+2. `persist.narration.json` and `persist.campaign_log.json`: promote entry logs and campaign chapters into semantic facts.
+3. `persist.game_knowledge.json`, `persist.journal.json`, `persist.tutorial.json`, `persist.campaign_mash.json`: promote simple scalar facts first, then investigate raw/object-only branches when a mod concept needs them.
+4. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, knowledge unlock sets, completed plot quest data, and flashback completion counts need deeper raw-array decoding before they can be considered complete.
 
 Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait until the relevant backlog items are either parsed or explicitly marked unnecessary.

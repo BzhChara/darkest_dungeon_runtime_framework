@@ -511,12 +511,58 @@ internal sealed partial class SaveDirectoryWatcher
         string? NeverAgain);
 
     private sealed record SaveStateProgressionFacts(
+        int? Version,
         int? TotalQuestsFinished,
         int? TotalSuccessfulQuestsFinished,
+        int? TotalRecruitedStageCoachHeroes,
         int? LastQuestPlayedId,
+        bool? LastQuestPlayedSuccessfully,
         int? LastQuestPlayedXp,
+        int? LastRaidQuestId,
         bool? LastRaidSuccess,
-        bool? LastRaidWasPlotQuest);
+        bool? LastRaidWasPlotQuest,
+        SaveStateProgressionInfestationFacts Infestation,
+        int DungeonCount,
+        IReadOnlyList<SaveStateProgressionDungeonFacts> Dungeons,
+        int AchievementCount,
+        int CompletedAchievementCount,
+        int AwardedAchievementCount,
+        IReadOnlyList<SaveStateProgressionAchievementFacts> Achievements,
+        int RealAchievementCount,
+        int CompletedRealAchievementCount,
+        int AwardedRealAchievementCount,
+        IReadOnlyList<SaveStateProgressionAchievementFacts> RealAchievements,
+        IReadOnlyList<string> CompletedPlotQuestDataIds,
+        IReadOnlyList<string> FlashbackCompletionCountIds);
+
+    private sealed record SaveStateProgressionInfestationFacts(
+        int? SequenceElementId,
+        int? RngSeed,
+        int? WeeksLeftInSequenceElement,
+        int? WeeksTotalInSequenceElement);
+
+    private sealed record SaveStateProgressionDungeonFacts(
+        string DungeonId,
+        int? Xp);
+
+    private sealed record SaveStateProgressionAchievementFacts(
+        string Key,
+        string? Id,
+        int? Rtti,
+        bool? Completed,
+        bool? Awarded,
+        IReadOnlyList<SaveStateProgressionAchievementConditionFacts> Conditions,
+        IReadOnlyList<SaveStateProgressionAchievementScalarFacts> ExtraScalarFields);
+
+    private sealed record SaveStateProgressionAchievementConditionFacts(
+        string SlotId,
+        int? EnemiesKilled);
+
+    private sealed record SaveStateProgressionAchievementScalarFacts(
+        string LocalPath,
+        string Name,
+        string Type,
+        string? Value);
 
     private sealed record SaveStateDsonSummary(
         int HeaderLength,
