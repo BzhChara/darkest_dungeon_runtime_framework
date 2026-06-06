@@ -163,6 +163,9 @@ internal sealed partial class SaveDirectoryWatcher
         bool? PerformedBlueprintCorrectionCheck,
         bool? FoundGlobalTamperedFile,
         bool? FoundLocalTamperedFile,
+        SaveStateObjectContainerFacts Trinkets,
+        SaveStateObjectContainerFacts TrinketItems,
+        SaveStateObjectContainerFacts DarkestDungeonTrinketUnlocks,
         IReadOnlyList<string> TrinketRootIds,
         IReadOnlyList<string> DarkestDungeonTrinketUnlockIds);
 
@@ -725,8 +728,19 @@ internal sealed partial class SaveDirectoryWatcher
         int CompletedRealAchievementCount,
         int AwardedRealAchievementCount,
         IReadOnlyList<SaveStateProgressionAchievementFacts> RealAchievements,
+        SaveStateObjectContainerFacts CompletedPlotQuestsData,
+        SaveStateObjectContainerFacts FlashbackCompletionCounts,
         IReadOnlyList<string> CompletedPlotQuestDataIds,
         IReadOnlyList<string> FlashbackCompletionCountIds);
+
+    private sealed record SaveStateObjectContainerFacts(
+        string Path,
+        bool Exists,
+        bool HasDirectChildren,
+        int DirectChildCount,
+        IReadOnlyList<string> DirectChildIds,
+        int DescendantObjectPathCount,
+        int DescendantScalarFieldCount);
 
     private sealed record SaveStateProgressionInfestationFacts(
         int? SequenceElementId,

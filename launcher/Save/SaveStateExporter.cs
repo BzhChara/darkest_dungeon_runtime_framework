@@ -682,6 +682,35 @@ internal sealed partial class SaveDirectoryWatcher
                 : values.ToArray();
         }
 
+        private static SaveStateObjectContainerFacts BuildObjectContainerFacts(
+            SaveStateFileReport? file,
+            string path)
+        {
+            if (file is null)
+            {
+                return new SaveStateObjectContainerFacts(path, false, false, 0, [], 0, 0);
+            }
+
+            var prefix = path + ".";
+            var scalars = GetDsonScalars(file);
+            var directChildIds = MergeAllDirectChildIds(
+                ExtractAllDirectChildIds(file.DsonObjectPaths, path),
+                ExtractAllDirectChildIds(scalars, path));
+            var exists = file.DsonObjectPaths.Any(item => item.Equals(path, StringComparison.OrdinalIgnoreCase))
+                || file.DsonObjectPaths.Any(item => item.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                || scalars.Any(item => item.Path.Equals(path, StringComparison.OrdinalIgnoreCase))
+                || scalars.Any(item => item.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+            return new SaveStateObjectContainerFacts(
+                path,
+                exists,
+                directChildIds.Count > 0,
+                directChildIds.Count,
+                directChildIds,
+                file.DsonObjectPaths.Count(item => item.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)),
+                scalars.Count(item => item.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)));
+        }
+
         private static string? TryGetString(SaveStateFileReport? file, string path)
         {
             var scalar = FindDsonScalar(file, path);

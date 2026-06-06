@@ -25,6 +25,9 @@ internal sealed partial class SaveDirectoryWatcher
                 TryGetBool(estate, "base_root.performed_blueprint_correction_check"),
                 TryGetBool(estate, "base_root.tampering.tampering_manager.foundGlobalTamperedFile"),
                 TryGetBool(estate, "base_root.tampering.tampering_manager.foundLocalTamperedFile"),
+                BuildObjectContainerFacts(estate, "base_root.trinkets"),
+                BuildObjectContainerFacts(estate, "base_root.trinkets.items"),
+                BuildObjectContainerFacts(estate, "base_root.darkest_dungeon_trinket_unlocks"),
                 ExtractEstateChildIds(estate, "base_root.trinkets"),
                 ExtractEstateChildIds(estate, "base_root.darkest_dungeon_trinket_unlocks"));
         }
@@ -42,6 +45,9 @@ internal sealed partial class SaveDirectoryWatcher
                 null,
                 null,
                 null,
+                BuildObjectContainerFacts(null, "base_root.trinkets"),
+                BuildObjectContainerFacts(null, "base_root.trinkets.items"),
+                BuildObjectContainerFacts(null, "base_root.darkest_dungeon_trinket_unlocks"),
                 [],
                 []);
         }

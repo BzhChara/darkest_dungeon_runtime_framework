@@ -41,6 +41,8 @@ internal sealed partial class SaveDirectoryWatcher
                 realAchievements.Count(achievement => achievement.Completed == true),
                 realAchievements.Count(achievement => achievement.Awarded == true),
                 realAchievements,
+                BuildObjectContainerFacts(progression, "base_root.completed_plot_quests_data"),
+                BuildObjectContainerFacts(progression, "base_root.flashback_completion_counts"),
                 ExtractProgressionChildIds(progression, "base_root.completed_plot_quests_data"),
                 ExtractProgressionChildIds(progression, "base_root.flashback_completion_counts"));
         }
@@ -69,6 +71,8 @@ internal sealed partial class SaveDirectoryWatcher
                 0,
                 0,
                 [],
+                BuildObjectContainerFacts(null, "base_root.completed_plot_quests_data"),
+                BuildObjectContainerFacts(null, "base_root.flashback_completion_counts"),
                 [],
                 []);
         }

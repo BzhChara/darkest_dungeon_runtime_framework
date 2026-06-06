@@ -1,6 +1,6 @@
 # Save Field Map
 
-Source snapshot: `logs/save_states/hash_resolution_final_probe_20260606_170955_850.json`.
+Source snapshot: `logs/save_states/container_facts_probe_20260606_171740_417.json`.
 
 This document summarizes the current campaign save field coverage before any gameplay-rule work. Numeric slots and dynamic ids are normalized as `[]` so repeated entries are represented once. The full scalar path list remains in `facts.persistFiles[].scalarFields` in the source snapshot.
 
@@ -10,19 +10,20 @@ This document summarizes the current campaign save field coverage before any gam
 - `scalar`: DSON scalar path and value are visible through `facts.persistFiles`, but no dedicated semantic model exists yet.
 - `raw`: field is visible but still encoded as a raw/nested payload or object-only branch, so more decoding is needed.
 - `object-only`: root/object path exists in this sample, but no scalar child was decoded from it.
+- `container`: object root is exported as a named facts container with existence, direct-child, descendant-object, and descendant-scalar counts.
 
 ## File Summary
 
 | File | Scalars | Roots | Current semantic coverage | Mod value |
 | --- | ---: | --- | --- | --- |
 | `persist.game.json` | 48 | `date_time`, `dlc`, `profile_options`, `raid_save`, `totalelapsed` | strong partial: campaign identity, DLC, presented DLC, profile options | campaign mode, DLC gates, option-dependent rules |
-| `persist.estate.json` | 25 | `wallet`, `estate_items`, `tampering`, `trinkets` | strong partial: wallet, estate items, highscore, tamper flags | resources, item economy, anti-tamper diagnostics |
+| `persist.estate.json` | 25 | `wallet`, `estate_items`, `tampering`, `trinkets` | strong partial: wallet, estate items, highscore, tamper flags, trinket containers | resources, item economy, anti-tamper diagnostics |
 | `persist.roster.json` | 9 plus nested hero payloads | `heroes`, `last_party`, counters | strong partial: hero nested facts and loadouts | party rules, hero availability, unlock-all modes |
 | `persist.upgrades.json` | 913 | `purchases` | strong partial: purchases, tree definitions, missing requirements | building/hero upgrade state |
 | `persist.quest.json` | 62 | `quests`, `plot_quest_total` | partial: quest entries and rewards | quest generation, post-game map/story chains |
 | `persist.town_event.json` | 7 | current event, history, cost/free-upgrade roots | initial semantic facts | town event rules, temporary bonuses |
 | `persist.town.json` | 570 | `buildings` | strong partial: buildings, stores, recruits, activity slots | town workflows, store/recruit/activity changes |
-| `persist.progression.json` | 476 | achievements, dungeon, infestation, last quest/raid, totals | strong partial: counters, dungeon XP, infestation, achievements, real achievements | story gates, boss progress, post-game unlocks |
+| `persist.progression.json` | 476 | achievements, dungeon, infestation, last quest/raid, totals | strong partial: counters, dungeon XP, infestation, achievements, real achievements, empty story containers | story gates, boss progress, post-game unlocks |
 | `persist.game_knowledge.json` | 3 | dungeons, combat skills, videos | semantic: combat skill ids, int vectors, resolved hash names | UI/knowledge unlocks |
 | `persist.journal.json` | 4 | page index lists | semantic: page index scalar snapshots | journal/collection state |
 | `persist.narration.json` | 193 | narration entry logs | semantic: campaign/raid/town visit entry logs and summaries | narration replay/gating |
@@ -94,15 +95,19 @@ Semantic now:
 - `base_root.performed_blueprint_correction_check`
 - `base_root.tampering.tampering_manager.foundGlobalTamperedFile`
 - `base_root.tampering.tampering_manager.foundLocalTamperedFile`
+- `base_root.trinkets` as `estate.trinkets` container facts
+- `base_root.trinkets.items` as `estate.trinketItems` container facts
+- `base_root.darkest_dungeon_trinket_unlocks` as `estate.darkestDungeonTrinketUnlocks` container facts
 
 Still scalar:
 
 - `base_root.version`
 
-Object-only roots:
+Current sample state:
 
-- `base_root.trinkets`
-- `base_root.darkest_dungeon_trinket_unlocks`
+- `estate.trinkets.exists=true`, direct child `items`, 0 descendant scalar fields
+- `estate.trinketItems.exists=true`, 0 direct children, 0 descendant scalar fields
+- `estate.darkestDungeonTrinketUnlocks.exists=true`, 0 direct children, 0 descendant scalar fields
 
 ### `persist.roster.json`
 
@@ -254,11 +259,13 @@ Semantic now:
 - `base_root.real_achievements.<id>.awarded`
 - `base_root.real_achievements.<id>.conditions.[].enemies_killed`
 - non-standard achievement fields, such as `boss_battle`, as `extraScalarFields`
+- `base_root.completed_plot_quests_data` as `progression.completedPlotQuestsData` container facts
+- `base_root.flashback_completion_counts` as `progression.flashbackCompletionCounts` container facts
 
-Object-only/raw roots:
+Current sample state:
 
-- `base_root.completed_plot_quests_data`
-- `base_root.flashback_completion_counts`
+- `progression.completedPlotQuestsData.exists=true`, 0 direct children, 0 descendant scalar fields
+- `progression.flashbackCompletionCounts.exists=true`, 0 direct children, 0 descendant scalar fields
 
 ### `persist.game_knowledge.json`
 
@@ -358,7 +365,9 @@ Object-only roots:
 
 ## Parsing Backlog Before Gameplay Rules
 
-1. Remaining uncertain containers: `progression_goal_ids`, `completed_plot_quests_data`, `flashback_completion_counts`, estate trinkets, and Darkest Dungeon trinket unlocks need non-empty samples or deeper object/raw decoding before they can be considered complete.
-2. Hash catalog coverage should be expanded only when future probes expose unresolved hash values that matter to a gameplay rule.
+1. `base_root.quests.[].progression_goal_ids` remains a scalar `int32` snapshot in the current sample and is not in the referenced DSON vector type table. Keep it scalar until a non-empty sample or static rule confirms another encoding.
+2. `completed_plot_quests_data`, `flashback_completion_counts`, estate trinket items, and Darkest Dungeon trinket unlocks are now exported as named container facts. The current sample proves the roots exist but are empty; non-empty samples are still needed before item-level schemas can be finalized.
+3. Plot/post-game work can use the existing progression and quest facts for gates, but any rule that edits the empty containers above must first capture a sample where those containers contain data.
+4. Hash catalog coverage should be expanded only when future probes expose unresolved hash values that matter to a gameplay rule.
 
-Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait until the relevant backlog items are either parsed or explicitly marked unnecessary.
+Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait only when they directly depend on the remaining evidence gaps above. Otherwise, the current save facts are sufficient to start rule-shape experiments.
