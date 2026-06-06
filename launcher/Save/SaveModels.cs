@@ -288,6 +288,8 @@ internal sealed partial class SaveDirectoryWatcher
 
     private sealed record SaveStateUpgradeFacts(
         int? Version,
+        string SourceScope,
+        string GameMode,
         int PurchaseCount,
         int PurchasedCount,
         int UnpurchasedCount,
@@ -300,7 +302,8 @@ internal sealed partial class SaveDirectoryWatcher
         int UnmappedTreeCount,
         int AmbiguousTreeCount,
         IReadOnlyList<SaveStateUpgradePurchaseFacts> Purchases,
-        IReadOnlyList<SaveStateUpgradeTreeFacts> Trees);
+        IReadOnlyList<SaveStateUpgradeTreeFacts> Trees,
+        IReadOnlyList<SaveStateUpgradeDefinitionFacts> Definitions);
 
     private sealed record SaveStateUpgradePurchaseFacts(
         int Index,
@@ -325,9 +328,31 @@ internal sealed partial class SaveDirectoryWatcher
         int PurchaseCount,
         int PurchasedCount,
         int UnpurchasedCount,
+        string? CurrentRequirementCode,
+        string? NextRequirementCode,
+        bool IsComplete,
         IReadOnlyList<int> InstanceNumbers,
         IReadOnlyList<string> RequirementCodes,
-        IReadOnlyList<string> PurchasedRequirementCodes);
+        IReadOnlyList<string> PurchasedRequirementCodes,
+        IReadOnlyList<string> MissingRequirementCodes);
+
+    private sealed record SaveStateUpgradeDefinitionFacts(
+        uint TreeId,
+        string TreeName,
+        string Category,
+        bool TreeNameAmbiguous,
+        string DefinitionKind,
+        string SourceRelativePath,
+        bool? IsInstanced,
+        IReadOnlyList<string> Tags,
+        int RequirementCount,
+        IReadOnlyList<SaveStateUpgradeRequirementDefinitionFacts> Requirements,
+        bool AppearsInSave,
+        int SavePurchaseCount,
+        int SavePurchasedCount,
+        IReadOnlyList<string> SaveRequirementCodes,
+        IReadOnlyList<string> SavePurchasedRequirementCodes,
+        IReadOnlyList<string> MissingRequirementCodes);
 
     private sealed record SaveStateUpgradeRequirementDefinitionFacts(
         string Code,

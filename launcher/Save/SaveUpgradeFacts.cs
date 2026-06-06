@@ -54,6 +54,16 @@ internal sealed partial class SaveDirectoryWatcher
                     var groupPurchases = group.ToArray();
                     var lookup = upgradeCatalog.Find(group.Key);
                     var definition = lookup is { IsAmbiguous: false } ? lookup.PreferredDefinition : null;
+                    var definedRequirements = definition?.Requirements.Select(BuildRequirementDefinitionFacts).ToArray() ?? [];
+                    var purchasedRequirementCodes = groupPurchases
+                        .Where(purchase => purchase.IsPurchased == true)
+                        .Select(purchase => purchase.RequirementCode)
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .Select(value => value!)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    var missingRequirementCodes = FindMissingRequirementCodes(definedRequirements, purchasedRequirementCodes);
                     return new SaveStateUpgradeTreeFacts(
                         group.Key,
                         ResolveTreeName(lookup),
@@ -61,10 +71,13 @@ internal sealed partial class SaveDirectoryWatcher
                         definition?.SourceRelativePath,
                         definition?.IsInstanced,
                         definition?.Tags ?? [],
-                        definition?.Requirements.Select(BuildRequirementDefinitionFacts).ToArray() ?? [],
+                        definedRequirements,
                         groupPurchases.Length,
                         groupPurchases.Count(purchase => purchase.IsPurchased == true),
                         groupPurchases.Count(purchase => purchase.IsPurchased == false),
+                        FindCurrentRequirementCode(definedRequirements, purchasedRequirementCodes),
+                        missingRequirementCodes.FirstOrDefault(),
+                        definedRequirements.Length > 0 && missingRequirementCodes.Count == 0,
                         groupPurchases
                             .Select(purchase => purchase.InstanceNumber)
                             .Where(value => value.HasValue)
@@ -79,19 +92,15 @@ internal sealed partial class SaveDirectoryWatcher
                             .Distinct(StringComparer.OrdinalIgnoreCase)
                             .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
                             .ToArray(),
-                        groupPurchases
-                            .Where(purchase => purchase.IsPurchased == true)
-                            .Select(purchase => purchase.RequirementCode)
-                            .Where(value => !string.IsNullOrWhiteSpace(value))
-                            .Select(value => value!)
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
-                            .ToArray());
+                        purchasedRequirementCodes,
+                        missingRequirementCodes);
                 })
                 .ToArray();
 
             return new SaveStateUpgradeFacts(
                 TryGetInt(upgrades, "base_root.version"),
+                upgradeCatalog.SourceScope,
+                upgradeCatalog.GameMode,
                 purchases.Count,
                 purchases.Count(purchase => purchase.IsPurchased == true),
                 purchases.Count(purchase => purchase.IsPurchased == false),
@@ -104,13 +113,16 @@ internal sealed partial class SaveDirectoryWatcher
                 treeFacts.Count(tree => string.IsNullOrWhiteSpace(tree.TreeName)),
                 treeFacts.Count(tree => tree.TreeNameAmbiguous),
                 purchases.Take(1000).ToArray(),
-                treeFacts.Take(1000).ToArray());
+                treeFacts.Take(1000).ToArray(),
+                BuildUpgradeDefinitionFacts(upgradeCatalog, treeFacts).Take(2000).ToArray());
         }
 
         private static SaveStateUpgradeFacts EmptyUpgradeFacts(int? version, UpgradeDefinitionCatalog upgradeCatalog)
         {
             return new SaveStateUpgradeFacts(
                 version,
+                upgradeCatalog.SourceScope,
+                upgradeCatalog.GameMode,
                 0,
                 0,
                 0,
@@ -123,7 +135,103 @@ internal sealed partial class SaveDirectoryWatcher
                 0,
                 0,
                 [],
-                []);
+                [],
+                BuildUpgradeDefinitionFacts(upgradeCatalog, []).Take(2000).ToArray());
+        }
+
+        private static IReadOnlyList<SaveStateUpgradeDefinitionFacts> BuildUpgradeDefinitionFacts(
+            UpgradeDefinitionCatalog upgradeCatalog,
+            IReadOnlyList<SaveStateUpgradeTreeFacts> treeFacts)
+        {
+            var saveTreesById = treeFacts.ToDictionary(tree => tree.TreeId, EqualityComparer<uint>.Default);
+            return upgradeCatalog.Lookups
+                .Select(lookup =>
+                {
+                    var definition = lookup.PreferredDefinition;
+                    if (definition is null || !definition.HasDefinition)
+                    {
+                        return null;
+                    }
+
+                    var requirements = definition.Requirements.Select(BuildRequirementDefinitionFacts).ToArray();
+                    var saveTree = saveTreesById.TryGetValue(lookup.TreeId, out var found) ? found : null;
+                    var savePurchasedRequirementCodes = saveTree?.PurchasedRequirementCodes ?? [];
+                    return new SaveStateUpgradeDefinitionFacts(
+                        lookup.TreeId,
+                        definition.Id,
+                        ClassifyUpgradeDefinition(definition),
+                        lookup.IsAmbiguous,
+                        definition.DefinitionKind,
+                        definition.SourceRelativePath,
+                        definition.IsInstanced,
+                        definition.Tags,
+                        requirements.Length,
+                        requirements,
+                        saveTree is not null,
+                        saveTree?.PurchaseCount ?? 0,
+                        saveTree?.PurchasedCount ?? 0,
+                        saveTree?.RequirementCodes ?? [],
+                        savePurchasedRequirementCodes,
+                        FindMissingRequirementCodes(requirements, savePurchasedRequirementCodes));
+                })
+                .Where(definition => definition is not null)
+                .Select(definition => definition!)
+                .OrderBy(definition => definition.Category, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(definition => definition.TreeName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(definition => definition.TreeId)
+                .ToArray();
+        }
+
+        private static string ClassifyUpgradeDefinition(UpgradeTreeDefinition definition)
+        {
+            if (definition.Tags.Contains("building", StringComparer.OrdinalIgnoreCase))
+            {
+                return "building";
+            }
+
+            if (definition.Tags.Contains("combat_skill", StringComparer.OrdinalIgnoreCase))
+            {
+                return "combat_skill";
+            }
+
+            if (definition.Tags.Contains("camping_skill", StringComparer.OrdinalIgnoreCase))
+            {
+                return "camping_skill";
+            }
+
+            if (definition.Tags.Contains("weapon", StringComparer.OrdinalIgnoreCase))
+            {
+                return "weapon";
+            }
+
+            if (definition.Tags.Contains("armour", StringComparer.OrdinalIgnoreCase))
+            {
+                return "armour";
+            }
+
+            return definition.DefinitionKind;
+        }
+
+        private static string? FindCurrentRequirementCode(
+            IReadOnlyList<SaveStateUpgradeRequirementDefinitionFacts> definedRequirements,
+            IReadOnlyList<string> purchasedRequirementCodes)
+        {
+            var purchased = purchasedRequirementCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return definedRequirements
+                .Where(requirement => purchased.Contains(requirement.Code))
+                .Select(requirement => requirement.Code)
+                .LastOrDefault();
+        }
+
+        private static IReadOnlyList<string> FindMissingRequirementCodes(
+            IReadOnlyList<SaveStateUpgradeRequirementDefinitionFacts> definedRequirements,
+            IReadOnlyList<string> purchasedRequirementCodes)
+        {
+            var purchased = purchasedRequirementCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return definedRequirements
+                .Select(requirement => requirement.Code)
+                .Where(code => !purchased.Contains(code))
+                .ToArray();
         }
 
         private static string? ResolveTreeName(UpgradeDefinitionLookup? lookup)
@@ -162,6 +270,8 @@ internal sealed partial class SaveDirectoryWatcher
 
         private sealed class UpgradeDefinitionCatalog
         {
+            private const string SourceScopeName = "game_install_no_local_mods";
+
             private static readonly JsonDocumentOptions UpgradeJsonOptions = new()
             {
                 AllowTrailingCommas = true,
@@ -172,15 +282,29 @@ internal sealed partial class SaveDirectoryWatcher
 
             private UpgradeDefinitionCatalog(
                 IReadOnlyDictionary<uint, UpgradeDefinitionLookup> byTreeId,
+                string sourceScope,
+                string gameMode,
                 int sourceFileCount,
                 int definitionCount,
                 int nameCandidateCount)
             {
                 _byTreeId = byTreeId;
+                SourceScope = sourceScope;
+                GameMode = gameMode;
+                Lookups = byTreeId.Values
+                    .OrderBy(lookup => lookup.PreferredDefinition?.Id, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(lookup => lookup.TreeId)
+                    .ToArray();
                 SourceFileCount = sourceFileCount;
                 DefinitionCount = definitionCount;
                 NameCandidateCount = nameCandidateCount;
             }
+
+            public string SourceScope { get; }
+
+            public string GameMode { get; }
+
+            public IReadOnlyList<UpgradeDefinitionLookup> Lookups { get; }
 
             public int SourceFileCount { get; }
 
@@ -190,13 +314,13 @@ internal sealed partial class SaveDirectoryWatcher
 
             public static UpgradeDefinitionCatalog Load(string gameWorkingDirectory, string? gameMode, List<string> accessIssues)
             {
+                var normalizedGameMode = NormalizeGameMode(gameMode);
                 if (string.IsNullOrWhiteSpace(gameWorkingDirectory) || !Directory.Exists(gameWorkingDirectory))
                 {
                     accessIssues.Add($"Upgrade definition catalog skipped because game directory was not found: {gameWorkingDirectory}");
-                    return new UpgradeDefinitionCatalog(new Dictionary<uint, UpgradeDefinitionLookup>(), 0, 0, 0);
+                    return new UpgradeDefinitionCatalog(new Dictionary<uint, UpgradeDefinitionLookup>(), SourceScopeName, normalizedGameMode, 0, 0, 0);
                 }
 
-                var normalizedGameMode = NormalizeGameMode(gameMode);
                 var definitions = new List<UpgradeTreeDefinition>();
                 var sourceFileCount = 0;
                 foreach (var path in Directory.EnumerateFiles(gameWorkingDirectory, "*.upgrades.json", SearchOption.AllDirectories)
@@ -205,7 +329,8 @@ internal sealed partial class SaveDirectoryWatcher
                     try
                     {
                         var relativePath = GetRelativeCatalogPath(gameWorkingDirectory, path);
-                        if (!IsApplicableToGameMode(relativePath, normalizedGameMode))
+                        if (IsLocalModCatalogPath(relativePath)
+                            || !IsApplicableToGameMode(relativePath, normalizedGameMode))
                         {
                             continue;
                         }
@@ -231,7 +356,8 @@ internal sealed partial class SaveDirectoryWatcher
                     try
                     {
                         var relativePath = GetRelativeCatalogPath(gameWorkingDirectory, path);
-                        if (!IsApplicableToGameMode(relativePath, normalizedGameMode))
+                        if (IsLocalModCatalogPath(relativePath)
+                            || !IsApplicableToGameMode(relativePath, normalizedGameMode))
                         {
                             continue;
                         }
@@ -257,7 +383,8 @@ internal sealed partial class SaveDirectoryWatcher
                     try
                     {
                         var relativePath = GetRelativeCatalogPath(gameWorkingDirectory, path);
-                        if (!IsApplicableToGameMode(relativePath, normalizedGameMode))
+                        if (IsLocalModCatalogPath(relativePath)
+                            || !IsApplicableToGameMode(relativePath, normalizedGameMode))
                         {
                             continue;
                         }
@@ -279,6 +406,8 @@ internal sealed partial class SaveDirectoryWatcher
 
                 return new UpgradeDefinitionCatalog(
                     byTreeId,
+                    SourceScopeName,
+                    normalizedGameMode,
                     sourceFileCount,
                     definitions.Count(definition => definition.HasDefinition),
                     definitions.Count(definition => !definition.HasDefinition));
@@ -471,6 +600,13 @@ internal sealed partial class SaveDirectoryWatcher
                 }
 
                 return true;
+            }
+
+            private static bool IsLocalModCatalogPath(string relativePath)
+            {
+                var parts = relativePath
+                    .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                return parts.Length > 0 && parts[0].Equals("mods", StringComparison.OrdinalIgnoreCase);
             }
 
             private static int GetUpgradeDefinitionSourcePriority(string relativePath)

@@ -22,12 +22,15 @@ internal sealed partial class SaveDirectoryWatcher
                 .Select(hero =>
                 {
                     SaveStateHeroClassDefinitionFacts? definition = null;
-                    var definitionFound = !string.IsNullOrWhiteSpace(hero.HeroClass)
-                        && definitionsByClass.TryGetValue(hero.HeroClass!, out definition);
-                    var allCombatSkillIds = definitionFound
+                    if (!string.IsNullOrWhiteSpace(hero.HeroClass))
+                    {
+                        definitionsByClass.TryGetValue(hero.HeroClass, out definition);
+                    }
+
+                    var allCombatSkillIds = definition is not null
                         ? definition.CombatSkills.Select(skill => skill.Id).OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()
                         : [];
-                    var allCampingSkillIds = definitionFound
+                    var allCampingSkillIds = definition is not null
                         ? definition.CampingSkills.Select(skill => skill.Id).OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()
                         : [];
 
@@ -35,10 +38,10 @@ internal sealed partial class SaveDirectoryWatcher
                         hero.Id,
                         hero.Name,
                         hero.HeroClass,
-                        definitionFound,
+                        definition is not null,
                         hero.RosterStatus,
                         hero.ResolveXp,
-                        definitionFound ? definition.SelectedCombatSkillsMax : null,
+                        definition?.SelectedCombatSkillsMax,
                         hero.CombatSkillIds,
                         allCombatSkillIds,
                         DifferenceIds(allCombatSkillIds, hero.CombatSkillIds),
@@ -48,11 +51,11 @@ internal sealed partial class SaveDirectoryWatcher
                         DifferenceIds(allCampingSkillIds, hero.CampingSkillIds),
                         DifferenceIds(hero.CampingSkillIds, allCampingSkillIds),
                         hero.WeaponRank,
-                        definitionFound ? MaxEquipmentLevel(definition.Weapons) : null,
-                        definitionFound ? FindEquipmentLevel(definition.Weapons, hero.WeaponRank) : null,
+                        definition is not null ? MaxEquipmentLevel(definition.Weapons) : null,
+                        definition is not null ? FindEquipmentLevel(definition.Weapons, hero.WeaponRank) : null,
                         hero.ArmourRank,
-                        definitionFound ? MaxEquipmentLevel(definition.Armours) : null,
-                        definitionFound ? FindEquipmentLevel(definition.Armours, hero.ArmourRank) : null);
+                        definition is not null ? MaxEquipmentLevel(definition.Armours) : null,
+                        definition is not null ? FindEquipmentLevel(definition.Armours, hero.ArmourRank) : null);
                 })
                 .ToArray();
         }
