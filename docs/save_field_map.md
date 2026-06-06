@@ -1,6 +1,6 @@
 # Save Field Map
 
-Source snapshot: `logs/save_states/narration_campaign_log_probe_20260606_162954_473.json`.
+Source snapshot: `logs/save_states/secondary_persist_probe_20260606_163736_616.json`.
 
 This document summarizes the current campaign save field coverage before any gameplay-rule work. Numeric slots and dynamic ids are normalized as `[]` so repeated entries are represented once. The full scalar path list remains in `facts.persistFiles[].scalarFields` in the source snapshot.
 
@@ -23,12 +23,12 @@ This document summarizes the current campaign save field coverage before any gam
 | `persist.town_event.json` | 7 | current event, history, cost/free-upgrade roots | initial semantic facts | town event rules, temporary bonuses |
 | `persist.town.json` | 570 | `buildings` | strong partial: buildings, stores, recruits, activity slots | town workflows, store/recruit/activity changes |
 | `persist.progression.json` | 476 | achievements, dungeon, infestation, last quest/raid, totals | strong partial: counters, dungeon XP, infestation, achievements, real achievements | story gates, boss progress, post-game unlocks |
-| `persist.game_knowledge.json` | 3 | dungeons, combat skills, videos | scalar only | UI/knowledge unlocks |
-| `persist.journal.json` | 4 | page index lists | scalar only | journal/collection state |
+| `persist.game_knowledge.json` | 3 | dungeons, combat skills, videos | semantic: combat skill ids and scalar/raw snapshots | UI/knowledge unlocks |
+| `persist.journal.json` | 4 | page index lists | semantic: page index scalar snapshots | journal/collection state |
 | `persist.narration.json` | 193 | narration entry logs | semantic: campaign/raid/town visit entry logs and summaries | narration replay/gating |
-| `persist.tutorial.json` | 2 | dispatched tutorial events | scalar/raw only | tutorial prompt gating |
+| `persist.tutorial.json` | 2 | dispatched tutorial events | semantic: dispatched-events raw snapshot | tutorial prompt gating |
 | `persist.campaign_log.json` | 25 | chapters, total weeks | semantic: chapters, party/hero/dungeon log entries | campaign history and recap |
-| `persist.campaign_mash.json` | 2 | roaming/dungeon mash roots | scalar/raw only | roaming state, infestation support |
+| `persist.campaign_mash.json` | 2 | roaming/dungeon mash roots | semantic: mash scalar snapshot and roaming map keys | roaming state, infestation support |
 
 ## Field Patterns
 
@@ -256,11 +256,17 @@ Object-only/raw roots:
 
 ### `persist.game_knowledge.json`
 
-Still scalar/raw:
+Semantic now:
 
 - `base_root.version`
 - `base_root.dungeons_unlocked`
 - `base_root.played_video_list`
+- `base_root.combat_skills.<skill_id>` as `gameKnowledge.combatSkillIds[]`
+
+Still raw/deeper:
+
+- `base_root.dungeons_unlocked` is exposed as a raw scalar snapshot in this sample; individual dungeon ids are not decoded yet.
+- `base_root.played_video_list` is exposed as a scalar snapshot; individual video ids are not decoded yet.
 
 Object-only roots:
 
@@ -268,12 +274,16 @@ Object-only roots:
 
 ### `persist.journal.json`
 
-Still scalar:
+Semantic now:
 
 - `base_root.version`
 - `base_root.read_page_indexes`
 - `base_root.raid_read_page_indexes`
 - `base_root.raid_unread_page_indexes`
+
+Still raw/deeper:
+
+- Journal page index collections are currently exposed as scalar snapshots; individual page ids are not decoded yet.
 
 ### `persist.narration.json`
 
@@ -294,10 +304,14 @@ Semantic now:
 
 ### `persist.tutorial.json`
 
-Still scalar/raw:
+Semantic now:
 
 - `base_root.version`
 - `base_root.dispatched_events`
+
+Still raw/deeper:
+
+- `base_root.dispatched_events` is exposed as a raw scalar snapshot; individual tutorial event ids are not decoded yet.
 
 ### `persist.campaign_log.json`
 
@@ -321,10 +335,16 @@ Semantic now:
 
 ### `persist.campaign_mash.json`
 
-Still scalar/raw:
+Semantic now:
 
 - `base_root.version`
 - `base_root.additional_mash_disabled_infestation_monster_class_ids`
+- child keys under `base_root.roaming_dungeon_2_ids`
+- child keys under `base_root.roaming_id_2_dungeon`
+
+Still raw/deeper:
+
+- `base_root.additional_mash_disabled_infestation_monster_class_ids` is exposed as a scalar snapshot; individual monster class ids are not decoded yet.
 
 Object-only roots:
 
@@ -333,7 +353,6 @@ Object-only roots:
 
 ## Parsing Backlog Before Gameplay Rules
 
-1. `persist.game_knowledge.json`, `persist.journal.json`, `persist.tutorial.json`, `persist.campaign_mash.json`: promote simple scalar facts first, then investigate raw/object-only branches when a mod concept needs them.
-2. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, knowledge unlock sets, completed plot quest data, flashback completion counts, trinkets, and Darkest Dungeon trinket unlocks need deeper raw-array decoding before they can be considered complete.
+1. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, knowledge unlock sets, completed plot quest data, flashback completion counts, journal page indexes, campaign mash scalar lists, trinkets, and Darkest Dungeon trinket unlocks need deeper raw-array decoding before they can be considered complete.
 
 Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait until the relevant backlog items are either parsed or explicitly marked unnecessary.

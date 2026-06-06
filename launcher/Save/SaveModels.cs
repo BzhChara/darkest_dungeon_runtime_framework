@@ -89,8 +89,12 @@ internal sealed partial class SaveDirectoryWatcher
         SaveStateProgressionFacts Progression,
         SaveStateQuestFacts Quest,
         SaveStateTownEventFacts TownEvents,
+        SaveStateGameKnowledgeFacts GameKnowledge,
+        SaveStateJournalFacts Journal,
         SaveStateNarrationFacts Narration,
+        SaveStateTutorialFacts Tutorial,
         SaveStateCampaignLogFacts CampaignLog,
+        SaveStateCampaignMashFacts CampaignMash,
         SaveStateEstateFacts Estate,
         IReadOnlyDictionary<string, int> Wallet,
         SaveStateUpgradeFacts Upgrades,
@@ -119,6 +123,13 @@ internal sealed partial class SaveDirectoryWatcher
         string Name,
         string Type,
         string? Value);
+
+    private sealed record SaveStateSimpleScalarFacts(
+        string Path,
+        string Name,
+        string Type,
+        string? Value,
+        bool HasDecodedValue);
 
     private sealed record SaveStateEstateFacts(
         int? Version,
@@ -196,6 +207,19 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<string> FreeUpgradeTags,
         IReadOnlyList<string> NonRolledAdditionalChanceIds);
 
+    private sealed record SaveStateGameKnowledgeFacts(
+        int? Version,
+        int CombatSkillCount,
+        IReadOnlyList<string> CombatSkillIds,
+        SaveStateSimpleScalarFacts? DungeonsUnlocked,
+        SaveStateSimpleScalarFacts? PlayedVideoList);
+
+    private sealed record SaveStateJournalFacts(
+        int? Version,
+        SaveStateSimpleScalarFacts? ReadPageIndexes,
+        SaveStateSimpleScalarFacts? RaidReadPageIndexes,
+        SaveStateSimpleScalarFacts? RaidUnreadPageIndexes);
+
     private sealed record SaveStateNarrationFacts(
         int? Version,
         int LogCount,
@@ -228,6 +252,10 @@ internal sealed partial class SaveDirectoryWatcher
         string Key,
         int EntryCount,
         int TotalPlaybackCount);
+
+    private sealed record SaveStateTutorialFacts(
+        int? Version,
+        SaveStateSimpleScalarFacts? DispatchedEvents);
 
     private sealed record SaveStateCampaignLogFacts(
         int? Version,
@@ -270,6 +298,14 @@ internal sealed partial class SaveDirectoryWatcher
         string Name,
         string Type,
         string? Value);
+
+    private sealed record SaveStateCampaignMashFacts(
+        int? Version,
+        SaveStateSimpleScalarFacts? AdditionalMashDisabledInfestationMonsterClassIds,
+        int RoamingDungeonToIdCount,
+        IReadOnlyList<string> RoamingDungeonToIdKeys,
+        int RoamingIdToDungeonCount,
+        IReadOnlyList<string> RoamingIdToDungeonKeys);
 
     private sealed record SaveStateHeroLoadoutFacts(
         string HeroId,

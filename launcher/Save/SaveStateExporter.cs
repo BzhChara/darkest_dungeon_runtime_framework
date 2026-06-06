@@ -513,8 +513,12 @@ internal sealed partial class SaveDirectoryWatcher
             var progression = files.FirstOrDefault(file => file.FileName.Equals("persist.progression.json", StringComparison.OrdinalIgnoreCase));
             var quest = files.FirstOrDefault(file => file.FileName.Equals("persist.quest.json", StringComparison.OrdinalIgnoreCase));
             var townEvent = files.FirstOrDefault(file => file.FileName.Equals("persist.town_event.json", StringComparison.OrdinalIgnoreCase));
+            var gameKnowledge = files.FirstOrDefault(file => file.FileName.Equals("persist.game_knowledge.json", StringComparison.OrdinalIgnoreCase));
+            var journal = files.FirstOrDefault(file => file.FileName.Equals("persist.journal.json", StringComparison.OrdinalIgnoreCase));
             var narration = files.FirstOrDefault(file => file.FileName.Equals("persist.narration.json", StringComparison.OrdinalIgnoreCase));
+            var tutorial = files.FirstOrDefault(file => file.FileName.Equals("persist.tutorial.json", StringComparison.OrdinalIgnoreCase));
             var campaignLog = files.FirstOrDefault(file => file.FileName.Equals("persist.campaign_log.json", StringComparison.OrdinalIgnoreCase));
+            var campaignMash = files.FirstOrDefault(file => file.FileName.Equals("persist.campaign_mash.json", StringComparison.OrdinalIgnoreCase));
             var estate = files.FirstOrDefault(file => file.FileName.Equals("persist.estate.json", StringComparison.OrdinalIgnoreCase));
             var upgrades = files.FirstOrDefault(file => file.FileName.Equals("persist.upgrades.json", StringComparison.OrdinalIgnoreCase));
             var town = files.FirstOrDefault(file => file.FileName.Equals("persist.town.json", StringComparison.OrdinalIgnoreCase));
@@ -527,8 +531,12 @@ internal sealed partial class SaveDirectoryWatcher
                 BuildProgressionFacts(progression),
                 BuildQuestFacts(quest),
                 BuildTownEventFacts(townEvent),
+                BuildGameKnowledgeFacts(gameKnowledge),
+                BuildJournalFacts(journal),
                 BuildNarrationFacts(narration),
+                BuildTutorialFacts(tutorial),
                 BuildCampaignLogFacts(campaignLog),
+                BuildCampaignMashFacts(campaignMash),
                 BuildEstateFacts(estate),
                 BuildWalletFacts(estate),
                 BuildUpgradeFacts(upgrades, upgradeCatalog),
