@@ -1,0 +1,339 @@
+# Save Field Map
+
+Source snapshot: `logs/save_states/quest_town_event_probe_20260606_154125_113.json`.
+
+This document summarizes the current campaign save field coverage before any gameplay-rule work. Numeric slots and dynamic ids are normalized as `[]` so repeated entries are represented once. The full scalar path list remains in `facts.persistFiles[].scalarFields` in the source snapshot.
+
+## Coverage Rules
+
+- `semantic`: exported into a named `facts.*` model with stable meaning.
+- `scalar`: DSON scalar path and value are visible through `facts.persistFiles`, but no dedicated semantic model exists yet.
+- `raw`: field is visible but still encoded as a raw/nested payload or object-only branch, so more decoding is needed.
+- `object-only`: root/object path exists in this sample, but no scalar child was decoded from it.
+
+## File Summary
+
+| File | Scalars | Roots | Current semantic coverage | Mod value |
+| --- | ---: | --- | --- | --- |
+| `persist.game.json` | 48 | `date_time`, `dlc`, `profile_options`, `raid_save`, `totalelapsed` | partial: campaign identity and core flags | campaign mode, DLC gates, option-dependent rules |
+| `persist.estate.json` | 25 | `wallet`, `estate_items`, `tampering`, `trinkets` | partial: wallet only | resources, item economy, anti-tamper diagnostics |
+| `persist.roster.json` | 9 plus nested hero payloads | `heroes`, `last_party`, counters | strong partial: hero nested facts and loadouts | party rules, hero availability, unlock-all modes |
+| `persist.upgrades.json` | 913 | `purchases` | strong partial: purchases, tree definitions, missing requirements | building/hero upgrade state |
+| `persist.quest.json` | 62 | `quests`, `plot_quest_total` | partial: quest entries and rewards | quest generation, post-game map/story chains |
+| `persist.town_event.json` | 7 | current event, history, cost/free-upgrade roots | initial semantic facts | town event rules, temporary bonuses |
+| `persist.town.json` | 570 | `buildings` | strong partial: buildings, stores, recruits, activity slots | town workflows, store/recruit/activity changes |
+| `persist.progression.json` | 476 | achievements, dungeon, infestation, last quest/raid, totals | thin: only top counters and last raid fields | story gates, boss progress, post-game unlocks |
+| `persist.game_knowledge.json` | 3 | dungeons, combat skills, videos | scalar only | UI/knowledge unlocks |
+| `persist.journal.json` | 4 | page index lists | scalar only | journal/collection state |
+| `persist.narration.json` | 193 | narration entry logs | scalar only | narration replay/gating |
+| `persist.tutorial.json` | 2 | dispatched tutorial events | scalar/raw only | tutorial prompt gating |
+| `persist.campaign_log.json` | 25 | chapters, total weeks | scalar only | campaign history and recap |
+| `persist.campaign_mash.json` | 2 | roaming/dungeon mash roots | scalar/raw only | roaming state, infestation support |
+
+## Field Patterns
+
+### `persist.game.json`
+
+Semantic now:
+
+- `base_root.version`
+- `base_root.totalelapsed`
+- `base_root.inraid`
+- `base_root.raiddungeon`
+- `base_root.estatename`
+- `base_root.game_mode`
+- `base_root.date_time`
+- `base_root.profile_options.values.town_events`
+- `base_root.profile_options.values.never_again`
+
+Still scalar/raw:
+
+- `base_root.dlc.[].name`
+- `base_root.dlc.[].source`
+- `base_root.presented_dlc.dlc.[].name`
+- `base_root.presented_dlc.dlc.[].source`
+- `base_root.dlc_init`
+- `base_root.dd_options_altered`
+- `base_root.raid_save`
+- `base_root.profile_options.values.corpses`
+- `base_root.profile_options.values.curio_tracker`
+- `base_root.profile_options.values.dd_mode`
+- `base_root.profile_options.values.deaths_door_recovery_debuffs`
+- `base_root.profile_options.values.deck_based_stage_coach`
+- `base_root.profile_options.values.multiplied_enemy_crits`
+- `base_root.profile_options.values.provision_warnings`
+- `base_root.profile_options.values.quest_select_warnings`
+- `base_root.profile_options.values.retreats_can_fail`
+- `base_root.profile_options.values.stall_penalty`
+
+Raw/object-only roots:
+
+- `base_root.persistent_ugcs`
+
+### `persist.estate.json`
+
+Semantic now:
+
+- `base_root.wallet.[].type`
+- `base_root.wallet.[].amount`
+
+Still scalar:
+
+- `base_root.version`
+- `base_root.estate_items.items.[].type`
+- `base_root.estate_items.items.[].id`
+- `base_root.estate_items.items.[].amount`
+- `base_root.endless_wave_highscore`
+- `base_root.was_endless_wave_highscore_tampered`
+- `base_root.performed_blueprint_correction_check`
+- `base_root.tampering.tampering_manager.foundGlobalTamperedFile`
+- `base_root.tampering.tampering_manager.foundLocalTamperedFile`
+
+Object-only roots:
+
+- `base_root.trinkets`
+- `base_root.darkest_dungeon_trinket_unlocks`
+
+### `persist.roster.json`
+
+Semantic now:
+
+- `base_root.heroes.[].hero_file_data.raw_data` is decoded as nested hero facts:
+- identity: `heroId`, `name`, `heroClass`, roster/missing/building/status fields
+- runtime stats: resolve XP, HP, stress, weapon/armour rank, combat readiness, death-door state
+- combat state counters: steps, kills, provisions, successful Darkest Dungeon count
+- quirks: id, new/locked flags, mission count, replace/evolution fields
+- skills: selected combat and camping skill ids
+- trinkets: slot, id, type, amount
+- loadouts: current skills and equipment linked to base hero definitions
+
+Still scalar/raw:
+
+- `base_root.version`
+- `base_root.dismissed_hero_count`
+- `base_root.highest_resolve_xp`
+- `base_root.nextGuid`
+- `base_root.last_party.last_party_guids`
+
+### `persist.upgrades.json`
+
+Semantic now:
+
+- `base_root.purchases.[].tree_id`
+- `base_root.purchases.[].requirement_code`
+- `base_root.purchases.[].instance_number`
+- `base_root.purchases.[].is_purchased`
+- linked static definitions: tree name, category, tags, source, requirements, currency costs, prerequisites
+- derived tree state: purchased/missing requirement codes, current/next requirement, complete flag
+
+Still scalar:
+
+- `base_root.version`
+
+### `persist.quest.json`
+
+Semantic now:
+
+- `base_root.version`
+- `base_root.plot_quest_total`
+- `base_root.quests.[].id`
+- `base_root.quests.[].dungeon`
+- `base_root.quests.[].type`
+- `base_root.quests.[].map_name`
+- `base_root.quests.[].difficulty`
+- `base_root.quests.[].length`
+- `base_root.quests.[].is_plot_quest`
+- `base_root.quests.[].counted_in_generation`
+- `base_root.quests.[].is_from_town_event`
+- `base_root.quests.[].completion_threshold`
+- `base_root.quests.[].use_default_progression_goals`
+- `base_root.quests.[].raid_rules_override`
+- `base_root.quests.[].torch_setting`
+- `base_root.quests.[].completion_reward.resolve_xp`
+- `base_root.quests.[].completion_reward.resolve_xp_per_wave_kill`
+- `base_root.quests.[].completion_reward.max_times_dungeon_xp_awarded`
+- `base_root.quests.[].completion_reward.items_definition.items.[].type`
+- `base_root.quests.[].completion_reward.items_definition.items.[].id`
+- `base_root.quests.[].completion_reward.items_definition.items.[].amount`
+
+Still raw/scalar:
+
+- `base_root.quests.[].goal_ids`
+- `base_root.quests.[].progression_goal_ids`
+- `base_root.quests.[].completion_reward.trinket_retention_ids`
+- `base_root.trinket_retention_ids`
+
+### `persist.town_event.json`
+
+Semantic now:
+
+- `base_root.version`
+- `base_root.current_result_event_id`
+- `base_root.has_unclaimed_interaction`
+- `base_root.last_town_event_week`
+- `base_root.rng_seed`
+- collection ids/counts for `result_event_history`, `dead_hero_entries`, `bonus_hero_entries`, `event_cost`, `free_upgrade_tags`, `non_rolled_additional_chances`
+
+Still scalar/raw:
+
+- This sample exposes `base_root.result_event_history` and `base_root.dead_hero_entries` as scalar zero values when empty.
+
+Object-only roots:
+
+- `base_root.bonus_hero_entries`
+- `base_root.event_cost`
+- `base_root.free_upgrade_tags`
+- `base_root.non_rolled_additional_chances`
+
+### `persist.town.json`
+
+Semantic now:
+
+- buildings: id, activity/store presence, activity ids, store ids
+- activity slots: hero id, visits remaining, resident occupied, side effect, occupied flag
+- store inventories: slot id, item id, item type, amount
+- generated recruits: name, class, resolve XP, HP, stress, weapon/armour rank, event flags, quirks, skills, trinkets
+- quirk treatments: building, activity, slot, bucket, quirk id, action
+- deck history: building, store, deck version, entry id, count
+
+Visible field patterns:
+
+- `base_root.buildings.<building>.activities.<activity>.[].hero`
+- `base_root.buildings.<building>.activities.<activity>.[].visitsRemaining`
+- `base_root.buildings.<building>.activities.<activity>.[].resident_occupied`
+- `base_root.buildings.<building>.activities.<activity>.[].is_side_effect_result`
+- `base_root.buildings.<building>.activities.<activity>.quirk_treatment.[].<bucket>.quirk_treatment`
+- `base_root.buildings.<building>.activities.<activity>.quirk_treatment.[].<bucket>.quirk_treatment_action`
+- `base_root.buildings.<building>.store.<store>.inventory.items.[].type`
+- `base_root.buildings.<building>.store.<store>.inventory.items.[].id`
+- `base_root.buildings.<building>.store.<store>.inventory.items.[].amount`
+- `base_root.buildings.<building>.store.<store>.deck_history_version_0.[].count`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].actor.*`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].heroClass`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].resolveXp`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].weapon_rank`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].armour_rank`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].quirks.<quirk>.*`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].skills.selected_combat_skills.*`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].skills.selected_camping_skills.*`
+- `base_root.buildings.stage_coach.store.<store>.generated.[].trinkets.items.*`
+
+### `persist.progression.json`
+
+Semantic now:
+
+- `base_root.total_quests_finished`
+- `base_root.total_successful_quests_finished`
+- `base_root.last_quest_played_id`
+- `base_root.last_quest_played_xp`
+- `base_root.last_raid_success`
+- `base_root.last_raid_was_a_plot_quest`
+
+Still scalar:
+
+- `base_root.version`
+- `base_root.total_recruited_stage_coach_heroes`
+- `base_root.last_quest_played_successfully`
+- `base_root.last_raid_quest_id`
+- `base_root.dungeon.<dungeon>.xp`
+- `base_root.infestation.sequence_element_id`
+- `base_root.infestation.rng_seed`
+- `base_root.infestation.number_of_weeks_left_in_sequence_element`
+- `base_root.infestation.number_of_weeks_total_in_sequence_element`
+- `base_root.achievements.<id>.id`
+- `base_root.achievements.<id>.rtti`
+- `base_root.achievements.<id>.completed`
+- `base_root.achievements.<id>.awarded`
+- `base_root.real_achievements.<id>.id`
+- `base_root.real_achievements.<id>.rtti`
+- `base_root.real_achievements.<id>.completed`
+- `base_root.real_achievements.<id>.awarded`
+- `base_root.real_achievements.<id>.conditions.[].enemies_killed`
+
+Object-only/raw roots:
+
+- `base_root.completed_plot_quests_data`
+- `base_root.flashback_completion_counts`
+
+### `persist.game_knowledge.json`
+
+Still scalar/raw:
+
+- `base_root.version`
+- `base_root.dungeons_unlocked`
+- `base_root.played_video_list`
+
+Object-only roots:
+
+- `base_root.combat_skills`
+
+### `persist.journal.json`
+
+Still scalar:
+
+- `base_root.version`
+- `base_root.read_page_indexes`
+- `base_root.raid_read_page_indexes`
+- `base_root.raid_unread_page_indexes`
+
+### `persist.narration.json`
+
+Still scalar:
+
+- `base_root.version`
+- `base_root.campaign_entry_log.[].entry_type`
+- `base_root.campaign_entry_log.[].audio_event_type`
+- `base_root.campaign_entry_log.[].count`
+- `base_root.raid_entry_log.[].entry_type`
+- `base_root.raid_entry_log.[].audio_event_type`
+- `base_root.raid_entry_log.[].count`
+- `base_root.town_visit_entry_log.[].entry_type`
+- `base_root.town_visit_entry_log.[].audio_event_type`
+- `base_root.town_visit_entry_log.[].count`
+
+### `persist.tutorial.json`
+
+Still scalar/raw:
+
+- `base_root.version`
+- `base_root.dispatched_events`
+
+### `persist.campaign_log.json`
+
+Still scalar:
+
+- `base_root.version`
+- `base_root.total_weeks`
+- `base_root.chapters.[].chapterIndex`
+- `base_root.chapters.[].[].rtti`
+- `base_root.chapters.[].[].heroes.[].name`
+- `base_root.chapters.[].[].heroes.[].guid`
+- `base_root.chapters.[].[].heroes.[].class`
+- `base_root.chapters.[].[].heroes.[].died`
+- `base_root.chapters.[].[].name`
+- `base_root.chapters.[].[].guid`
+- `base_root.chapters.[].[].class`
+- `base_root.chapters.[].[].level`
+- `base_root.chapters.[].[].dungeon_id`
+
+### `persist.campaign_mash.json`
+
+Still scalar/raw:
+
+- `base_root.version`
+- `base_root.additional_mash_disabled_infestation_monster_class_ids`
+
+Object-only roots:
+
+- `base_root.roaming_dungeon_2_ids`
+- `base_root.roaming_id_2_dungeon`
+
+## Parsing Backlog Before Gameplay Rules
+
+1. `persist.progression.json`: promote dungeon XP, infestation, achievements, real achievements, last raid ids, and total recruited heroes into semantic facts.
+2. `persist.game.json` and `persist.estate.json`: promote DLC lists, profile options, estate items, tamper flags, and highscore fields.
+3. `persist.narration.json` and `persist.campaign_log.json`: promote entry logs and campaign chapters into semantic facts.
+4. `persist.game_knowledge.json`, `persist.journal.json`, `persist.tutorial.json`, `persist.campaign_mash.json`: promote simple scalar facts first, then investigate raw/object-only branches when a mod concept needs them.
+5. Raw containers: `goal_ids`, `progression_goal_ids`, `trinket_retention_ids`, `last_party_guids`, tutorial dispatched events, and knowledge unlock sets need deeper raw-array decoding before they can be considered complete.
+
+Gameplay systems such as building-upgrade scheduling or post-Ancestor story expansion should wait until the relevant backlog items are either parsed or explicitly marked unnecessary.
