@@ -13,6 +13,7 @@ internal sealed partial class SaveDirectoryWatcher
 
             var walletItems = BuildEstateItemFacts(estate, "base_root.wallet");
             var estateItems = BuildEstateItemFacts(estate, "base_root.estate_items.items");
+            var trinketItems = BuildEstateItemFacts(estate, "base_root.trinkets.items");
 
             return new SaveStateEstateFacts(
                 TryGetInt(estate, "base_root.version"),
@@ -20,6 +21,8 @@ internal sealed partial class SaveDirectoryWatcher
                 walletItems,
                 estateItems.Count,
                 estateItems,
+                trinketItems.Count,
+                trinketItems,
                 TryGetInt(estate, "base_root.endless_wave_highscore"),
                 TryGetBool(estate, "base_root.was_endless_wave_highscore_tampered"),
                 TryGetBool(estate, "base_root.performed_blueprint_correction_check"),
@@ -36,6 +39,8 @@ internal sealed partial class SaveDirectoryWatcher
         {
             return new SaveStateEstateFacts(
                 version,
+                0,
+                [],
                 0,
                 [],
                 0,

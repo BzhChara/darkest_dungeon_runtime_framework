@@ -158,6 +158,8 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<SaveStateEstateItemFacts> WalletItems,
         int EstateItemCount,
         IReadOnlyList<SaveStateEstateItemFacts> EstateItems,
+        int TrinketItemCount,
+        IReadOnlyList<SaveStateEstateItemFacts> TrinketItemsList,
         int? EndlessWaveHighscore,
         bool? WasEndlessWaveHighscoreTampered,
         bool? PerformedBlueprintCorrectionCheck,
@@ -730,6 +732,10 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<SaveStateProgressionAchievementFacts> RealAchievements,
         SaveStateObjectContainerFacts CompletedPlotQuestsData,
         SaveStateObjectContainerFacts FlashbackCompletionCounts,
+        int CompletedPlotQuestDataCount,
+        IReadOnlyList<SaveStateProgressionCompletedPlotQuestFacts> CompletedPlotQuestData,
+        int FlashbackCompletionCount,
+        IReadOnlyList<SaveStateProgressionFlashbackCompletionFacts> FlashbackCompletions,
         IReadOnlyList<string> CompletedPlotQuestDataIds,
         IReadOnlyList<string> FlashbackCompletionCountIds);
 
@@ -751,6 +757,22 @@ internal sealed partial class SaveDirectoryWatcher
     private sealed record SaveStateProgressionDungeonFacts(
         string DungeonId,
         int? Xp);
+
+    private sealed record SaveStateProgressionCompletedPlotQuestFacts(
+        string SlotId,
+        int? PlotQuestId,
+        int HeroCount,
+        IReadOnlyList<SaveStateProgressionCompletedPlotQuestHeroFacts> Heroes);
+
+    private sealed record SaveStateProgressionCompletedPlotQuestHeroFacts(
+        string SlotId,
+        int? Guid,
+        bool? Survived,
+        bool? LastBlow);
+
+    private sealed record SaveStateProgressionFlashbackCompletionFacts(
+        string FlashbackId,
+        int? CompletionCount);
 
     private sealed record SaveStateProgressionAchievementFacts(
         string Key,

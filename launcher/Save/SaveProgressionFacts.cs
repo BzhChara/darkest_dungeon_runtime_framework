@@ -14,6 +14,8 @@ internal sealed partial class SaveDirectoryWatcher
             var dungeons = BuildProgressionDungeonFacts(progression);
             var achievements = BuildProgressionAchievementFacts(progression, "base_root.achievements");
             var realAchievements = BuildProgressionAchievementFacts(progression, "base_root.real_achievements");
+            var completedPlotQuestData = BuildProgressionCompletedPlotQuestFacts(progression);
+            var flashbackCompletions = BuildProgressionFlashbackCompletionFacts(progression);
 
             return new SaveStateProgressionFacts(
                 TryGetInt(progression, "base_root.version"),
@@ -43,6 +45,10 @@ internal sealed partial class SaveDirectoryWatcher
                 realAchievements,
                 BuildObjectContainerFacts(progression, "base_root.completed_plot_quests_data"),
                 BuildObjectContainerFacts(progression, "base_root.flashback_completion_counts"),
+                completedPlotQuestData.Count,
+                completedPlotQuestData,
+                flashbackCompletions.Count,
+                flashbackCompletions,
                 ExtractProgressionChildIds(progression, "base_root.completed_plot_quests_data"),
                 ExtractProgressionChildIds(progression, "base_root.flashback_completion_counts"));
         }
@@ -73,6 +79,10 @@ internal sealed partial class SaveDirectoryWatcher
                 [],
                 BuildObjectContainerFacts(null, "base_root.completed_plot_quests_data"),
                 BuildObjectContainerFacts(null, "base_root.flashback_completion_counts"),
+                0,
+                [],
+                0,
+                [],
                 [],
                 []);
         }
@@ -85,6 +95,45 @@ internal sealed partial class SaveDirectoryWatcher
                 .Select(dungeonId => new SaveStateProgressionDungeonFacts(
                     dungeonId,
                     TryGetInt(progression, $"base_root.dungeon.{dungeonId}.xp")))
+                .ToArray();
+        }
+
+        private static IReadOnlyList<SaveStateProgressionCompletedPlotQuestFacts> BuildProgressionCompletedPlotQuestFacts(
+            SaveStateFileReport progression)
+        {
+            const string parentPath = "base_root.completed_plot_quests_data";
+            return ExtractProgressionChildIds(progression, parentPath)
+                .OrderBy(NumericAwareSortKey, StringComparer.OrdinalIgnoreCase)
+                .Select(slotId =>
+                {
+                    var questPath = $"{parentPath}.{slotId}";
+                    var heroes = ExtractProgressionChildIds(progression, $"{questPath}.heroes")
+                        .OrderBy(NumericAwareSortKey, StringComparer.OrdinalIgnoreCase)
+                        .Select(heroSlotId => new SaveStateProgressionCompletedPlotQuestHeroFacts(
+                            heroSlotId,
+                            TryGetInt(progression, $"{questPath}.heroes.{heroSlotId}.guid"),
+                            TryGetBool(progression, $"{questPath}.heroes.{heroSlotId}.survived"),
+                            TryGetBool(progression, $"{questPath}.heroes.{heroSlotId}.last_blow")))
+                        .ToArray();
+
+                    return new SaveStateProgressionCompletedPlotQuestFacts(
+                        slotId,
+                        TryGetInt(progression, $"{questPath}.plot_quest_id"),
+                        heroes.Length,
+                        heroes);
+                })
+                .ToArray();
+        }
+
+        private static IReadOnlyList<SaveStateProgressionFlashbackCompletionFacts> BuildProgressionFlashbackCompletionFacts(
+            SaveStateFileReport progression)
+        {
+            const string parentPath = "base_root.flashback_completion_counts";
+            return ExtractProgressionChildIds(progression, parentPath)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .Select(flashbackId => new SaveStateProgressionFlashbackCompletionFacts(
+                    flashbackId,
+                    TryGetInt(progression, $"{parentPath}.{flashbackId}")))
                 .ToArray();
         }
 
