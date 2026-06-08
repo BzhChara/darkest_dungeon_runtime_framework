@@ -294,6 +294,20 @@ When a mod idea cannot be expressed, classify the missing piece:
 
 This is the rule that keeps the framework general: new gameplay ideas should expand reusable primitives, not become hardcoded modules.
 
+## Anti-Hardcoding Audit
+
+Validation scenarios may name concrete gameplay designs, quest ids, stage ids, hero ids, or trinket ids. That is acceptable only inside validation plugins, sample fixtures, tests, and documentation examples. Framework runtime code should expose reusable primitives that plugins compose; it should not embed one mod's gameplay loop as the only path.
+
+Current narrow slices to keep visible:
+
+| Area | Current shape | Why it is acceptable now | Generic direction |
+| --- | --- | --- | --- |
+| `SaveEventBridge` | Directly maps last-raid facts to `challenge.stage_completed` / `challenge.stage_failed` for a matching challenge `sourceQuestId` | It proves the save-facts-to-event-to-rule chain using one vertical scenario | Replace with plugin-declared fact-to-event mappings that can emit arbitrary events with payloads from facts/state/content |
+| `RuntimeEventExecutor` challenge actions | Implements `challenge.initializeRunState`, `challenge.lockStageSelection`, `challenge.recordFailedAttempt`, and `challenge.advanceStage` directly | They are safe sidecar-state primitives used to validate stateful stage-chain behavior | Keep only if treated as reusable `challenge.*` primitives; otherwise factor repeated behavior into generic `state.*`, `event.*`, and definition-driven actions |
+| `plugins/_validation` and test scripts | Contain concrete boss quest ids, stage ids, selected hero ids, and trinket ids | They are acceptance fixtures, not user-facing framework behavior | Leave concrete data in fixtures, but do not move fixture assumptions into launcher/runtime logic |
+
+Before adding a new gameplay feature, ask: can another mod with different content reuse the same primitive without changing C# or native hook code? If not, the design is still too hardcoded.
+
 ## First Implementation Slice
 
 The next code slice should stay generic:

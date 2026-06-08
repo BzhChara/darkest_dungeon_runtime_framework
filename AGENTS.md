@@ -14,6 +14,7 @@ This repository is the runtime mod framework prototype for Darkest Dungeon 1 on 
 
 - Keep the framework generic. New gameplay ideas should be represented as facts, events, predicates, actions, sidecar state, and capabilities.
 - If a gameplay idea cannot be expressed, add or improve a reusable primitive. Do not add one-off hardcoded gameplay branches for a specific mod idea.
+- Validation scenarios may be concrete, but framework runtime code must not become "one gameplay idea in code." If a first slice is intentionally narrow, document the limitation and the generic primitive it should become next.
 - Content patching, event rules, state, action execution, and native hooks are separate layers. Keep their boundaries explicit.
 - Prefer observe-first instrumentation before interception. Deep hooks and managed mutations should start as diagnostics or dry-run behavior before changing game outcomes.
 - Capability-gate risky behavior. Do not present a feature as runtime-supported until it has a working diagnostic path and a focused regression test.
