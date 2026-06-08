@@ -230,7 +230,7 @@ internal sealed partial class SaveDirectoryWatcher
                     continue;
                 }
 
-                if (IsDsonVectorPath(path, IntVectorPathPatterns)
+                if (IsDsonPath(path, IntVectorPathPatterns)
                     && TryReadDsonIntVector(bytes, valueStart, alignedRemaining, out var intVector))
                 {
                     scalars.Add(new SaveStateDsonScalar(
@@ -244,7 +244,7 @@ internal sealed partial class SaveDirectoryWatcher
                     continue;
                 }
 
-                if (IsDsonVectorPath(path, StringVectorPathPatterns)
+                if (IsDsonPath(path, StringVectorPathPatterns)
                     && TryReadDsonStringVector(bytes, valueStart, alignedRemaining, out var stringVector))
                 {
                     scalars.Add(new SaveStateDsonScalar(
@@ -252,6 +252,48 @@ internal sealed partial class SaveDirectoryWatcher
                         field.Name,
                         "stringVector",
                         JsonSerializer.Serialize(stringVector),
+                        field.AbsoluteOffset,
+                        size,
+                        rawHex));
+                    continue;
+                }
+
+                if (IsDsonPath(path, FloatArrayPathPatterns)
+                    && TryReadDsonFloatArray(bytes, valueStart, alignedRemaining, out var floatArray))
+                {
+                    scalars.Add(new SaveStateDsonScalar(
+                        path,
+                        field.Name,
+                        "floatArray",
+                        JsonSerializer.Serialize(floatArray),
+                        field.AbsoluteOffset,
+                        size,
+                        rawHex));
+                    continue;
+                }
+
+                if (IsDsonPath(path, IntPairPathPatterns)
+                    && TryReadDsonIntPair(bytes, valueStart, alignedRemaining, out var intPair))
+                {
+                    scalars.Add(new SaveStateDsonScalar(
+                        path,
+                        field.Name,
+                        "intPair",
+                        JsonSerializer.Serialize(intPair),
+                        field.AbsoluteOffset,
+                        size,
+                        rawHex));
+                    continue;
+                }
+
+                if (IsDsonPath(path, BoolPairPathPatterns)
+                    && TryReadDsonBoolPair(bytes, valueStart, alignedRemaining, out var boolPair))
+                {
+                    scalars.Add(new SaveStateDsonScalar(
+                        path,
+                        field.Name,
+                        "boolPair",
+                        JsonSerializer.Serialize(boolPair),
                         field.AbsoluteOffset,
                         size,
                         rawHex));
@@ -266,7 +308,7 @@ internal sealed partial class SaveDirectoryWatcher
 
                 if (alignedRemaining == 4)
                 {
-                    if (FloatFieldNames.Contains(field.Name, StringComparer.OrdinalIgnoreCase))
+                    if (IsDsonPath(path, FloatPathPatterns))
                     {
                         scalars.Add(new SaveStateDsonScalar(
                             path,
@@ -309,7 +351,7 @@ internal sealed partial class SaveDirectoryWatcher
             return scalars;
         }
 
-        private static bool IsDsonVectorPath(string path, IReadOnlyList<string[]> patterns)
+        private static bool IsDsonPath(string path, IReadOnlyList<string[]> patterns)
         {
             var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
             foreach (var pattern in patterns)
@@ -319,20 +361,37 @@ internal sealed partial class SaveDirectoryWatcher
                     continue;
                 }
 
-                var matches = true;
-                for (var i = 0; i < pattern.Length; i++)
+                if (MatchesDsonPathSuffix(segments, segments.Length - 1, pattern, pattern.Length - 1))
                 {
-                    var expected = pattern[pattern.Length - 1 - i];
-                    var actual = segments[segments.Length - 1 - i];
-                    if (!expected.Equals("*", StringComparison.Ordinal)
-                        && !expected.Equals(actual, StringComparison.OrdinalIgnoreCase))
-                    {
-                        matches = false;
-                        break;
-                    }
+                    return true;
                 }
+            }
 
-                if (matches)
+            return false;
+        }
+
+        private static bool MatchesDsonPathSuffix(string[] segments, int segmentIndex, string[] pattern, int patternIndex)
+        {
+            if (patternIndex < 0)
+            {
+                return true;
+            }
+
+            if (segmentIndex < 0)
+            {
+                return false;
+            }
+
+            var expected = pattern[patternIndex];
+            if (!expected.Equals("*", StringComparison.Ordinal))
+            {
+                return expected.Equals(segments[segmentIndex], StringComparison.OrdinalIgnoreCase)
+                    && MatchesDsonPathSuffix(segments, segmentIndex - 1, pattern, patternIndex - 1);
+            }
+
+            for (var consumedIndex = segmentIndex; consumedIndex >= 0; consumedIndex--)
+            {
+                if (MatchesDsonPathSuffix(segments, consumedIndex - 1, pattern, patternIndex - 1))
                 {
                     return true;
                 }
@@ -366,6 +425,81 @@ internal sealed partial class SaveDirectoryWatcher
             }
 
             values = result;
+            return true;
+        }
+
+        private static bool TryReadDsonFloatArray(
+            byte[] bytes,
+            int offset,
+            int remaining,
+            out IReadOnlyList<double> values)
+        {
+            values = [];
+            if (remaining < 4 || remaining % 4 != 0 || offset < 0 || offset + remaining > bytes.Length)
+            {
+                return false;
+            }
+
+            var result = new double[remaining / 4];
+            for (var i = 0; i < result.Length; i++)
+            {
+                var value = BitConverter.ToSingle(bytes, offset + i * 4);
+                if (!float.IsFinite(value))
+                {
+                    return false;
+                }
+
+                result[i] = value;
+            }
+
+            values = result;
+            return true;
+        }
+
+        private static bool TryReadDsonIntPair(
+            byte[] bytes,
+            int offset,
+            int remaining,
+            out IReadOnlyList<int> values)
+        {
+            values = [];
+            if (remaining != 8 || offset < 0 || offset + remaining > bytes.Length)
+            {
+                return false;
+            }
+
+            values =
+            [
+                ReadInt32LittleEndian(bytes, offset),
+                ReadInt32LittleEndian(bytes, offset + 4)
+            ];
+            return true;
+        }
+
+        private static bool TryReadDsonBoolPair(
+            byte[] bytes,
+            int offset,
+            int remaining,
+            out IReadOnlyList<bool> values)
+        {
+            values = [];
+            if (remaining != 8 || offset < 0 || offset + remaining > bytes.Length)
+            {
+                return false;
+            }
+
+            var first = ReadInt32LittleEndian(bytes, offset);
+            var second = ReadInt32LittleEndian(bytes, offset + 4);
+            if (first is not (0 or 1) || second is not (0 or 1))
+            {
+                return false;
+            }
+
+            values =
+            [
+                first != 0,
+                second != 0
+            ];
             return true;
         }
 

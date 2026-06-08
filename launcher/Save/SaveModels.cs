@@ -11,6 +11,7 @@ internal sealed partial class SaveDirectoryWatcher
         ActiveProfileInference ActiveProfile,
         SaveStateFacts Facts,
         IReadOnlyList<string> CandidateFiles,
+        IReadOnlyList<string> OptionalCandidateFiles,
         IReadOnlyList<SaveStateFileReport> Files,
         IReadOnlyList<string> AccessIssues);
 
@@ -46,6 +47,7 @@ internal sealed partial class SaveDirectoryWatcher
         ActiveProfileInference ActiveProfile,
         string ActiveRoot,
         IReadOnlyList<string> CandidateFiles,
+        IReadOnlyList<string> OptionalCandidateFiles,
         IReadOnlyList<SaveFileMapEntry> Files,
         IReadOnlyList<string> AccessIssues);
 

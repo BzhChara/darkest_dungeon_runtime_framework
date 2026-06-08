@@ -22,6 +22,19 @@ internal sealed partial class SaveDirectoryWatcher
             "persist.campaign_mash.json"
         ];
 
+        private static readonly string[] OptionalCandidateFiles =
+        [
+            "novelty_tracker.json",
+            "persist.curio_tracker.json",
+            "persist.raid.json",
+            "persist.map.json",
+            "persist.loading_screen.json",
+            "persist.mp_progression.json",
+            "persist.roster.network.json",
+            "novelty_tracker_mp.json",
+            "backer_heroes.json"
+        ];
+
         private static readonly string[] KnownMarkers =
         [
             "base_root",
@@ -47,6 +60,12 @@ internal sealed partial class SaveDirectoryWatcher
             "wallet",
             "amount",
             "type",
+            "map",
+            "areas",
+            "party",
+            "skill_cooldown_values",
+            "backgroundNames",
+            "backer_heroes",
             "gold",
             "bust",
             "portrait",
@@ -66,11 +85,14 @@ internal sealed partial class SaveDirectoryWatcher
             "dd_mode"
         ];
 
-        private static readonly string[] FloatFieldNames =
+        private static readonly string[][] FloatPathPatterns =
         [
-            "totalelapsed",
-            "current_hp",
-            "m_Stress"
+            ["totalelapsed"],
+            ["current_hp"],
+            ["m_Stress"],
+            ["actor", "buff_group", "*", "amount"],
+            ["chapters", "*", "*", "percent"],
+            ["non_rolled_additional_chances", "*", "chance"]
         ];
 
         private static readonly string[] UInt32FieldNames =
@@ -122,6 +144,33 @@ internal sealed partial class SaveDirectoryWatcher
             ["backgroundGroups", "*", "background_table_entries"]
         ];
 
+        private static readonly string[][] FloatArrayPathPatterns =
+        [
+            ["map", "bounds"],
+            ["areas", "*", "bounds"],
+            ["areas", "*", "tiles", "*", "mappos"],
+            ["areas", "*", "tiles", "*", "sidepos"]
+        ];
+
+        private static readonly string[][] IntPairPathPatterns =
+        [
+            ["killRange"]
+        ];
+
+        private static readonly string[][] BoolPairPathPatterns =
+        [
+            ["profile_options", "values", "quest_select_warnings"],
+            ["profile_options", "values", "provision_warnings"],
+            ["profile_options", "values", "deck_based_stage_coach"],
+            ["profile_options", "values", "curio_tracker"],
+            ["profile_options", "values", "dd_mode"],
+            ["profile_options", "values", "corpses"],
+            ["profile_options", "values", "stall_penalty"],
+            ["profile_options", "values", "deaths_door_recovery_debuffs"],
+            ["profile_options", "values", "retreats_can_fail"],
+            ["profile_options", "values", "multiplied_enemy_crits"]
+        ];
+
         private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
         private const int MaxInlineValueDistance = 16;
@@ -151,7 +200,7 @@ internal sealed partial class SaveDirectoryWatcher
                 accessIssues.Add($"Active profile directory was not found: {activeRoot}");
             }
 
-            var fileReports = CandidateFiles
+            var fileReports = EnumerateCandidateFiles(activeRoot)
                 .Select(name => InspectFile(Path.Combine(activeRoot, name), name))
                 .ToArray();
             foreach (var issue in fileReports.SelectMany(file => file.AccessIssues))
@@ -185,6 +234,7 @@ internal sealed partial class SaveDirectoryWatcher
                 sessionReport.ActiveProfile,
                 facts,
                 CandidateFiles,
+                OptionalCandidateFiles,
                 fileReports,
                 accessIssues);
 
@@ -370,6 +420,7 @@ internal sealed partial class SaveDirectoryWatcher
                 sessionReport.ActiveProfile,
                 activeRoot,
                 CandidateFiles,
+                OptionalCandidateFiles,
                 entries
                     .OrderBy(entry => entry.Area, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(entry => entry.Priority)
@@ -384,7 +435,7 @@ internal sealed partial class SaveDirectoryWatcher
 
         private static IEnumerable<SaveFileMapSource> EnumeratePersistFiles(string activeRoot)
         {
-            foreach (var path in Directory.EnumerateFiles(activeRoot, "persist*.json", SearchOption.TopDirectoryOnly))
+            foreach (var path in EnumerateKnownSaveFilePaths(activeRoot))
             {
                 yield return new SaveFileMapSource(path, Path.GetFileName(path), Path.GetFileName(path), "live");
             }
@@ -395,16 +446,50 @@ internal sealed partial class SaveDirectoryWatcher
                 yield break;
             }
 
-            foreach (var path in Directory.EnumerateFiles(backupRoot, "persist*.json", SearchOption.TopDirectoryOnly))
+            foreach (var path in EnumerateKnownSaveFilePaths(backupRoot))
             {
                 yield return new SaveFileMapSource(path, Path.GetFileName(path), Path.Combine("backup", Path.GetFileName(path)), "backup");
+            }
+        }
+
+        private static IReadOnlyList<string> EnumerateCandidateFiles(string root)
+        {
+            var names = new List<string>(CandidateFiles);
+            if (Directory.Exists(root))
+            {
+                names.AddRange(OptionalCandidateFiles.Where(name => File.Exists(Path.Combine(root, name))));
+            }
+
+            return names
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static IEnumerable<string> EnumerateKnownSaveFilePaths(string root)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in Directory.EnumerateFiles(root, "persist*.json", SearchOption.TopDirectoryOnly))
+            {
+                if (seen.Add(Path.GetFileName(path)))
+                {
+                    yield return path;
+                }
+            }
+
+            foreach (var fileName in OptionalCandidateFiles)
+            {
+                var path = Path.Combine(root, fileName);
+                if (File.Exists(path) && seen.Add(fileName))
+                {
+                    yield return path;
+                }
             }
         }
 
         private static SaveFileMapEntry BuildFileMapEntry(SaveFileMapSource source, SaveStateFileReport inspected)
         {
             var classification = ClassifyPersistFile(source.FileName);
-            var isCandidate = CandidateFiles.Contains(source.FileName, StringComparer.OrdinalIgnoreCase);
+            var isCandidate = IsKnownCandidateFile(source.FileName);
             var coverage = DetermineFileCoverage(source.FileName, isCandidate, inspected);
 
             return new SaveFileMapEntry(
@@ -449,8 +534,23 @@ internal sealed partial class SaveDirectoryWatcher
                 "persist.tutorial.json" => new SaveFileMapClassification(6, "tutorial", "Tutorial prompt completion and gating state."),
                 "persist.campaign_log.json" => new SaveFileMapClassification(7, "history_log", "Campaign history/log data, likely secondary for runtime rules."),
                 "persist.campaign_mash.json" => new SaveFileMapClassification(7, "history_log", "Campaign aggregate/log companion data, likely secondary for runtime rules."),
+                "persist.curio_tracker.json" => new SaveFileMapClassification(5, "curio_tracker", "Curio discovery/tracking state used by campaign and raid interaction rules."),
+                "novelty_tracker.json" => new SaveFileMapClassification(6, "novelty_tracker", "Campaign novelty/reveal tracking; optional but present in current and research profiles."),
+                "persist.raid.json" => new SaveFileMapClassification(3, "raid_runtime", "In-raid party, cooldown, mash, curio, background, and encounter runtime state."),
+                "persist.map.json" => new SaveFileMapClassification(3, "raid_map", "Generated raid map layout, room/tile bounds, and spatial state."),
+                "persist.loading_screen.json" => new SaveFileMapClassification(6, "loading_screen", "Loading screen narration/event queue state."),
+                "persist.mp_progression.json" => new SaveFileMapClassification(8, "network_progression", "Butcher's Circus/network progression state; optional and out of base campaign scope."),
+                "persist.roster.network.json" => new SaveFileMapClassification(8, "network_roster", "Butcher's Circus/network roster state; optional and out of base campaign scope."),
+                "novelty_tracker_mp.json" => new SaveFileMapClassification(8, "network_novelty", "Butcher's Circus/network novelty tracking; optional and out of base campaign scope."),
+                "backer_heroes.json" => new SaveFileMapClassification(8, "backer_heroes", "Backer hero definitions and skill/quirk vectors; optional static-like save companion data."),
                 _ => new SaveFileMapClassification(9, "unknown", "Unclassified persist data; inspect when a mod idea needs it.")
             };
+        }
+
+        private static bool IsKnownCandidateFile(string fileName)
+        {
+            return CandidateFiles.Contains(fileName, StringComparer.OrdinalIgnoreCase)
+                || OptionalCandidateFiles.Contains(fileName, StringComparer.OrdinalIgnoreCase);
         }
 
         private static string DetermineFileCoverage(string fileName, bool isCandidate, SaveStateFileReport inspected)
