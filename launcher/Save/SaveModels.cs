@@ -107,6 +107,10 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<string> HeroIds,
         SaveStateRosterFacts Roster,
         SaveStateMapFacts Map,
+        SaveStateRaidFacts Raid,
+        SaveStateCurioTrackerFacts CurioTracker,
+        SaveStateLoadingScreenFacts LoadingScreen,
+        SaveStateNoveltyTrackerFacts NoveltyTracker,
         IReadOnlyList<SaveStateHeroLoadoutFacts> HeroLoadouts,
         IReadOnlyList<SaveStateHeroFacts> Heroes);
 
@@ -294,6 +298,43 @@ internal sealed partial class SaveDirectoryWatcher
     private sealed record SaveStateTutorialFacts(
         int? Version,
         SaveStateSimpleScalarFacts? DispatchedEvents);
+
+    private sealed record SaveStateCurioTrackerFacts(
+        int? Version,
+        int TrackedResultCount,
+        IReadOnlyList<SaveStateCurioTrackedResultFacts> TrackedResults);
+
+    private sealed record SaveStateCurioTrackedResultFacts(
+        string SlotId,
+        int? PropNameHash,
+        SaveStateResolvedHashFacts? PropName,
+        int? ItemTypeHash,
+        SaveStateResolvedHashFacts? ItemType,
+        int? ItemIdHash,
+        SaveStateResolvedHashFacts? ItemId,
+        string? CurioTrackerId);
+
+    private sealed record SaveStateLoadingScreenFacts(
+        int? Version,
+        string? BackgroundTexturePath,
+        int? TitleId,
+        SaveStateResolvedHashFacts? Title,
+        int? TipId,
+        SaveStateResolvedHashFacts? Tip,
+        int? NarrationEntryId,
+        SaveStateResolvedHashFacts? NarrationEntry,
+        SaveStateSimpleScalarFacts? NarrationAudioEventQueueTags);
+
+    private sealed record SaveStateNoveltyTrackerFacts(
+        int? Version,
+        int CategoryCount,
+        int SeenEntryCount,
+        IReadOnlyList<SaveStateNoveltyCategoryFacts> Categories);
+
+    private sealed record SaveStateNoveltyCategoryFacts(
+        string CategoryId,
+        int SeenEntryCount,
+        IReadOnlyList<string> SeenEntryIds);
 
     private sealed record SaveStateCampaignLogFacts(
         int? Version,
@@ -602,6 +643,128 @@ internal sealed partial class SaveDirectoryWatcher
         bool? HdAlwaysAccessible,
         int? Current,
         SaveStateMapDoorFacts? DoorTo);
+
+    private sealed record SaveStateRaidFacts(
+        int? Version,
+        SaveStateRaidInstanceFacts Instance,
+        SaveStateRaidLocationFacts Location,
+        SaveStateRaidPartyFacts Party,
+        SaveStateRaidCampFacts Camp,
+        SaveStateRaidMashFacts Mash,
+        SaveStateRaidStatDatabaseFacts StatDatabase);
+
+    private sealed record SaveStateRaidInstanceFacts(
+        string? Id,
+        string? Dungeon,
+        string? Type,
+        string? MapName,
+        int? Difficulty,
+        int? Length,
+        bool? IsPlotQuest,
+        bool? CountedInGeneration,
+        bool? IsFromTownEvent,
+        int? CompletionThreshold,
+        bool? UseDefaultProgressionGoals,
+        string? RaidRulesOverride,
+        string? TorchSetting,
+        int GoalIdCount,
+        IReadOnlyList<string> GoalIds,
+        SaveStateSimpleScalarFacts? ProgressionGoalIds,
+        SaveStateQuestRewardFacts CompletionReward,
+        int ProgressGroupCount,
+        IReadOnlyList<SaveStateRaidProgressGroupFacts> ProgressGroups);
+
+    private sealed record SaveStateRaidProgressGroupFacts(
+        string GroupId,
+        string SourcePath,
+        int ScalarFieldCount,
+        IReadOnlyList<SaveStateRaidScalarFacts> ScalarFields);
+
+    private sealed record SaveStateRaidScalarFacts(
+        string LocalPath,
+        string Name,
+        string Type,
+        string? Value);
+
+    private sealed record SaveStateRaidLocationFacts(
+        int? InAreaHash,
+        string? InAreaId,
+        int? AreaTile,
+        int? LastRoomHash,
+        string? LastRoomId,
+        SaveStateRaidDoorwayFacts Doorway,
+        double? StartElapsedTime,
+        double? Torchlight,
+        double? AmbushStartTorchlight,
+        double? ShardConsumePercent,
+        bool? Teleported,
+        bool? InBattle);
+
+    private sealed record SaveStateRaidDoorwayFacts(
+        int? TargetAreaHash,
+        string? TargetAreaId,
+        int? TargetTileIndex,
+        bool? Implied);
+
+    private sealed record SaveStateRaidPartyFacts(
+        bool? IsMovingLeft,
+        int? RetreatRoomHash,
+        string? RetreatRoomId,
+        int HeroCount,
+        IReadOnlyList<int> HeroGuids,
+        int? StartHeroSize,
+        int InventoryItemCount,
+        IReadOnlyList<SaveStateRaidItemFacts> InventoryItems,
+        int? HungerRoomBuffer);
+
+    private sealed record SaveStateRaidItemFacts(
+        string SlotId,
+        string? Id,
+        string? Type,
+        int? Amount);
+
+    private sealed record SaveStateRaidCampFacts(
+        int? Phase,
+        int? CampingSkillPoints,
+        int? CampFinishFlashbackClassId,
+        int SkillLogEntryCount,
+        IReadOnlyList<SaveStateRaidCampSkillLogFacts> SkillLog,
+        int PartySkillLogEntryCount,
+        IReadOnlyList<SaveStateRaidCampPartySkillLogFacts> PartySkillLog);
+
+    private sealed record SaveStateRaidCampSkillLogFacts(
+        string SlotId,
+        int? RosterId,
+        int? SkillId,
+        int? Level,
+        int? Count);
+
+    private sealed record SaveStateRaidCampPartySkillLogFacts(
+        string SlotId,
+        int? PartySkillId,
+        int? PartySkillLevel,
+        int? PartySkillAmbush,
+        int BuffResultCount,
+        IReadOnlyList<SaveStateRaidCampPartySkillBuffResultFacts> BuffResults);
+
+    private sealed record SaveStateRaidCampPartySkillBuffResultFacts(
+        string SlotId,
+        int? ActorGuid,
+        int? PartySkillAmbush);
+
+    private sealed record SaveStateRaidMashFacts(
+        bool? HasMashData,
+        SaveStateSimpleScalarFacts? ValidAdditionalMashEntryIndexes);
+
+    private sealed record SaveStateRaidStatDatabaseFacts(
+        int EventCount,
+        int TotalEntryCount,
+        IReadOnlyList<SaveStateRaidStatEventFacts> Events);
+
+    private sealed record SaveStateRaidStatEventFacts(
+        string EventId,
+        int? Count,
+        int EntryCount);
 
     private sealed record SaveStateUpgradeFacts(
         int? Version,

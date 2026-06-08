@@ -90,9 +90,15 @@ internal sealed partial class SaveDirectoryWatcher
             ["totalelapsed"],
             ["current_hp"],
             ["m_Stress"],
+            ["start_elapsed_time"],
+            ["torchlight"],
+            ["ambush_start_torchlight"],
+            ["shard_consume_percent"],
             ["actor", "buff_group", "*", "amount"],
             ["chapters", "*", "*", "percent"],
-            ["non_rolled_additional_chances", "*", "chance"]
+            ["non_rolled_additional_chances", "*", "chance"],
+            ["stat_database", "*", "entries", "*", "value"],
+            ["stat_database", "*", "entries", "*", "time_stamp"]
         ];
 
         private static readonly string[] UInt32FieldNames =
@@ -670,7 +676,12 @@ internal sealed partial class SaveDirectoryWatcher
             var town = files.FirstOrDefault(file => file.FileName.Equals("persist.town.json", StringComparison.OrdinalIgnoreCase));
             var roster = files.FirstOrDefault(file => file.FileName.Equals("persist.roster.json", StringComparison.OrdinalIgnoreCase));
             var map = files.FirstOrDefault(file => file.FileName.Equals("persist.map.json", StringComparison.OrdinalIgnoreCase));
+            var raid = files.FirstOrDefault(file => file.FileName.Equals("persist.raid.json", StringComparison.OrdinalIgnoreCase));
+            var curioTracker = files.FirstOrDefault(file => file.FileName.Equals("persist.curio_tracker.json", StringComparison.OrdinalIgnoreCase));
+            var loadingScreen = files.FirstOrDefault(file => file.FileName.Equals("persist.loading_screen.json", StringComparison.OrdinalIgnoreCase));
+            var noveltyTracker = files.FirstOrDefault(file => file.FileName.Equals("novelty_tracker.json", StringComparison.OrdinalIgnoreCase));
             var heroes = roster?.Heroes ?? [];
+            var mapFacts = BuildMapFacts(map);
 
             return new SaveStateFacts(
                 BuildPersistFileFacts(files),
@@ -693,7 +704,11 @@ internal sealed partial class SaveDirectoryWatcher
                 ExtractDirectChildIds(town?.DsonObjectPaths ?? [], "base_root.buildings"),
                 ExtractDirectChildIds(roster?.DsonObjectPaths ?? [], "base_root.heroes"),
                 BuildRosterFacts(roster),
-                BuildMapFacts(map),
+                mapFacts,
+                BuildRaidFacts(raid, mapFacts),
+                BuildCurioTrackerFacts(curioTracker, contentHashCatalog),
+                BuildLoadingScreenFacts(loadingScreen, contentHashCatalog),
+                BuildNoveltyTrackerFacts(noveltyTracker),
                 BuildHeroLoadoutFacts(heroes, heroDefinitions),
                 heroes);
         }

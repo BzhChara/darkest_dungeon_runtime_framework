@@ -53,6 +53,98 @@ internal sealed partial class SaveDirectoryWatcher
                 BuildSimpleScalarFacts(tutorial, "base_root.dispatched_events", contentHashCatalog, resolveIntValues: true));
         }
 
+        private static SaveStateCurioTrackerFacts BuildCurioTrackerFacts(
+            SaveStateFileReport? curioTracker,
+            ContentHashCatalog contentHashCatalog)
+        {
+            if (curioTracker is null)
+            {
+                return new SaveStateCurioTrackerFacts(null, 0, []);
+            }
+
+            var trackedResults = ExtractSecondaryPersistChildIds(curioTracker, "base_root.tracked_results")
+                .OrderBy(NumericAwareSortKey, StringComparer.OrdinalIgnoreCase)
+                .Select(slotId =>
+                {
+                    var path = $"base_root.tracked_results.{slotId}";
+                    var propNameHash = TryGetInt(curioTracker, $"{path}.prop_name_id");
+                    var itemTypeHash = TryGetInt(curioTracker, $"{path}.item_type_hash");
+                    var itemIdHash = TryGetInt(curioTracker, $"{path}.item_id_hash");
+                    return new SaveStateCurioTrackedResultFacts(
+                        slotId,
+                        propNameHash,
+                        ResolveHashValue(propNameHash, contentHashCatalog),
+                        itemTypeHash,
+                        ResolveHashValue(itemTypeHash, contentHashCatalog),
+                        itemIdHash,
+                        ResolveHashValue(itemIdHash, contentHashCatalog),
+                        EmptyToNull(TryGetString(curioTracker, $"{path}.curio_tracker_id")));
+                })
+                .ToArray();
+
+            return new SaveStateCurioTrackerFacts(
+                TryGetInt(curioTracker, "base_root.version"),
+                trackedResults.Length,
+                trackedResults);
+        }
+
+        private static SaveStateLoadingScreenFacts BuildLoadingScreenFacts(
+            SaveStateFileReport? loadingScreen,
+            ContentHashCatalog contentHashCatalog)
+        {
+            if (loadingScreen is null)
+            {
+                return new SaveStateLoadingScreenFacts(null, null, null, null, null, null, null, null, null);
+            }
+
+            var titleId = TryGetInt(loadingScreen, "base_root.title_id");
+            var tipId = TryGetInt(loadingScreen, "base_root.tip_id");
+            var narrationEntryId = TryGetInt(loadingScreen, "base_root.narration_entry_id");
+
+            return new SaveStateLoadingScreenFacts(
+                TryGetInt(loadingScreen, "base_root.version"),
+                EmptyToNull(TryGetString(loadingScreen, "base_root.background_texture_path")),
+                titleId,
+                ResolveHashValue(titleId, contentHashCatalog),
+                tipId,
+                ResolveHashValue(tipId, contentHashCatalog),
+                narrationEntryId,
+                ResolveHashValue(narrationEntryId, contentHashCatalog),
+                BuildSimpleScalarFacts(loadingScreen, "base_root.narration_audio_event_queue_tags", contentHashCatalog, resolveIntValues: true));
+        }
+
+        private static SaveStateNoveltyTrackerFacts BuildNoveltyTrackerFacts(SaveStateFileReport? noveltyTracker)
+        {
+            if (noveltyTracker is null)
+            {
+                return new SaveStateNoveltyTrackerFacts(null, 0, 0, []);
+            }
+
+            var categories = ExtractSecondaryPersistChildIds(noveltyTracker, "base_root.novelty_tracker")
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .Select(categoryId =>
+                {
+                    var categoryPath = $"base_root.novelty_tracker.{categoryId}";
+                    var seenEntryIds = ExtractSecondaryPersistChildIds(noveltyTracker, categoryPath)
+                        .Where(entryId => TryGetBool(noveltyTracker, $"{categoryPath}.{entryId}") == true)
+                        .OrderBy(NumericAwareSortKey, StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+
+                    return new SaveStateNoveltyCategoryFacts(
+                        categoryId,
+                        seenEntryIds.Length,
+                        seenEntryIds);
+                })
+                .Where(category => category.SeenEntryCount > 0)
+                .ToArray();
+
+            return new SaveStateNoveltyTrackerFacts(
+                TryGetInt(noveltyTracker, "base_root.version"),
+                categories.Length,
+                categories.Sum(category => category.SeenEntryCount),
+                categories);
+        }
+
         private static SaveStateCampaignMashFacts BuildCampaignMashFacts(
             SaveStateFileReport? campaignMash,
             ContentHashCatalog contentHashCatalog)
@@ -76,6 +168,24 @@ internal sealed partial class SaveDirectoryWatcher
                 roamingDungeonToIdKeys,
                 roamingIdToDungeonKeys.Length,
                 roamingIdToDungeonKeys);
+        }
+
+        private static SaveStateResolvedHashFacts? ResolveHashValue(
+            int? value,
+            ContentHashCatalog contentHashCatalog)
+        {
+            if (!value.HasValue)
+            {
+                return null;
+            }
+
+            var names = contentHashCatalog.Resolve(value.Value);
+            return new SaveStateResolvedHashFacts(
+                value.Value,
+                unchecked((uint)value.Value),
+                names.Count > 0,
+                names.Count > 1,
+                names);
         }
 
         private static SaveStateSimpleScalarFacts? BuildSimpleScalarFacts(

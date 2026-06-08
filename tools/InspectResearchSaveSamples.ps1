@@ -1,7 +1,9 @@
 param(
     [string]$ResourceRoot = ".research\DarkestDungeonSaveEditor-0.0.70\src\test\resources",
     [string]$AssemblyPath = "launcher\bin\Release\net8.0-windows\DDRuntimeLoader.dll",
-    [string]$OutputDirectory = "logs\research_save_samples"
+    [string]$OutputDirectory = "logs\research_save_samples",
+    [string]$LocalResearchRoot = ".research",
+    [switch]$NoLocalProfiles
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,7 +43,16 @@ function Convert-ToArray {
     return @($Value)
 }
 
-$sampleDirectories = Get-ChildItem -LiteralPath $resourceRootPath -Directory | Sort-Object Name
+$sampleDirectories = @(Get-ChildItem -LiteralPath $resourceRootPath -Directory)
+if (-not $NoLocalProfiles -and (Test-Path -LiteralPath $LocalResearchRoot)) {
+    $localResearchPath = (Resolve-Path -LiteralPath $LocalResearchRoot).Path
+    $sampleDirectories += @(Get-ChildItem -LiteralPath $localResearchPath -Directory -Filter "profile_*")
+}
+
+$sampleDirectories = $sampleDirectories |
+    Group-Object FullName |
+    ForEach-Object { $_.Group[0] } |
+    Sort-Object Name
 $summary = foreach ($directory in $sampleDirectories) {
     $files = Get-ChildItem -LiteralPath $directory.FullName -File -Filter "*.json" | Sort-Object Name
     $fileRows = foreach ($file in $files) {
