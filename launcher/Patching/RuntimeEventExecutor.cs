@@ -37,6 +37,7 @@ internal static class RuntimeEventExecutor
         var stateDocuments = new Dictionary<string, ModStateDocument>(StringComparer.OrdinalIgnoreCase);
         var changedStatePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var executedActionCount = 0;
+        var plannedActionCount = 0;
         var stateWriteCount = 0;
 
         var initReport = ModStateStore.InitializeDefaults(config, patchPlan, log, pluginIdFilter);
@@ -82,6 +83,12 @@ internal static class RuntimeEventExecutor
                     continue;
                 }
 
+                if (actionReport.Status == "planned")
+                {
+                    plannedActionCount++;
+                    continue;
+                }
+
                 if (action.Required && actionReport.Status == "failed")
                 {
                     ruleStatus = "failed";
@@ -121,6 +128,7 @@ internal static class RuntimeEventExecutor
             rules.Length,
             ruleReports.Count(rule => rule.Status != "predicate-skipped"),
             executedActionCount,
+            plannedActionCount,
             stateWriteCount,
             payload,
             ruleReports,
@@ -289,12 +297,34 @@ internal static class RuntimeEventExecutor
         List<RuntimeEventExecutionIssue> issues)
     {
         var type = action.Type.Trim();
+        if (IsSupportedManagedPlanAction(type))
+        {
+            var managedDocument = GetStateDocument(sourceRule, stateDocuments, config, patchPlan, issues);
+            if (managedDocument is null)
+            {
+                var message = "plugin sidecar state is unavailable";
+                issues.Add(new RuntimeEventExecutionIssue("error", "state-unavailable", sourceRule.PluginId, sourceRule.Rule.Id, type, message));
+                return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", message, null);
+            }
+
+            try
+            {
+                var plan = BuildManagedActionPlan(type, action, managedDocument, payload);
+                return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "planned", "managed action plan generated", plan);
+            }
+            catch (Exception ex)
+            {
+                issues.Add(new RuntimeEventExecutionIssue("error", "managed-plan-failed", sourceRule.PluginId, sourceRule.Rule.Id, type, ex.Message));
+                return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", ex.Message, null);
+            }
+        }
+
         if (!IsSupportedSafeAction(type))
         {
             var severity = action.Required ? "error" : "warning";
             var message = $"action type is not implemented by the safe event executor: {type}";
             issues.Add(new RuntimeEventExecutionIssue(severity, "unsupported-action", sourceRule.PluginId, sourceRule.Rule.Id, type, message));
-            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, action.Required ? "failed" : "skipped", message);
+            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, action.Required ? "failed" : "skipped", message, null);
         }
 
         var document = GetStateDocument(sourceRule, stateDocuments, config, patchPlan, issues);
@@ -302,7 +332,7 @@ internal static class RuntimeEventExecutor
         {
             var message = "plugin sidecar state is unavailable";
             issues.Add(new RuntimeEventExecutionIssue("error", "state-unavailable", sourceRule.PluginId, sourceRule.Rule.Id, type, message));
-            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", message);
+            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", message, null);
         }
 
         try
@@ -323,13 +353,210 @@ internal static class RuntimeEventExecutor
                 changedStatePaths.Add(document.StatePath);
             }
 
-            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "executed", changed ? "state changed" : "no state change");
+            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "executed", changed ? "state changed" : "no state change", null);
         }
         catch (Exception ex)
         {
             issues.Add(new RuntimeEventExecutionIssue("error", "action-failed", sourceRule.PluginId, sourceRule.Rule.Id, type, ex.Message));
-            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", ex.Message);
+            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", ex.Message, null);
         }
+    }
+
+    private static JsonObject BuildManagedActionPlan(string type, RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
+    {
+        return type switch
+        {
+            "quest.injectFixedStage" => BuildQuestInjectFixedStagePlan(action, document, payload),
+            "roster.filterAvailableHeroes" => BuildAvailabilityFilterPlan(action, document, payload, "roster.heroes", "hero"),
+            "equipment.filterAvailableTrinkets" => BuildAvailabilityFilterPlan(action, document, payload, "equipment.trinkets", "trinket"),
+            _ => throw new InvalidOperationException($"managed action type is not plannable: {type}")
+        };
+    }
+
+    private static JsonObject BuildQuestInjectFixedStagePlan(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
+    {
+        var stage = ResolveRequiredArgNode(action, "stage", document.State, payload);
+        if (stage is not JsonObject)
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg 'stage' must resolve to a stage object.");
+        }
+
+        var plan = new JsonObject
+        {
+            ["kind"] = action.Type,
+            ["effect"] = "injectFixedStage",
+            ["target"] = "quest.currentStage",
+            ["stage"] = CloneNode(stage)
+        };
+
+        if (TryGetStringArg(action, "source", out var source))
+        {
+            plan["source"] = source;
+        }
+
+        return plan;
+    }
+
+    private static JsonObject BuildAvailabilityFilterPlan(
+        RuntimeRuleAction action,
+        ModStateDocument document,
+        JsonObject payload,
+        string target,
+        string itemKind)
+    {
+        var source = RequireStringArg(action, "source");
+        var pool = ResolveSourceArray(action, "source", source, document.State, payload);
+        var excluded = ReadStringSet(RequirePath(document.State, RequireStringArg(action, "excludeStateList"), "state", action, "excludeStateList"));
+
+        var lockedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var selectionLocked = false;
+        if (TryGetStringArg(action, "lockedSelectionKey", out var lockedSelectionKey) &&
+            TryGetPath(document.State, lockedSelectionKey, out var lockedNode) &&
+            lockedNode is not null)
+        {
+            lockedSet = ReadStringSet(lockedNode);
+            selectionLocked = true;
+        }
+
+        var rows = new JsonArray();
+        var allowedCount = 0;
+        var blockedCount = 0;
+        var lockedCount = 0;
+
+        foreach (var item in pool)
+        {
+            var id = ReadPoolItemId(action, item);
+            var reasons = new JsonArray();
+            if (excluded.Contains(id))
+            {
+                reasons.Add("used_by_completed_stage");
+            }
+
+            if (selectionLocked && !lockedSet.Contains(id))
+            {
+                reasons.Add("current_stage_selection_locked");
+            }
+
+            var lockedForRetry = selectionLocked && lockedSet.Contains(id);
+            var blocked = reasons.Count > 0;
+            var status = blocked ? "unavailable" : lockedForRetry ? "locked_for_retry" : "available";
+            if (lockedForRetry && !blocked)
+            {
+                lockedCount++;
+            }
+
+            if (blocked)
+            {
+                blockedCount++;
+            }
+            else
+            {
+                allowedCount++;
+            }
+
+            rows.Add(new JsonObject
+            {
+                ["id"] = id,
+                ["kind"] = itemKind,
+                ["status"] = status,
+                ["allowed"] = !blocked,
+                ["reasons"] = reasons,
+                ["source"] = CloneNode(item)
+            });
+        }
+
+        return new JsonObject
+        {
+            ["kind"] = action.Type,
+            ["effect"] = "filterAvailable",
+            ["target"] = target,
+            ["source"] = source,
+            ["selectionLocked"] = selectionLocked,
+            ["totalCount"] = pool.Count,
+            ["allowedCount"] = allowedCount,
+            ["blockedCount"] = blockedCount,
+            ["lockedCount"] = lockedCount,
+            ["items"] = rows
+        };
+    }
+
+    private static JsonArray ResolveSourceArray(RuntimeRuleAction action, string argName, string source, JsonObject state, JsonObject payload)
+    {
+        var node = ResolveSourceNode(action, argName, source, state, payload);
+        if (node is JsonArray array)
+        {
+            return array;
+        }
+
+        throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must resolve to an array source.");
+    }
+
+    private static JsonNode? ResolveSourceNode(RuntimeRuleAction action, string argName, string source, JsonObject state, JsonObject payload)
+    {
+        if (source.StartsWith("event.", StringComparison.OrdinalIgnoreCase))
+        {
+            return RequirePath(payload, source["event.".Length..], "event", action, argName);
+        }
+
+        if (source.StartsWith("state.", StringComparison.OrdinalIgnoreCase))
+        {
+            return RequirePath(state, source["state.".Length..], "state", action, argName);
+        }
+
+        if (source.StartsWith("challenge.", StringComparison.OrdinalIgnoreCase))
+        {
+            var suffix = source["challenge.".Length..];
+            var statePath = suffix.Equals("stageChain", StringComparison.OrdinalIgnoreCase)
+                ? "challengeRun.stages"
+                : $"challengeRun.{suffix}";
+            return RequirePath(state, statePath, "challenge state", action, argName);
+        }
+
+        throw new InvalidOperationException(
+            $"Action {action.Type} arg '{argName}' uses unsupported source address '{source}'. Use event.*, state.*, or challenge.*.");
+    }
+
+    private static HashSet<string> ReadStringSet(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            throw new InvalidOperationException("Expected a JSON array of string ids.");
+        }
+
+        var values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in array)
+        {
+            if (item is not JsonValue value ||
+                !value.TryGetValue<string>(out var text) ||
+                string.IsNullOrWhiteSpace(text))
+            {
+                throw new InvalidOperationException("Expected a JSON array of non-empty string ids.");
+            }
+
+            values.Add(text);
+        }
+
+        return values;
+    }
+
+    private static string ReadPoolItemId(RuntimeRuleAction action, JsonNode? item)
+    {
+        if (item is JsonValue value &&
+            value.TryGetValue<string>(out var scalarId) &&
+            !string.IsNullOrWhiteSpace(scalarId))
+        {
+            return scalarId;
+        }
+
+        if (item is JsonObject obj &&
+            obj["id"] is JsonValue idValue &&
+            idValue.TryGetValue<string>(out var objectId) &&
+            !string.IsNullOrWhiteSpace(objectId))
+        {
+            return objectId;
+        }
+
+        throw new InvalidOperationException($"Action {action.Type} source items must be string ids or objects with a non-empty string id.");
     }
 
     private static bool ExecuteAddUniqueRange(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
@@ -502,6 +729,24 @@ internal static class RuntimeEventExecutor
             changed |= UpdateCurrentStage(runState);
         }
 
+        foreach (var propertyName in new[]
+        {
+            "partySize",
+            "maxTrinketsPerHero",
+            "retryPolicy",
+            "heroReuse",
+            "trinketReuse",
+            "heroPoolPolicy",
+            "heroPool",
+            "trinketPool"
+        })
+        {
+            if (challenge[propertyName] is not null)
+            {
+                changed |= EnsureJsonValue(runState, propertyName, CloneNode(challenge[propertyName]));
+            }
+        }
+
         return changed;
     }
 
@@ -537,6 +782,14 @@ internal static class RuntimeEventExecutor
             "challenge.recordFailedAttempt" or
             "challenge.advanceStage" or
             "challenge.initializeRunState";
+    }
+
+    private static bool IsSupportedManagedPlanAction(string type)
+    {
+        return type is
+            "quest.injectFixedStage" or
+            "roster.filterAvailableHeroes" or
+            "equipment.filterAvailableTrinkets";
     }
 
     private static ModStateDocument? GetStateDocument(
@@ -854,7 +1107,8 @@ internal static class RuntimeEventExecutor
     {
         log.Info(
             $"runtime-event event={report.EventId} rules={report.RuleCount} matchedRules={report.MatchedRuleCount} " +
-            $"actions={report.ExecutedActionCount} stateWrites={report.StateWriteCount} issues={report.Issues.Count}");
+            $"actions={report.ExecutedActionCount} plannedActions={report.PlannedActionCount} " +
+            $"stateWrites={report.StateWriteCount} issues={report.Issues.Count}");
 
         foreach (var rule in report.Rules)
         {
@@ -918,6 +1172,7 @@ internal sealed record RuntimeEventExecutionReport(
     int RuleCount,
     int MatchedRuleCount,
     int ExecutedActionCount,
+    int PlannedActionCount,
     int StateWriteCount,
     JsonObject Payload,
     IReadOnlyList<RuntimeEventRuleExecutionReport> Rules,
@@ -944,7 +1199,8 @@ internal sealed record RuntimeEventActionExecutionReport(
     string Risk,
     bool Required,
     string Status,
-    string Message);
+    string Message,
+    JsonObject? Plan);
 
 internal sealed record RuntimeEventExecutionIssue(
     string Severity,

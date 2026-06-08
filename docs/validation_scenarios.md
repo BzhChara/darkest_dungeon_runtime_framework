@@ -21,7 +21,7 @@ Run:
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
 ```
 
-The baseline expected result is declaration-level success: all validation rules should be listed as active by `--explain-rules`. The first safe executor can also exercise implemented sidecar state actions through `--emit-event`. Runtime hooks and managed game mutation actions are still not implemented.
+The baseline expected result is declaration-level success: all validation rules should be listed as active by `--explain-rules`. The first safe executor can also exercise implemented sidecar state actions through `--emit-event`, and selected managed actions can now generate observe-first plans. Runtime hooks and real managed game mutation are still not implemented.
 
 ## Scenario 1: Quest Draft Contract
 
@@ -204,7 +204,7 @@ Acceptance ladder:
 8. The framework can inject or replace fixed stages through a managed quest/content primitive.
 9. The framework can materialize preset max-level heroes with randomized positive/negative quirks through verified roster/save primitives.
 
-Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Step 7 has an initial generic save-facts bridge: `--infer-save-events` evaluates plugin-declared `factEventRules`; the validation plugin uses those rules to map a generated save state report's last raid quest/result to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. In-game selection observation, managed quest injection, roster materialization, and UI filtering still require later capabilities.
+Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Step 7 has an initial generic save-facts bridge: `--infer-save-events` evaluates plugin-declared `factEventRules`; the validation plugin uses those rules to map a generated save state report's last raid quest/result to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. Step 8 has an observe-first plan path: `challenge.stage_selection_started` produces `planned` reports for fixed-stage quest injection, hero filtering, and trinket filtering. In-game selection observation, real quest injection, roster materialization, and UI filtering still require later capabilities.
 
 ## What Counts As Framework Progress
 

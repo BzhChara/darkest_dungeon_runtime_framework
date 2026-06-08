@@ -174,7 +174,7 @@ logs/save_event_bridge_report.json
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --infer-save-events --save-state-report ./logs/save_states/<sessionId>.json --no-inject
 ```
 
-`factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。例如验证插件用两条规则读取 `facts.progression.lastRaidQuest.names`、`facts.progression.lastRaidSuccess` 和 `state.challengeRun.currentStage.sourceQuestId`，分别发出 `challenge.stage_completed` 或 `challenge.stage_failed`。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤仍属于后续 managed capability，不在这个桥接器里硬编码。
+`factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。例如验证插件用两条规则读取 `facts.progression.lastRaidQuest.names`、`facts.progression.lastRaidSuccess` 和 `state.challengeRun.currentStage.sourceQuestId`，分别发出 `challenge.stage_completed` 或 `challenge.stage_failed`。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤不在这个桥接器里硬编码；它们由普通 `eventRules` 声明，并先通过 managed action plan 报告要做的修改。
 
 ```json
 {
@@ -240,7 +240,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --emit-event challenge.stage_selection_confirmed --event-payload-file ./logs/runtime_event_executor_test/payloads/selection_confirmed.json --no-inject
 ```
 
-当前执行器只实现安全状态动作，例如 `state.addUniqueRange`、`state.incrementCounter`、`challenge.lockStageSelection`、`challenge.recordFailedAttempt`、`challenge.advanceStage` 和 `challenge.initializeRunState`。`managed` 游戏行为动作还不会执行；如果规则把未实现动作标成 `required:true`，本次事件会失败并写入 `logs/runtime_event_report.json`。已实现 action 的参数按严格模式处理：引用的 `event.xxx` 或 `state.xxx` 路径不存在、显式参数类型错误、定义文件路径错误，都会让 action 失败，而不是当作空值或默认值继续执行。
+当前执行器实现安全状态动作，例如 `state.addUniqueRange`、`state.incrementCounter`、`challenge.lockStageSelection`、`challenge.recordFailedAttempt`、`challenge.advanceStage` 和 `challenge.initializeRunState`。部分 `managed` 游戏行为动作先生成可审计计划，不执行真实游戏修改：`quest.injectFixedStage`、`roster.filterAvailableHeroes` 和 `equipment.filterAvailableTrinkets` 会在 `logs/runtime_event_report.json` 中记录 `status: "planned"`、`plannedActionCount` 和 `plan`。其他未实现 action 如果标成 `required:true`，本次事件仍会失败。已实现和已规划 action 的参数按严格模式处理：引用的 `event.xxx`、`state.xxx` 或 `challenge.xxx` 路径不存在、显式参数类型错误、定义文件路径错误，都会让 action 失败，而不是当作空值或默认值继续执行。
 
 ## 虚拟文件原型
 

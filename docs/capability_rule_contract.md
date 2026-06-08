@@ -5,12 +5,12 @@ This document defines the generic runtime rule model. It is intentionally not a 
 ## Current Status
 
 - `virtualFileRules` are implemented and executable.
-- `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions.
+- `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions and selected managed action plans.
 - `factEventRules` are parsed, explained, and can be exercised through `--infer-save-events` to convert save/content/runtime facts into ordinary framework events.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
 - `--explain-rules` reports declared `eventRules` and `factEventRules`, required capabilities, action capabilities, and skip reasons.
-- The first safe action executor supports sidecar state primitives and the fixed-stage challenge state primitives. Managed game mutation actions still report as unsupported.
-- Implemented safe actions validate their declared arguments strictly. Missing referenced `event.*` or `state.*` paths, invalid explicit argument types, and missing definition files fail the action and are written to `logs/runtime_event_report.json`.
+- The first safe action executor supports sidecar state primitives and the fixed-stage challenge state primitives. The executor also supports an initial managed plan mode for `quest.injectFixedStage`, `roster.filterAvailableHeroes`, and `equipment.filterAvailableTrinkets`; these actions report `planned` and include a `plan` object but do not mutate the game.
+- Implemented safe actions and managed plan actions validate their declared arguments strictly. Missing referenced `event.*`, `state.*`, or `challenge.*` paths, invalid explicit argument types, and missing definition files fail the action and are written to `logs/runtime_event_report.json`.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
 - `--infer-save-events` evaluates active plugin `factEventRules` against a save state report and emits matching framework events through the same `eventRules` executor.
 - Runtime hooks are currently observe-first. Intercepting game flow remains capability-gated work.
@@ -33,7 +33,7 @@ The rule engine should evaluate rules in this order:
 3. Load sidecar state.
 4. Listen for a framework event.
 5. Evaluate matching `eventRules`.
-6. Execute actions in rule order, honoring capability and risk policy. Current implementation only executes implemented safe actions.
+6. Execute actions in rule order, honoring capability and risk policy. Current implementation executes implemented safe actions and can generate observe-first plans for a small set of managed actions.
 7. Write diagnostics and state changes.
 
 Sidecar state writes are strict by default: the state store writes a temporary file and requires atomic replacement to succeed. Non-atomic direct-write fallback is only available through explicit opt-in configuration or the `--allow-non-atomic-state-writes` CLI flag, and that downgrade is reported as a warning.
@@ -303,7 +303,7 @@ Capability fields for future registry entries:
 Capability status levels:
 
 ```text
-planned      documented only
+planned      documented only or emitted as an observe-first action plan
 observed     hook or watcher can observe the event
 passive      context can be read without changing game result
 intercepted  framework can cancel or replace original behavior
