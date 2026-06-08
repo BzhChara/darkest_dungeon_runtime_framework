@@ -551,7 +551,10 @@ internal sealed partial class SaveDirectoryWatcher
         bool HasStaticSave,
         SaveStateEmbeddedDsonFacts? StaticSave,
         int AreaCount,
+        int RoomCount,
+        int CorridorCount,
         int TileCount,
+        int ActiveDoorCount,
         IReadOnlyList<SaveStateMapAreaFacts> Areas);
 
     private sealed record SaveStateEmbeddedDsonFacts(
@@ -566,14 +569,39 @@ internal sealed partial class SaveDirectoryWatcher
 
     private sealed record SaveStateMapAreaFacts(
         string AreaId,
+        int? AreaHash,
+        int? Kind,
+        string InferredRole,
+        string? Name,
+        bool? Torch,
         IReadOnlyList<double> Bounds,
         int TileCount,
+        int DoorSlotCount,
+        int ActiveDoorCount,
+        IReadOnlyList<SaveStateMapDoorFacts> Doors,
         IReadOnlyList<SaveStateMapTileFacts> TileSamples);
+
+    private sealed record SaveStateMapDoorFacts(
+        string SlotId,
+        int? TargetAreaHash,
+        string? TargetAreaId,
+        int? TargetTileIndex,
+        int? DoorType,
+        bool? Implied);
 
     private sealed record SaveStateMapTileFacts(
         string TileId,
         IReadOnlyList<double> MapPosition,
-        IReadOnlyList<double> SidePosition);
+        IReadOnlyList<double> SidePosition,
+        int? AreaHash,
+        int? Type,
+        int? Obstacle,
+        int? TextureId,
+        int? FrontTextureId,
+        bool? IsTextureOverrideValid,
+        bool? HdAlwaysAccessible,
+        int? Current,
+        SaveStateMapDoorFacts? DoorTo);
 
     private sealed record SaveStateUpgradeFacts(
         int? Version,

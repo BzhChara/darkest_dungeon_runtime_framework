@@ -4,7 +4,7 @@ Source: `.research/DarkestDungeonSaveEditor-0.0.70/src/test/resources`.
 
 Scanner: `tools/InspectResearchSaveSamples.ps1`.
 
-Latest scan output: `logs/research_save_samples/saveeditor_samples_20260608_233114.json`.
+Latest scan output: `logs/research_save_samples/saveeditor_samples_20260608_234420.json`.
 
 ## Scan Result
 
@@ -75,5 +75,5 @@ The latest scan leaves 0 raw scalar entries across all 80 JSON files.
 | Pattern | Count | Status |
 | --- | ---: | --- |
 | `base_root.heroes.[].hero_file_data.raw_data` | 324 | Parsed as `embeddedDson`; campaign roster entries also promote to `facts.heroes`. `persist.roster.network.json` remains optional network scope. |
-| `base_root.map.static_dynamic.static_save` | 1 | Parsed as `embeddedDson`: 45,249 bytes, 292 objects, 1,669 fields, 1,377 parsed scalar fields, root children `areas` and `ext_data`. `facts.map` now promotes map bounds, area count, tile count, area bounds, and tile coordinate samples. |
+| `base_root.map.static_dynamic.static_save` | 1 | Parsed as `embeddedDson`: 45,249 bytes, 292 objects, 1,669 fields, 1,377 parsed scalar fields, root children `areas` and `ext_data`. `facts.map` now promotes map bounds, room/corridor counts, area-level door connections, tile count, area bounds, tile coordinates, and tile metadata. |
 | `base_root.darkest_dungeon_trinket_unlocks` | 0 non-empty samples | Deferred until a non-empty sample exists. |
