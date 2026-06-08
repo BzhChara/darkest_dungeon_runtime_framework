@@ -236,6 +236,7 @@ save.attach_sidecar_state
 --trace-events
 --init-mod-state
 --dump-mod-state
+--emit-event <event-id>
 --reset-mod-state <mod-id>
 --explain <target-or-event>
 ```
@@ -447,7 +448,7 @@ state.storyFlags
 2. 设计并实现插件加载顺序和依赖图，但默认兼容优先。
 3. 做事件探针，只记录不改逻辑。
 4. 做旁路 Mod 状态存档。当前已有启动器级 `--init-mod-state` / `--dump-mod-state` 初始读写。
-5. 做最小事件规则执行器。
+5. 做最小事件规则执行器。当前已有 `--emit-event`，可执行已实现的安全 sidecar state 动作；真实游戏事件接入仍待做。
 6. 选择一个 PoC：固定关卡挑战适合作为第一个玩法 dry-run，因为它先验证 facts、sidecar state、选择过滤和状态推进，不需要马上拦截真实 UI。
 7. 再做建筑升级等待，因为它验证事件、状态、跨周推进和 UI 提示。
 8. 最后做 post-Ancestor campaign。

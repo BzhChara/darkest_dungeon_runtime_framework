@@ -5,9 +5,10 @@ This document defines the generic runtime rule model. It is intentionally not a 
 ## Current Status
 
 - `virtualFileRules` are implemented and executable.
-- `eventRules` are manifest-level declaration carriers only. They are parsed and reported by the loader, but no runtime event executor exists yet.
+- `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
 - `--explain-rules` reports declared `eventRules`, required capabilities, action capabilities, and skip reasons.
+- The first safe action executor supports sidecar state primitives and the fixed-stage challenge state primitives. Managed game mutation actions still report as unsupported.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
 - Runtime hooks are currently observe-first. Intercepting game flow remains capability-gated work.
 
@@ -29,7 +30,7 @@ The rule engine should evaluate rules in this order:
 3. Load sidecar state.
 4. Listen for a framework event.
 5. Evaluate matching `eventRules`.
-6. Execute actions in rule order, honoring capability and risk policy.
+6. Execute actions in rule order, honoring capability and risk policy. Current implementation only executes implemented safe actions.
 7. Write diagnostics and state changes.
 
 ## Manifest Fields
@@ -299,6 +300,6 @@ The next code slice should stay generic:
 4. Add a capability registry document or JSON schema.
 5. Add sidecar state file read/write with no gameplay actions. Initial `--init-mod-state` / `--dump-mod-state` support is implemented.
 6. Add an observe-only event bus sourced from existing save watcher/runtime logs.
-7. Add a no-op action executor for `log.*` and `state.*`.
+7. Add a no-op action executor for `log.*` and `state.*`. Initial `--emit-event` support now executes implemented safe state actions against sidecar state.
 
 Only after that should gameplay experiments be expressed as ordinary rules.

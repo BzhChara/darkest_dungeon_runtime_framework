@@ -85,6 +85,7 @@ plugins/<plugin-id>/patches.json
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --explain-patches
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --init-mod-state --dump-mod-state --no-inject
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --emit-event challenge.stage_completed --event-payload-file ./payload.json --no-inject
 ```
 
 `--explain-patches` 会输出：
@@ -97,9 +98,11 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 
 `--preview-patches` 会在 diff 中输出 operation subject，并在同一 `.darkest` key 被多个插件修改时记录 `patch-preview-key-conflict`。
 
-`--explain-rules` 会输出声明型 `eventRules` 的事件、所需 capability、action capability、风险等级和跳过原因。它目前只解释规则，不执行规则。
+`--explain-rules` 会输出声明型 `eventRules` 的事件、所需 capability、action capability、风险等级和跳过原因。
 
 `--init-mod-state` 会把启用插件的 `stateSchema` 默认值写到 `state/mod_state/<plugin-id>.json`。已有文件只补缺失键，不重置已有状态。`--dump-mod-state` 会读取这些 sidecar 状态并写入 `logs/mod_state_dump_report.json`。
+
+`--emit-event` 会执行匹配事件的安全规则动作并写入 `logs/runtime_event_report.json`。当前只执行 sidecar state 和 challenge state 相关安全动作；托管改游戏行为的动作仍会报告未实现。
 
 `example/patches.json` 默认 `enabled:false`，可以复制成自己的插件后再启用。
 

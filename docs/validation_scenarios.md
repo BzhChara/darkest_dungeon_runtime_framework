@@ -21,7 +21,7 @@ Run:
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
 ```
 
-The current expected result is declaration-level success: all validation rules should be listed as active by `--explain-rules`. This proves the generic rule language can carry the scenario contract. It does not mean the runtime hooks and actions are implemented yet.
+The baseline expected result is declaration-level success: all validation rules should be listed as active by `--explain-rules`. The first safe executor can also exercise implemented sidecar state actions through `--emit-event`. Runtime hooks and managed game mutation actions are still not implemented.
 
 ## Scenario 1: Quest Draft Contract
 
@@ -68,7 +68,7 @@ Acceptance ladder:
 5. The framework can filter available heroes before selection.
 6. The framework can expose enough UI feedback to show why a hero is unavailable.
 
-Only steps 1 and the manifest parsing pieces exist now. Scenario 3 refines this into a fixed-stage challenge mode with retry and trinket-lock semantics.
+Steps 1-2 and the safe sidecar state action path exist now. Scenario 3 refines this into a fixed-stage challenge mode with retry and trinket-lock semantics.
 
 ## Scenario 2: Delayed Building Upgrades Contract
 
@@ -202,7 +202,7 @@ Acceptance ladder:
 8. The framework can inject or replace fixed stages through a managed quest/content primitive.
 9. The framework can materialize preset max-level heroes with randomized positive/negative quirks through verified roster/save primitives.
 
-Steps 1-5 are the current target for this scenario; later steps require runtime event observation and managed mutation capabilities.
+Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Later steps require runtime event observation and managed mutation capabilities.
 
 ## What Counts As Framework Progress
 

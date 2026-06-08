@@ -113,6 +113,7 @@ internal sealed partial class RuntimeConfig
     {
         if (!string.IsNullOrWhiteSpace(options.GameExecutablePath)) GameExecutablePath = options.GameExecutablePath;
         if (!string.IsNullOrWhiteSpace(options.RuntimeDllPath)) RuntimeDllPath = options.RuntimeDllPath;
+        if (!string.IsNullOrWhiteSpace(options.ModStateDirectory)) ModStateDirectory = options.ModStateDirectory;
         if (options.NoInject) EnableInjection = false;
     }
 

@@ -175,8 +175,19 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 - `--init-mod-state`：按当前启用插件的 `stateSchema` 创建或合并默认键，不清空已有状态。
 - `--dump-mod-state`：读取当前 sidecar 状态，输出摘要并写入 `logs/mod_state_dump_report.json`。
 - `--mod-state-id <plugin-id>`：只处理指定插件的状态。
+- `--mod-state-dir <path>`：本次运行临时改用另一个 sidecar 状态目录，路径仍必须位于框架项目目录内。
 
 单个插件默认写入 `state/mod_state/<plugin-id>.json`。如果多个启用插件重复同一 `id`，文件名会追加 manifest 路径哈希，避免互相覆盖。
+
+## 事件规则执行器
+
+`--emit-event` 可以在不启动游戏的情况下模拟一个框架事件，按当前插件加载顺序执行匹配的安全 `eventRules`，并把结果写回 sidecar state：
+
+```text
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --emit-event challenge.stage_selection_confirmed --event-payload-file ./logs/runtime_event_executor_test/payloads/selection_confirmed.json --no-inject
+```
+
+当前执行器只实现安全状态动作，例如 `state.addUniqueRange`、`state.incrementCounter`、`challenge.lockStageSelection`、`challenge.recordFailedAttempt`、`challenge.advanceStage` 和 `challenge.initializeRunState`。`managed` 游戏行为动作还不会执行；如果规则把未实现动作标成 `required:true`，本次事件会失败并写入 `logs/runtime_event_report.json`。
 
 ## 虚拟文件原型
 

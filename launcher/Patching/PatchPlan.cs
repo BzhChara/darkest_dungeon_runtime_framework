@@ -348,8 +348,10 @@ internal sealed record VirtualFileRuleSkip(
     string Reason);
 
 internal sealed record RuntimeEventRuleSource(
+    string PluginId,
     string SourceName,
     string SourcePath,
+    int LoadOrder,
     int RuleIndex,
     RuntimeEventRule Rule,
     IReadOnlyList<string> RequiredCapabilities,
@@ -358,8 +360,10 @@ internal sealed record RuntimeEventRuleSource(
     string Reason);
 
 internal sealed record RuntimeEventRuleSkip(
+    string PluginId,
     string SourceName,
     string SourcePath,
+    int LoadOrder,
     int RuleIndex,
     string RuleId,
     string EventId,

@@ -17,6 +17,10 @@ internal sealed class LauncherOptions
     public bool InitModState { get; private set; }
     public bool DumpModState { get; private set; }
     public string? ModStateId { get; private set; }
+    public string? ModStateDirectory { get; private set; }
+    public string? EmitEvent { get; private set; }
+    public string? EventPayload { get; private set; }
+    public string? EventPayloadFile { get; private set; }
     public string? PreviewOutputPath { get; private set; }
 
     public static LauncherOptions Parse(string[] args)
@@ -71,6 +75,18 @@ internal sealed class LauncherOptions
                     break;
                 case "--mod-state-id":
                     options.ModStateId = RequireValue(args, ref i, "--mod-state-id");
+                    break;
+                case "--mod-state-dir":
+                    options.ModStateDirectory = RequireValue(args, ref i, "--mod-state-dir");
+                    break;
+                case "--emit-event":
+                    options.EmitEvent = RequireValue(args, ref i, "--emit-event");
+                    break;
+                case "--event-payload":
+                    options.EventPayload = RequireValue(args, ref i, "--event-payload");
+                    break;
+                case "--event-payload-file":
+                    options.EventPayloadFile = RequireValue(args, ref i, "--event-payload-file");
                     break;
                 case "--preview-output":
                     options.PreviewOutputPath = RequireValue(args, ref i, "--preview-output");

@@ -38,7 +38,8 @@ internal static class Program
                     !options.ExplainPatches &&
                     !options.ExplainRules &&
                     !options.InitModState &&
-                    !options.DumpModState)
+                    !options.DumpModState &&
+                    string.IsNullOrWhiteSpace(options.EmitEvent))
                 {
                     return 3;
                 }
@@ -85,13 +86,27 @@ internal static class Program
                 modStateSucceeded &= ModStateStore.Dump(config, patchPlan, log, options.ModStateId).Succeeded;
             }
 
+            if (!string.IsNullOrWhiteSpace(options.EmitEvent))
+            {
+                modStateSucceeded &= RuntimeEventExecutor.Execute(
+                    config,
+                    patchPlan,
+                    log,
+                    options.EmitEvent,
+                    options.EventPayload,
+                    options.EventPayloadFile,
+                    projectRoot,
+                    options.ModStateId).Succeeded;
+            }
+
             if (options.ListPatches ||
                 options.ExplainPatches ||
                 options.ExplainRules ||
                 options.ValidateOnly ||
                 options.PreviewPatches ||
                 options.InitModState ||
-                options.DumpModState)
+                options.DumpModState ||
+                !string.IsNullOrWhiteSpace(options.EmitEvent))
             {
                 log.Info("Inspection requested. No process was started.");
                 return modStateSucceeded ? 0 : 3;
@@ -238,7 +253,8 @@ internal static class Program
             !options.ValidateOnly &&
             !options.PreviewPatches &&
             !options.InitModState &&
-            !options.DumpModState;
+            !options.DumpModState &&
+            string.IsNullOrWhiteSpace(options.EmitEvent);
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))
             throw new FileNotFoundException("Runtime DLL was not found. Build runtime/RuntimeHook.vcxproj first.", config.RuntimeDllPath);
 

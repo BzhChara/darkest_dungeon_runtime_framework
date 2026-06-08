@@ -41,6 +41,9 @@ internal sealed class RuntimeRulePredicate
     [JsonPropertyName("fact")]
     public string Fact { get; set; } = string.Empty;
 
+    [JsonPropertyName("event")]
+    public string Event { get; set; } = string.Empty;
+
     [JsonPropertyName("op")]
     public string Op { get; set; } = string.Empty;
 

@@ -56,7 +56,15 @@ internal sealed partial class RuntimeConfig
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
                 $"virtualRules={plugin.VirtualFileRuleCount} eventRules={plugin.EventRuleCount} path={plugin.Path}");
             AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds, activeCapabilities);
-            AddRuntimeEventRules(sourceRuntimeRules, skippedRuntimeRules, plugin.Manifest.EventRules, plugin.SourceName, plugin.Path, activeCapabilities);
+            AddRuntimeEventRules(
+                sourceRuntimeRules,
+                skippedRuntimeRules,
+                plugin.Manifest.EventRules,
+                plugin.Id,
+                plugin.SourceName,
+                plugin.Path,
+                plugin.LoadOrder,
+                activeCapabilities);
             if (plugin.Manifest.StateSchema.Count > 0)
             {
                 stateSchemas.Add(new PluginStateSchemaSource(

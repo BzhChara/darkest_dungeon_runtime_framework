@@ -6,8 +6,10 @@ internal sealed partial class RuntimeConfig
         List<RuntimeEventRuleSource> output,
         List<RuntimeEventRuleSkip> skipped,
         IEnumerable<RuntimeEventRule>? input,
+        string pluginId,
         string sourceName,
         string sourcePath,
+        int loadOrder,
         IReadOnlySet<string> activeCapabilities)
     {
         var index = 0;
@@ -16,20 +18,20 @@ internal sealed partial class RuntimeConfig
             index++;
             if (!rule.Enabled)
             {
-                skipped.Add(new RuntimeEventRuleSkip(sourceName, sourcePath, index, rule.Id, rule.On, "rule disabled"));
+                skipped.Add(new RuntimeEventRuleSkip(pluginId, sourceName, sourcePath, loadOrder, index, rule.Id, rule.On, "rule disabled"));
                 continue;
             }
 
             if (string.IsNullOrWhiteSpace(rule.On))
             {
-                skipped.Add(new RuntimeEventRuleSkip(sourceName, sourcePath, index, rule.Id, rule.On, "missing event id"));
+                skipped.Add(new RuntimeEventRuleSkip(pluginId, sourceName, sourcePath, loadOrder, index, rule.Id, rule.On, "missing event id"));
                 continue;
             }
 
             var actions = rule.Actions ?? [];
             if (actions.Length == 0)
             {
-                skipped.Add(new RuntimeEventRuleSkip(sourceName, sourcePath, index, rule.Id, rule.On, "missing actions"));
+                skipped.Add(new RuntimeEventRuleSkip(pluginId, sourceName, sourcePath, loadOrder, index, rule.Id, rule.On, "missing actions"));
                 continue;
             }
 
@@ -40,8 +42,10 @@ internal sealed partial class RuntimeConfig
             if (missingRequiredCapabilities.Length > 0)
             {
                 skipped.Add(new RuntimeEventRuleSkip(
+                    pluginId,
                     sourceName,
                     sourcePath,
+                    loadOrder,
                     index,
                     rule.Id,
                     rule.On,
@@ -59,8 +63,10 @@ internal sealed partial class RuntimeConfig
             if (missingRequiredActionCapabilities.Length > 0)
             {
                 skipped.Add(new RuntimeEventRuleSkip(
+                    pluginId,
                     sourceName,
                     sourcePath,
+                    loadOrder,
                     index,
                     rule.Id,
                     rule.On,
@@ -76,8 +82,10 @@ internal sealed partial class RuntimeConfig
                 .ToArray();
 
             output.Add(new RuntimeEventRuleSource(
+                pluginId,
                 sourceName,
                 sourcePath,
+                loadOrder,
                 index,
                 rule,
                 requiredCapabilities,

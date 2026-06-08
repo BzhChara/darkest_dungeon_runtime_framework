@@ -141,6 +141,60 @@ internal static class ModStateStore
         return report;
     }
 
+    public static PluginStateSchemaSource? FindStateSchemaSource(PatchPlan patchPlan, string pluginId, string sourcePath)
+    {
+        return patchPlan.StateSchemas.FirstOrDefault(source =>
+            source.PluginId.Equals(pluginId, StringComparison.OrdinalIgnoreCase) &&
+            source.SourcePath.Equals(sourcePath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static bool TryOpenStateDocument(
+        RuntimeConfig config,
+        PatchPlan patchPlan,
+        PluginStateSchemaSource source,
+        List<ModStateIssue> issues,
+        out ModStateDocument? document)
+    {
+        var statePath = GetStatePath(config, patchPlan, source);
+        if (!TryReadStateRoot(statePath, source, issues, out var root, out _))
+        {
+            document = null;
+            return false;
+        }
+
+        var state = GetOrCreateStateObject(root, source, statePath, issues);
+        if (state is null)
+        {
+            document = null;
+            return false;
+        }
+
+        if (!ReferenceEquals(root["state"], state))
+        {
+            root["state"] = state;
+        }
+
+        document = new ModStateDocument(source, statePath, root, state);
+        return true;
+    }
+
+    public static void SaveStateDocument(ModStateDocument document)
+    {
+        document.Root["updatedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        WriteJsonAtomic(document.StatePath, document.Root);
+    }
+
+    public static string GetStatePath(RuntimeConfig config, PatchPlan patchPlan, PluginStateSchemaSource source)
+    {
+        var fileNames = BuildStateFileNames(patchPlan.StateSchemas);
+        if (!fileNames.TryGetValue(source, out var fileName))
+        {
+            throw new InvalidOperationException($"No state file name was generated for plugin state source: {source.PluginId}");
+        }
+
+        return Path.Combine(config.ModStateDirectory, fileName);
+    }
+
     private static List<PluginStateSchemaSource> SelectStateSources(PatchPlan patchPlan, string? pluginIdFilter, List<ModStateIssue> issues)
     {
         var sources = patchPlan.StateSchemas
@@ -386,9 +440,35 @@ internal static class ModStateStore
     private static void WriteJsonAtomic(string path, JsonObject root)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
+        var json = root.ToJsonString(JsonOptions);
         var tempPath = path + ".tmp";
-        File.WriteAllText(tempPath, root.ToJsonString(JsonOptions), Encoding.UTF8);
-        File.Move(tempPath, path, overwrite: true);
+        File.WriteAllText(tempPath, json, Encoding.UTF8);
+        try
+        {
+            File.Move(tempPath, path, overwrite: true);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            File.WriteAllText(path, json, Encoding.UTF8);
+            TryDeleteTempFile(tempPath);
+        }
+    }
+
+    private static void TryDeleteTempFile(string tempPath)
+    {
+        try
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+        catch (IOException)
+        {
+        }
     }
 
     private static void LogAndWriteReport(RuntimeConfig config, LauncherLog log, ModStateStoreReport report)
@@ -477,6 +557,12 @@ internal sealed record ModStatePluginReport(
     IReadOnlyList<string> AddedKeys,
     IReadOnlyList<string> StateKeys,
     JsonNode? State);
+
+internal sealed record ModStateDocument(
+    PluginStateSchemaSource Source,
+    string StatePath,
+    JsonObject Root,
+    JsonObject State);
 
 internal sealed record ModStateIssue(
     string Severity,
