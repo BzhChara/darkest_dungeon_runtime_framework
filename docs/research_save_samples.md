@@ -6,6 +6,15 @@ Scanner: `tools/InspectResearchSaveSamples.ps1`.
 
 Latest scan output: `logs/research_save_samples/saveeditor_samples_20260609_002528.json`.
 
+Regression test: `tools/TestSaveSampleFacts.ps1`.
+
+Run after building the launcher:
+
+```powershell
+dotnet build launcher/DDRuntimeLoader.csproj -c Release
+.\tools\TestSaveSampleFacts.ps1
+```
+
 ## Scan Result
 
 All JSON files in the SaveEditor v0.0.70 test resources and local supplemental profile samples were processed through the framework's current DSON inspector.

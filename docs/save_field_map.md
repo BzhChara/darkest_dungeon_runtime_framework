@@ -424,6 +424,7 @@ Research sample state:
 - `facts.raid.party.heroGuids` is `[356,339,200,25]`; inventory has 16 item slots in the scanned sample.
 - Raid float paths now decode as readable values, for example `torchlight=79` and `start_elapsed_time=55194.914`.
 - Local `profile_0/backup` is an in-raid Prophet sample: quest `plot_kill_prophet_1`, dungeon `crypts`, type `kill_boss`, goal `kill_prophet_A`, and `facts.raid.location.inBattle=true`.
+- `profile_0/backup` also shows that backup directories can carry active raid/battle files while `facts.campaign.inRaid=false`; gameplay state detection should therefore consider optional raid/map files and `facts.raid.location.inBattle`, not only `persist.game.json`.
 - `profile_0/backup` exports `facts.raid.battle.round=2`, 4 enemies, 4 hero initiative entries, and 3 monster initiative entries. The enemy list includes `skeleton_defender_A`, `skeleton_militia_A`, `corpse_A`, and `skeleton_courtier_A` with current HP/status fields.
 
 ### `persist.curio_tracker.json`
