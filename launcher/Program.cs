@@ -32,7 +32,7 @@ internal static class Program
             if (patchPlan.CompileIssues.Count > 0)
             {
                 patchPlan.LogCompileIssues(log);
-                if ((patchPlan.HasCompileErrors || options.StrictPatches) && !options.ListPatches && !options.ExplainPatches)
+                if ((patchPlan.HasCompileErrors || options.StrictPatches) && !options.ListPatches && !options.ExplainPatches && !options.ExplainRules)
                 {
                     return 3;
                 }
@@ -46,6 +46,11 @@ internal static class Program
             if (options.ExplainPatches)
             {
                 patchPlan.LogExplanation(log);
+            }
+
+            if (options.ExplainRules)
+            {
+                patchPlan.LogRuleExplanation(log);
             }
 
             if (options.ValidatePatches || options.ValidateOnly)
@@ -63,7 +68,7 @@ internal static class Program
                 PatchPreviewer.WritePreview(config, patchPlan, previewOutput, log);
             }
 
-            if (options.ListPatches || options.ExplainPatches || options.ValidateOnly || options.PreviewPatches)
+            if (options.ListPatches || options.ExplainPatches || options.ExplainRules || options.ValidateOnly || options.PreviewPatches)
             {
                 log.Info("Patch inspection requested. No process was started.");
                 return 0;
@@ -203,7 +208,7 @@ internal static class Program
         if (!Directory.Exists(config.GameWorkingDirectory))
             throw new DirectoryNotFoundException($"Game working directory was not found: {config.GameWorkingDirectory}");
 
-        var willStartGame = !options.DryRun && !options.ListPatches && !options.ExplainPatches && !options.ValidateOnly && !options.PreviewPatches;
+        var willStartGame = !options.DryRun && !options.ListPatches && !options.ExplainPatches && !options.ExplainRules && !options.ValidateOnly && !options.PreviewPatches;
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))
             throw new FileNotFoundException("Runtime DLL was not found. Build runtime/RuntimeHook.vcxproj first.", config.RuntimeDllPath);
 

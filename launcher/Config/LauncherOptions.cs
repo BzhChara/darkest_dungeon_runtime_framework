@@ -9,6 +9,7 @@ internal sealed class LauncherOptions
     public bool NoInject { get; private set; }
     public bool ListPatches { get; private set; }
     public bool ExplainPatches { get; private set; }
+    public bool ExplainRules { get; private set; }
     public bool ValidatePatches { get; private set; }
     public bool ValidateOnly { get; private set; }
     public bool PreviewPatches { get; private set; }
@@ -42,6 +43,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--explain-patches":
                     options.ExplainPatches = true;
+                    break;
+                case "--explain-rules":
+                    options.ExplainRules = true;
                     break;
                 case "--validate-patches":
                     options.ValidatePatches = true;

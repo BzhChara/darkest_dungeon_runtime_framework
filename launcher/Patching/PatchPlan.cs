@@ -8,6 +8,8 @@ internal sealed class PatchPlan
         IReadOnlyList<PluginLoadDiagnostic> loadDiagnostics,
         IReadOnlyList<VirtualFileRuleSource> sourceVirtualFileRules,
         IReadOnlyList<VirtualFileRuleSkip> skippedVirtualFileRules,
+        IReadOnlyList<RuntimeEventRuleSource> sourceRuntimeEventRules,
+        IReadOnlyList<RuntimeEventRuleSkip> skippedRuntimeEventRules,
         IReadOnlyList<VirtualFileRule> effectiveVirtualFileRules,
         IReadOnlyList<PatchCompileIssue> compileIssues)
     {
@@ -16,6 +18,8 @@ internal sealed class PatchPlan
         LoadDiagnostics = loadDiagnostics;
         SourceVirtualFileRules = sourceVirtualFileRules;
         SkippedVirtualFileRules = skippedVirtualFileRules;
+        SourceRuntimeEventRules = sourceRuntimeEventRules;
+        SkippedRuntimeEventRules = skippedRuntimeEventRules;
         EffectiveVirtualFileRules = effectiveVirtualFileRules;
         CompileIssues = compileIssues;
     }
@@ -25,6 +29,8 @@ internal sealed class PatchPlan
     public IReadOnlyList<PluginLoadDiagnostic> LoadDiagnostics { get; }
     public IReadOnlyList<VirtualFileRuleSource> SourceVirtualFileRules { get; }
     public IReadOnlyList<VirtualFileRuleSkip> SkippedVirtualFileRules { get; }
+    public IReadOnlyList<RuntimeEventRuleSource> SourceRuntimeEventRules { get; }
+    public IReadOnlyList<RuntimeEventRuleSkip> SkippedRuntimeEventRules { get; }
     public IReadOnlyList<VirtualFileRule> EffectiveVirtualFileRules { get; }
     public IReadOnlyList<PatchCompileIssue> CompileIssues { get; }
     public bool HasCompileErrors => CompileIssues.Any(issue => issue.IsError);
@@ -155,6 +161,50 @@ internal sealed class PatchPlan
         log.Info("Patch explanation completed.");
     }
 
+    public void LogRuleExplanation(LauncherLog log)
+    {
+        log.Info(
+            $"Runtime rule explanation started. activeRules={SourceRuntimeEventRules.Count} " +
+            $"skippedRules={SkippedRuntimeEventRules.Count}");
+
+        foreach (var source in SourceRuntimeEventRules
+                     .OrderBy(rule => rule.Rule.On, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(rule => PluginPhaseRank(rule.Rule.Phase))
+                     .ThenBy(rule => rule.Rule.Priority)
+                     .ThenBy(rule => rule.SourceName, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(rule => rule.RuleIndex))
+        {
+            log.Info(
+                $"runtime-rule status=active source={source.SourceName} rule={source.RuleIndex} " +
+                $"id={QuoteLogValue(source.Rule.Id)} on={source.Rule.On} phase={source.Rule.Phase} " +
+                $"priority={source.Rule.Priority} requires={FormatLogList(source.RequiredCapabilities)} " +
+                $"actions={source.Rule.Actions.Length} actionCapabilities={FormatLogList(source.ActionCapabilities)} " +
+                $"missingOptionalActionCapabilities={FormatLogList(source.MissingOptionalActionCapabilities)} " +
+                $"reason={QuoteLogValue(source.Reason)} path={source.SourcePath}");
+
+            for (var actionIndex = 0; actionIndex < source.Rule.Actions.Length; actionIndex++)
+            {
+                var action = source.Rule.Actions[actionIndex];
+                log.Info(
+                    $"runtime-rule-action source={source.SourceName} rule={source.RuleIndex} action={actionIndex} " +
+                    $"type={action.Type} capability={action.Capability} risk={action.Risk} " +
+                    $"required={action.Required} args={action.Args.Count}");
+            }
+        }
+
+        foreach (var skipped in SkippedRuntimeEventRules
+                     .OrderBy(rule => rule.SourceName, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(rule => rule.RuleIndex))
+        {
+            log.Info(
+                $"runtime-rule status=skipped source={skipped.SourceName} rule={skipped.RuleIndex} " +
+                $"id={QuoteLogValue(skipped.RuleId)} on={QuoteLogValue(skipped.EventId)} " +
+                $"reason={QuoteLogValue(skipped.Reason)} path={skipped.SourcePath}");
+        }
+
+        log.Info("Runtime rule explanation completed.");
+    }
+
     private IOrderedEnumerable<PatchManifestInfo> OrderedManifestsForDisplay()
     {
         return Manifests
@@ -176,6 +226,19 @@ internal sealed class PatchPlan
     {
         var list = values.Where(value => !string.IsNullOrWhiteSpace(value)).ToArray();
         return list.Length == 0 ? "[]" : "[" + string.Join(",", list) + "]";
+    }
+
+    private static int PluginPhaseRank(string? phase)
+    {
+        return (phase ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "base" => 0,
+            "early" => 10,
+            "normal" => 20,
+            "compat" => 30,
+            "late" => 40,
+            _ => 20
+        };
     }
 }
 
@@ -272,6 +335,24 @@ internal sealed record VirtualFileRuleSkip(
     string Target,
     int ReplacementCount,
     int OperationCount,
+    string Reason);
+
+internal sealed record RuntimeEventRuleSource(
+    string SourceName,
+    string SourcePath,
+    int RuleIndex,
+    RuntimeEventRule Rule,
+    IReadOnlyList<string> RequiredCapabilities,
+    IReadOnlyList<string> ActionCapabilities,
+    IReadOnlyList<string> MissingOptionalActionCapabilities,
+    string Reason);
+
+internal sealed record RuntimeEventRuleSkip(
+    string SourceName,
+    string SourcePath,
+    int RuleIndex,
+    string RuleId,
+    string EventId,
     string Reason);
 
 internal sealed record PatchConditionResult(bool Matched, string Reason);

@@ -1,0 +1,114 @@
+{
+  "id": "validation.delayed_building_upgrades_contract",
+  "name": "Validation - Delayed Building Upgrades Contract",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [
+    "state.sidecar",
+    "building.intercept_upgrade_request",
+    "upgrade.spend_original_cost",
+    "upgrade.queue_pending",
+    "campaign.observe_week_advance",
+    "upgrade.apply_completed"
+  ],
+  "phase": "normal",
+  "priority": 20,
+  "virtualFileRules": [],
+  "eventRules": [
+    {
+      "id": "queue_requested_upgrade",
+      "enabled": true,
+      "on": "building.upgrade_requested",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "building.intercept_upgrade_request",
+        "upgrade.spend_original_cost",
+        "upgrade.queue_pending"
+      ],
+      "actions": [
+        {
+          "type": "event.cancelOriginal",
+          "capability": "building.intercept_upgrade_request",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "reason": "queued_by_runtime_rule"
+          }
+        },
+        {
+          "type": "upgrade.spendOriginalCost",
+          "capability": "upgrade.spend_original_cost",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "source": "event.requestedUpgrade"
+          }
+        },
+        {
+          "type": "upgrade.queuePending",
+          "capability": "upgrade.queue_pending",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "pendingUpgrades",
+            "building": "event.buildingId",
+            "treeId": "event.treeId",
+            "requirementCode": "event.requirementCode",
+            "weeksFormula": "1 + targetLevel",
+            "parallelCompensation": "reduce_by_active_count"
+          }
+        }
+      ]
+    },
+    {
+      "id": "advance_pending_upgrades",
+      "enabled": true,
+      "on": "campaign.week_advanced",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "campaign.observe_week_advance",
+        "upgrade.apply_completed"
+      ],
+      "actions": [
+        {
+          "type": "upgrade.advancePending",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "pendingUpgrades",
+            "amount": 1
+          }
+        },
+        {
+          "type": "upgrade.applyReadyQueued",
+          "capability": "upgrade.apply_completed",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "stateKey": "pendingUpgrades"
+          }
+        }
+      ]
+    }
+  ],
+  "stateSchema": {
+    "pendingUpgrades": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "properties": {
+          "building": "string",
+          "treeId": "integer",
+          "requirementCode": "string",
+          "remainingWeeks": "integer"
+        }
+      }
+    }
+  }
+}

@@ -83,6 +83,7 @@ plugins/<plugin-id>/patches.json
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --explain-patches
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
 ```
 
 `--explain-patches` 会输出：
@@ -94,6 +95,8 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 - 每条替换的 operation subject，例如 `key:.max_campaign_log_file_size`。
 
 `--preview-patches` 会在 diff 中输出 operation subject，并在同一 `.darkest` key 被多个插件修改时记录 `patch-preview-key-conflict`。
+
+`--explain-rules` 会输出声明型 `eventRules` 的事件、所需 capability、action capability、风险等级和跳过原因。它目前只解释规则，不执行规则。
 
 `example/patches.json` 默认 `enabled:false`，可以复制成自己的插件后再启用。
 

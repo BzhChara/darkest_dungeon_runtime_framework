@@ -1,6 +1,6 @@
 # Runtime Mod Platform Design
 
-这份文档定义框架后续要走向的运行时 Mod 平台，而不是只停留在文件替换工具。通用规则契约见 `docs/capability_rule_contract.md`；本文里的玩法段落只是用例，不是专用模板。
+这份文档定义框架后续要走向的运行时 Mod 平台，而不是只停留在文件替换工具。通用规则契约见 `docs/capability_rule_contract.md`；框架验收场景见 `docs/validation_scenarios.md`；本文里的玩法段落只是用例，不是专用模板。
 
 目标不是让玩家只能改数值、替换贴图或追加文本，而是让玩家能重组《Darkest Dungeon》的关键玩法循环，例如：
 

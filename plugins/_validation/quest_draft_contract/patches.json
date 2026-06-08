@@ -1,0 +1,107 @@
+{
+  "id": "validation.quest_draft_contract",
+  "name": "Validation - Quest Draft Contract",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [
+    "state.sidecar",
+    "party.observe_selection_started",
+    "party.observe_selection_confirmed",
+    "roster.unlock_draft_pool",
+    "roster.filter_available_heroes",
+    "equipment.unlock_for_draft"
+  ],
+  "phase": "normal",
+  "priority": 10,
+  "virtualFileRules": [],
+  "eventRules": [
+    {
+      "id": "prepare_draft_pool",
+      "enabled": true,
+      "on": "party.selection_started",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "party.observe_selection_started",
+        "roster.unlock_draft_pool",
+        "roster.filter_available_heroes",
+        "equipment.unlock_for_draft"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "draftEnabled",
+            "op": "equals",
+            "value": true
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "roster.unlockDraftPool",
+          "capability": "roster.unlock_draft_pool",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "source": "heroDefinitions",
+            "includeAllBaseClasses": true
+          }
+        },
+        {
+          "type": "equipment.unlockDraftLoadout",
+          "capability": "equipment.unlock_for_draft",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "source": "heroDefinitions",
+            "maxRank": true
+          }
+        },
+        {
+          "type": "roster.filterAvailableHeroes",
+          "capability": "roster.filter_available_heroes",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "excludeStateList": "usedHeroIds"
+          }
+        }
+      ]
+    },
+    {
+      "id": "remember_selected_heroes",
+      "enabled": true,
+      "on": "party.selection_confirmed",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "party.observe_selection_confirmed"
+      ],
+      "actions": [
+        {
+          "type": "state.addUniqueRange",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "usedHeroIds",
+            "fromEvent": "selectedHeroIds"
+          }
+        }
+      ]
+    }
+  ],
+  "stateSchema": {
+    "draftEnabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "usedHeroIds": {
+      "type": "array",
+      "items": "string",
+      "default": []
+    }
+  }
+}

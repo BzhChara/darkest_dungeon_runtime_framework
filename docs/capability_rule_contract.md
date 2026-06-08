@@ -6,6 +6,7 @@ This document defines the generic runtime rule model. It is intentionally not a 
 
 - `virtualFileRules` are implemented and executable.
 - `eventRules` and `stateSchema` are manifest-level declaration carriers only. They are parsed and reported by the loader, but no runtime event executor exists yet.
+- `--explain-rules` reports declared `eventRules`, required capabilities, action capabilities, and skip reasons.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
 - Runtime hooks are currently observe-first. Intercepting game flow remains capability-gated work.
 
@@ -291,10 +292,11 @@ This is the rule that keeps the framework general: new gameplay ideas should exp
 The next code slice should stay generic:
 
 1. Parse and log `eventRules` counts. Done as a declaration carrier.
-2. Add a capability registry document or JSON schema.
-3. Add `--explain-rules` to print declared rules, required capabilities, and skipped reasons.
-4. Add sidecar state file read/write with no gameplay actions.
-5. Add an observe-only event bus sourced from existing save watcher/runtime logs.
-6. Add a no-op action executor for `log.*` and `state.*`.
+2. Add `--explain-rules` to print declared rules, required capabilities, and skipped reasons. Done for manifest-level rule declarations.
+3. Add validation manifests for quest draft and delayed building upgrades. Done as declaration-level framework acceptance scenarios.
+4. Add a capability registry document or JSON schema.
+5. Add sidecar state file read/write with no gameplay actions.
+6. Add an observe-only event bus sourced from existing save watcher/runtime logs.
+7. Add a no-op action executor for `log.*` and `state.*`.
 
 Only after that should gameplay experiments be expressed as ordinary rules.

@@ -6,6 +6,8 @@ internal sealed partial class RuntimeConfig
     {
         var sourceRules = new List<VirtualFileRuleSource>();
         var skippedRules = new List<VirtualFileRuleSkip>();
+        var sourceRuntimeRules = new List<RuntimeEventRuleSource>();
+        var skippedRuntimeRules = new List<RuntimeEventRuleSkip>();
         var compileIssues = new List<PatchCompileIssue>();
         var manifestName = string.IsNullOrWhiteSpace(PluginPatchManifestName) ? "patches.json" : PluginPatchManifestName;
         var pluginCandidates = DiscoverPluginPatchManifests(projectRoot, manifestName, log).ToList();
@@ -53,6 +55,7 @@ internal sealed partial class RuntimeConfig
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
                 $"virtualRules={plugin.VirtualFileRuleCount} eventRules={plugin.EventRuleCount} path={plugin.Path}");
             AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds, activeCapabilities);
+            AddRuntimeEventRules(sourceRuntimeRules, skippedRuntimeRules, plugin.Manifest.EventRules, plugin.SourceName, plugin.Path, activeCapabilities);
         }
 
         return new PatchPlan(
@@ -61,6 +64,8 @@ internal sealed partial class RuntimeConfig
             loadPlan.Diagnostics,
             sourceRules,
             skippedRules,
+            sourceRuntimeRules,
+            skippedRuntimeRules,
             BuildEffectiveVirtualRules(sourceRules, compileIssues, log),
             compileIssues);
     }
