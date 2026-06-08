@@ -38,7 +38,7 @@ internal sealed class PatchPlan
                 $"patch-manifest status={manifest.Status} order={manifest.LoadOrder} id={manifest.Id} " +
                 $"name={manifest.Name} version={manifest.Version} phase={manifest.Phase} " +
                 $"priority={manifest.Priority} capabilities={FormatLogList(manifest.Capabilities)} " +
-                $"rules={manifest.VirtualFileRuleCount} path={manifest.Path}");
+                $"virtualRules={manifest.VirtualFileRuleCount} eventRules={manifest.EventRuleCount} path={manifest.Path}");
         }
 
         log.Info($"Enabled virtual file source rules: {SourceVirtualFileRules.Count}");
@@ -95,7 +95,8 @@ internal sealed class PatchPlan
             log.Info(
                 $"patch-explain-manifest order={manifest.LoadOrder} status={manifest.Status} id={manifest.Id} " +
                 $"name={manifest.Name} phase={manifest.Phase} priority={manifest.Priority} " +
-                $"capabilities={FormatLogList(manifest.Capabilities)} rules={manifest.VirtualFileRuleCount} " +
+                $"capabilities={FormatLogList(manifest.Capabilities)} virtualRules={manifest.VirtualFileRuleCount} " +
+                $"eventRules={manifest.EventRuleCount} " +
                 $"skipReason={QuoteLogValue(manifest.SkipReason)} path={manifest.Path}");
         }
 
@@ -186,6 +187,7 @@ internal sealed record PatchManifestInfo(
     string Status,
     bool Enabled,
     int VirtualFileRuleCount,
+    int EventRuleCount,
     string[] Capabilities,
     string Phase,
     int Priority,
@@ -238,6 +240,7 @@ internal sealed class PluginManifestCandidate
     public PluginPatchManifest Manifest { get; init; } = new();
     public int LoadOrder { get; set; } = -1;
     public int VirtualFileRuleCount => Manifest.VirtualFileRules.Length;
+    public int EventRuleCount => Manifest.EventRules.Length;
 
     public string SourceName => string.Equals(Name, Id, StringComparison.OrdinalIgnoreCase)
         ? Id

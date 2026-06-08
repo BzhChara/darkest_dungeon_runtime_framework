@@ -41,6 +41,12 @@ internal sealed class PluginPatchManifest
     [JsonPropertyName("virtualFileRules")]
     public VirtualFileRule[] VirtualFileRules { get; set; } = [];
 
+    [JsonPropertyName("eventRules")]
+    public RuntimeEventRule[] EventRules { get; set; } = [];
+
+    [JsonPropertyName("stateSchema")]
+    public Dictionary<string, JsonElement> StateSchema { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public static PluginPatchManifest Load(string path)
     {
         try
@@ -64,11 +70,39 @@ internal sealed class PluginPatchManifest
             manifest.LoadBefore ??= [];
             manifest.Conflicts ??= [];
             manifest.VirtualFileRules ??= [];
+            manifest.EventRules ??= [];
+            manifest.StateSchema ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+            foreach (var rule in manifest.EventRules)
+            {
+                rule.RequiresCapabilities ??= [];
+                rule.Actions ??= [];
+                if (rule.When is not null)
+                {
+                    NormalizeRuntimeRulePredicate(rule.When);
+                }
+
+                foreach (var action in rule.Actions)
+                {
+                    action.Args ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+                }
+            }
+
             return manifest;
         }
         catch (JsonException ex)
         {
             throw new InvalidOperationException($"Plugin patch manifest is invalid: {path}: {ex.Message}", ex);
+        }
+    }
+
+    private static void NormalizeRuntimeRulePredicate(RuntimeRulePredicate predicate)
+    {
+        predicate.All ??= [];
+        predicate.Any ??= [];
+        predicate.None ??= [];
+        foreach (var child in predicate.All.Concat(predicate.Any).Concat(predicate.None))
+        {
+            NormalizeRuntimeRulePredicate(child);
         }
     }
 }

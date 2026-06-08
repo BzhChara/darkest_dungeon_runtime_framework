@@ -8,7 +8,9 @@
 plugins/<plugin-id>/patches.json
 ```
 
-`patches.json` 目前支持插件元数据和 `virtualFileRules`。规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+`patches.json` 目前支持插件元数据和可执行的 `virtualFileRules`。规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+
+`eventRules` 和 `stateSchema` 已作为通用规则契约的声明字段保留，但当前不会执行。契约细节见 `docs/capability_rule_contract.md`。
 
 清单字段：
 
@@ -40,7 +42,9 @@ plugins/<plugin-id>/patches.json
       "target": "shared/app.darkest",
       "operations": []
     }
-  ]
+  ],
+  "eventRules": [],
+  "stateSchema": {}
 }
 ```
 
@@ -70,6 +74,10 @@ plugins/<plugin-id>/patches.json
 - `content.region`
 - `content.localization`
 - `asset.replace`
+- `state.sidecar`
+- `campaign.observe_week_advance`
+- `quest.observe_completion`
+- `save.observe_write`
 
 诊断命令：
 

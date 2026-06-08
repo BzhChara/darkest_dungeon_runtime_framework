@@ -1,0 +1,53 @@
+{
+  "id": "test.runtime_event_declaration",
+  "name": "Runtime Event Declaration Test",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [
+    "state.sidecar",
+    "campaign.observe_week_advance"
+  ],
+  "phase": "late",
+  "priority": 100,
+  "virtualFileRules": [],
+  "eventRules": [
+    {
+      "id": "count_weeks",
+      "enabled": true,
+      "on": "campaign.week_advanced",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "campaign.observe_week_advance"
+      ],
+      "when": {
+        "all": [
+          {
+            "fact": "campaign.inRaid",
+            "op": "equals",
+            "value": false
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "state.incrementCounter",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "weekCount",
+            "amount": 1
+          }
+        }
+      ]
+    }
+  ],
+  "stateSchema": {
+    "weekCount": {
+      "type": "integer",
+      "default": 0
+    }
+  }
+}

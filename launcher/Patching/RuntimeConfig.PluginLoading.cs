@@ -51,7 +51,7 @@ internal sealed partial class RuntimeConfig
                 $"Plugin patch manifest enabled: order={plugin.LoadOrder} id={plugin.Id} " +
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
-                $"virtualRules={plugin.VirtualFileRuleCount} path={plugin.Path}");
+                $"virtualRules={plugin.VirtualFileRuleCount} eventRules={plugin.EventRuleCount} path={plugin.Path}");
             AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds, activeCapabilities);
         }
 
@@ -206,6 +206,7 @@ internal sealed partial class RuntimeConfig
                 status,
                 candidate.Manifest.Enabled,
                 candidate.VirtualFileRuleCount,
+                candidate.EventRuleCount,
                 CleanCapabilityReferences(candidate.Manifest.Capabilities).ToArray(),
                 NormalizePhase(candidate.Manifest.Phase),
                 candidate.Manifest.Priority,
