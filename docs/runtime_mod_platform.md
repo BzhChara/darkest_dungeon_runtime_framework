@@ -5,7 +5,7 @@
 目标不是让玩家只能改数值、替换贴图或追加文本，而是让玩家能重组《Darkest Dungeon》的关键玩法循环，例如：
 
 - 打完祖父后不结束游戏，解锁新区域、新剧情和新任务链。
-- 把马车招募改成关卡前选人制：全角色和装备可用，每关自选四人，选过的角色进入不可用池。
+- 把马车招募改成固定关卡挑战：预设满级英雄池、原版 Boss 关卡链、每关自选四人和饰品，失败可用原选择重试，通关后已选英雄和饰品进入不可用池。
 - 给建筑升级加入等待周数、并行升级补偿和跨周完成逻辑。
 
 这些能力不能只靠 `find -> replace` 完成。文件虚拟化仍然是内容地基，但平台还需要事件、状态、动作、Hook 能力和诊断工具。后续新增玩法应该先映射到 facts、events、predicates、actions、state、capabilities；映射不出来时扩展这些通用原语，而不是为某个玩法写特殊路径。
@@ -276,48 +276,74 @@ save.attach_sidecar_state
 - 重复 `id`：默认 warning，内部用路径生成唯一 instance id。
 - 冲突：当前默认 warning，不阻止启动。
 
-## Example: Quest Draft Mode
+## Example: Fixed Stage Challenge Mode
 
-目标：取消长期马车养成，改成每关前从全角色池中选择四人，选过后不能再选。
+目标：取消长期马车养成，改成独立挑战模式。一次挑战包含固定 Boss 关卡链；玩家从预设满级英雄池中每关选择四人，并自由分配饰品。失败可以重试同一关，但选择锁定；通关后英雄和饰品都不能再用于后续关卡。
 
 需要能力：
 
 ```text
-party.selection_started
-party.selection_confirmed
+challenge.stage_selection_started
+challenge.stage_selection_confirmed
+challenge.stage_completed
+challenge.stage_failed
+challenge.lock_stage_selection
 roster.filter_available_heroes
-state.usedHeroes
-equipment.unlock_all_for_draft
+equipment.filter_available_trinkets
+quest.inject_fixed_stage
+state.challengeRun.usedHeroIds
+state.challengeRun.usedTrinketIds
+state.challengeRun.lockedStageSelection
 ```
 
 声明式草案：
 
 ```json
 {
-  "on": "party.selection_started",
+  "on": "challenge.stage_selection_started",
   "actions": [
-    { "unlockAllDraftHeroes": true },
-    { "unlockAllDraftEquipment": true },
-    { "filterPartySelection": { "excludeStateList": "usedHeroes" } }
+    { "quest.injectFixedStage": { "stage": "state.challengeRun.currentStage" } },
+    { "filterPartySelection": { "excludeStateList": "challengeRun.usedHeroIds" } },
+    { "filterTrinketSelection": { "excludeStateList": "challengeRun.usedTrinketIds" } }
   ]
 }
 ```
 
 ```json
 {
-  "on": "party.selection_confirmed",
+  "on": "challenge.stage_selection_confirmed",
   "actions": [
-    { "appendSelectedHeroesToStateList": "usedHeroes" }
+    { "lockStageSelection": "challengeRun.lockedStageSelection" }
+  ]
+}
+```
+
+```json
+{
+  "on": "challenge.stage_completed",
+  "actions": [
+    { "appendSelectedHeroesToStateList": "challengeRun.usedHeroIds" },
+    { "appendSelectedTrinketsToStateList": "challengeRun.usedTrinketIds" },
+    { "advanceStage": "challengeRun.currentStageIndex" }
+  ]
+}
+```
+
+```json
+{
+  "on": "challenge.stage_failed",
+  "actions": [
+    { "recordFailedAttempt": "challengeRun.stageAttempts" }
   ]
 }
 ```
 
 最小 PoC：
 
-1. observe party selection start。
-2. 记录选择结果到旁路状态。
-3. 下次选择时只在日志中标出哪些 hero 应被禁用。
-4. 再 Hook 可选角色列表。
+1. 不直接改真实存档。
+2. 先用旁路状态记录 currentStage、lockedStageSelection、usedHeroIds、usedTrinketIds。
+3. 通过 dry-run 诊断报告输出“当前可选/不可选英雄和饰品”。
+4. 再 Hook 可选角色列表和关卡选择。
 5. 最后补 UI 提示。
 
 ## Example: Delayed Building Upgrades
@@ -420,8 +446,8 @@ state.storyFlags
 3. 做事件探针，只记录不改逻辑。
 4. 做旁路 Mod 状态存档。
 5. 做最小事件规则执行器。
-6. 选择一个 PoC：建议先做建筑升级等待，因为它验证事件、状态、跨周推进和 UI 提示，但比结局流程风险低。
-7. 再做 party draft mode。
+6. 选择一个 PoC：固定关卡挑战适合作为第一个玩法 dry-run，因为它先验证 facts、sidecar state、选择过滤和状态推进，不需要马上拦截真实 UI。
+7. 再做建筑升级等待，因为它验证事件、状态、跨周推进和 UI 提示。
 8. 最后做 post-Ancestor campaign。
 
 ## Non-Goals For Now

@@ -1,0 +1,218 @@
+{
+  "id": "validation.challenge_run_contract",
+  "name": "Validation - Challenge Run Contract",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [
+    "state.sidecar",
+    "challenge.define_stage_chain",
+    "challenge.observe_stage_selection_started",
+    "challenge.observe_stage_selection_confirmed",
+    "challenge.observe_stage_completed",
+    "challenge.observe_stage_failed",
+    "challenge.lock_stage_selection",
+    "challenge.advance_stage",
+    "roster.provide_fixed_hero_pool",
+    "roster.filter_available_heroes",
+    "equipment.provide_fixed_trinket_pool",
+    "equipment.filter_available_trinkets",
+    "quest.inject_fixed_stage"
+  ],
+  "phase": "normal",
+  "priority": 15,
+  "virtualFileRules": [],
+  "eventRules": [
+    {
+      "id": "initialize_challenge_run",
+      "enabled": true,
+      "on": "challenge.run_started",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.define_stage_chain",
+        "roster.provide_fixed_hero_pool",
+        "equipment.provide_fixed_trinket_pool"
+      ],
+      "actions": [
+        {
+          "type": "challenge.initializeRunState",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "challengeRun",
+            "definition": "challenge.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "prepare_stage_selection",
+      "enabled": true,
+      "on": "challenge.stage_selection_started",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.observe_stage_selection_started",
+        "roster.provide_fixed_hero_pool",
+        "roster.filter_available_heroes",
+        "equipment.provide_fixed_trinket_pool",
+        "equipment.filter_available_trinkets",
+        "quest.inject_fixed_stage"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "challengeRun.enabled",
+            "op": "equals",
+            "value": true
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "quest.injectFixedStage",
+          "capability": "quest.inject_fixed_stage",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "stage": "state.challengeRun.currentStage",
+            "source": "challenge.stageChain"
+          }
+        },
+        {
+          "type": "roster.filterAvailableHeroes",
+          "capability": "roster.filter_available_heroes",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "source": "challenge.heroPool",
+            "excludeStateList": "challengeRun.usedHeroIds",
+            "lockedSelectionKey": "challengeRun.lockedStageSelection.heroIds"
+          }
+        },
+        {
+          "type": "equipment.filterAvailableTrinkets",
+          "capability": "equipment.filter_available_trinkets",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "source": "challenge.trinketPool",
+            "excludeStateList": "challengeRun.usedTrinketIds",
+            "lockedSelectionKey": "challengeRun.lockedStageSelection.trinketIds"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lock_stage_selection",
+      "enabled": true,
+      "on": "challenge.stage_selection_confirmed",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.observe_stage_selection_confirmed",
+        "challenge.lock_stage_selection"
+      ],
+      "actions": [
+        {
+          "type": "challenge.lockStageSelection",
+          "capability": "challenge.lock_stage_selection",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "challengeRun.lockedStageSelection",
+            "stageId": "event.stageId",
+            "heroIds": "event.selectedHeroIds",
+            "trinketIds": "event.selectedTrinketIds"
+          }
+        }
+      ]
+    },
+    {
+      "id": "complete_stage_and_consume_selection",
+      "enabled": true,
+      "on": "challenge.stage_completed",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.observe_stage_completed",
+        "challenge.advance_stage"
+      ],
+      "actions": [
+        {
+          "type": "state.addUniqueRange",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.usedHeroIds",
+            "fromState": "challengeRun.lockedStageSelection.heroIds"
+          }
+        },
+        {
+          "type": "state.addUniqueRange",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.usedTrinketIds",
+            "fromState": "challengeRun.lockedStageSelection.trinketIds"
+          }
+        },
+        {
+          "type": "challenge.advanceStage",
+          "capability": "challenge.advance_stage",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "challengeRun",
+            "completedStageId": "event.stageId"
+          }
+        }
+      ]
+    },
+    {
+      "id": "retry_keeps_locked_selection",
+      "enabled": true,
+      "on": "challenge.stage_failed",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.observe_stage_failed"
+      ],
+      "actions": [
+        {
+          "type": "challenge.recordFailedAttempt",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "challengeRun.stageAttempts",
+            "stageId": "event.stageId",
+            "selectionStateKey": "challengeRun.lockedStageSelection"
+          }
+        }
+      ]
+    }
+  ],
+  "stateSchema": {
+    "challengeRun": {
+      "type": "object",
+      "default": {
+        "enabled": true,
+        "currentStageIndex": 0,
+        "completedStageIds": [],
+        "usedHeroIds": [],
+        "usedTrinketIds": [],
+        "lockedStageSelection": null,
+        "stageAttempts": []
+      }
+    }
+  }
+}

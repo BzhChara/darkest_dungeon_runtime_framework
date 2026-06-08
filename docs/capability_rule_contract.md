@@ -293,7 +293,7 @@ The next code slice should stay generic:
 
 1. Parse and log `eventRules` counts. Done as a declaration carrier.
 2. Add `--explain-rules` to print declared rules, required capabilities, and skipped reasons. Done for manifest-level rule declarations.
-3. Add validation manifests for quest draft and delayed building upgrades. Done as declaration-level framework acceptance scenarios.
+3. Add validation manifests for quest draft, fixed-stage challenge runs, and delayed building upgrades. Done as declaration-level framework acceptance scenarios.
 4. Add a capability registry document or JSON schema.
 5. Add sidecar state file read/write with no gameplay actions.
 6. Add an observe-only event bus sourced from existing save watcher/runtime logs.

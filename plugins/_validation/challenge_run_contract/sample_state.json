@@ -1,0 +1,11 @@
+{
+  "challengeRun": {
+    "enabled": true,
+    "currentStageIndex": 0,
+    "completedStageIds": [],
+    "usedHeroIds": [],
+    "usedTrinketIds": [],
+    "lockedStageSelection": null,
+    "stageAttempts": []
+  }
+}
