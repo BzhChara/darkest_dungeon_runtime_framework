@@ -1,0 +1,24 @@
+{
+  "id": "validation.bad_fact_event_predicate",
+  "name": "Validation - Bad Fact Event Predicate",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [
+    "save.observe_write"
+  ],
+  "factEventRules": [
+    {
+      "id": "missing_expected_fact",
+      "enabled": true,
+      "emit": "validation.bad_event",
+      "when": {
+        "fact": "progression.lastRaidQuest.names",
+        "op": "contains",
+        "valueFromFact": "progression.missingExpected"
+      },
+      "payload": {}
+    }
+  ],
+  "eventRules": [],
+  "stateSchema": {}
+}

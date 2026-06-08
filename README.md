@@ -156,7 +156,7 @@ logs/save_file_maps/<sessionId>.json
 
 ## 存档事件桥
 
-存档事件桥把只读 save state facts 转换成框架事件，再交给普通 `eventRules` 执行。它不写原版 `profile_*`，也不直接修改游戏 UI、任务列表或战斗流程；当前只作为 observe-first 到 sidecar state 的桥接层。
+存档事件桥把只读 save state facts 转换成框架事件，再交给普通 `eventRules` 执行。转换规则由启用插件的 `factEventRules` 声明，不在 C# 里写死某一种玩法。它不写原版 `profile_*`，也不直接修改游戏 UI、任务列表或战斗流程；当前只作为 observe-first 到 sidecar state 的桥接层。
 
 ```json
 "saveEventBridgeEnabled": false
@@ -174,7 +174,35 @@ logs/save_event_bridge_report.json
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --infer-save-events --save-state-report ./logs/save_states/<sessionId>.json --no-inject
 ```
 
-当前实现的第一条通用路径是：读取 `facts.progression.lastRaidQuestId`、`facts.progression.lastRaidQuest.names` 和 `facts.progression.lastRaidSuccess`，匹配启用插件中当前 challenge stage 的 `sourceQuestId`，然后发出 `challenge.stage_completed` 或 `challenge.stage_failed`。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤仍属于后续 managed capability，不在这个桥接器里硬编码。
+`factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。例如验证插件用两条规则读取 `facts.progression.lastRaidQuest.names`、`facts.progression.lastRaidSuccess` 和 `state.challengeRun.currentStage.sourceQuestId`，分别发出 `challenge.stage_completed` 或 `challenge.stage_failed`。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤仍属于后续 managed capability，不在这个桥接器里硬编码。
+
+```json
+{
+  "factEventRules": [
+    {
+      "id": "emit_stage_completed_from_last_raid",
+      "emit": "challenge.stage_completed",
+      "requiresCapabilities": ["state.sidecar", "challenge.observe_stage_completed"],
+      "when": {
+        "all": [
+          { "state": "challengeRun.lockedStageSelection", "op": "exists" },
+          { "fact": "progression.lastRaidSuccess", "op": "equals", "value": true },
+          {
+            "fact": "progression.lastRaidQuest.names",
+            "op": "contains",
+            "valueFromState": "challengeRun.currentStage.sourceQuestId"
+          }
+        ]
+      },
+      "payload": {
+        "stageId": { "fromState": "challengeRun.currentStage.id" },
+        "observedQuestNames": { "fromFact": "progression.lastRaidQuest.names" },
+        "saveStateReportPath": { "fromBridge": "saveStateReportPath" }
+      }
+    }
+  ]
+}
+```
 
 ## 框架 Mod 状态存档
 

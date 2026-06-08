@@ -40,6 +40,18 @@ function Invoke-Loader {
     }
 }
 
+function Invoke-LoaderExpectExit {
+    param(
+        [string[]]$LoaderArgs,
+        [int]$ExpectedExitCode
+    )
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- @LoaderArgs
+    if ($LASTEXITCODE -ne $ExpectedExitCode) {
+        throw "DDRuntimeLoader exit code $LASTEXITCODE did not match expected $ExpectedExitCode"
+    }
+}
+
 function Write-JsonPayload {
     param(
         [string]$Name,
@@ -94,6 +106,7 @@ $baseArgs = @(
 )
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--init-mod-state"))
+Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.run_started"))
 
 $selectionPayloadPath = Write-JsonPayload "selection_confirmed.json" ([pscustomobject]@{
     stageId = "stage_1_necromancer"
@@ -146,7 +159,25 @@ $stateAfterNoMatch = Read-ChallengeState
 Assert-True ([int]$stateAfterNoMatch.currentStageIndex -eq 1) "No-match save event bridge pass should leave currentStageIndex unchanged."
 $bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
 Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "No-match save event bridge pass should not infer an event."
-$noMatch = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "no-match" })
-Assert-True ($noMatch.Count -eq 1) "No-match save event bridge pass should report one no-match plugin."
+$notMatched = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "predicate-not-matched" })
+Assert-True ($notMatched.Count -eq 2) "No-match save event bridge pass should leave both fact-event rules unmatched."
+
+$badStateRoot = Join-Path $stateRoot "bad_fact_event_predicate"
+New-Item -ItemType Directory -Force -Path $badStateRoot | Out-Null
+
+Invoke-LoaderExpectExit -ExpectedExitCode 3 -LoaderArgs @(
+    "--config", (Resolve-ProjectPath "config\save_event_bridge_bad_fact_event_config.json"),
+    "--no-inject",
+    "--allow-non-atomic-state-writes",
+    "--mod-state-dir", $badStateRoot,
+    "--infer-save-events",
+    "--save-state-report", $saveReportPath
+)
+
+$bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
+$predicateFailed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "predicate-failed" })
+Assert-True ($predicateFailed.Count -eq 1) "Bad fact-event predicate should be reported as predicate-failed."
+$predicateIssues = @(Convert-ToArray $bridgeReport.issues | Where-Object { $_.code -eq "predicate-evaluation-failed" -and $_.severity -eq "error" })
+Assert-True ($predicateIssues.Count -eq 1) "Bad fact-event predicate should produce one error issue."
 
 Write-Host "PASS: save event bridge inferred and executed challenge completion."

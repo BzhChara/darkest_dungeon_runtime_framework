@@ -451,6 +451,7 @@ internal static class RuntimeEventExecutor
         }
 
         runState["currentStageIndex"] = currentIndex + 1;
+        UpdateCurrentStage(runState);
         runState["lockedStageSelection"] = null;
         return true;
     }
@@ -497,9 +498,34 @@ internal static class RuntimeEventExecutor
         if (challenge["stages"] is JsonArray stages)
         {
             changed |= EnsureJsonValue(runState, "stageCount", JsonValue.Create(stages.Count));
+            changed |= EnsureJsonValue(runState, "stages", CloneNode(stages));
+            changed |= UpdateCurrentStage(runState);
         }
 
         return changed;
+    }
+
+    private static bool UpdateCurrentStage(JsonObject runState)
+    {
+        var currentIndex = 0;
+        if (runState["currentStageIndex"] is JsonValue indexValue && indexValue.TryGetValue<int>(out var index))
+        {
+            currentIndex = index;
+        }
+
+        JsonNode? currentStage = null;
+        if (runState["stages"] is JsonArray stages && currentIndex >= 0 && currentIndex < stages.Count)
+        {
+            currentStage = stages[currentIndex];
+        }
+
+        if (JsonNode.DeepEquals(runState["currentStage"], currentStage))
+        {
+            return false;
+        }
+
+        runState["currentStage"] = CloneNode(currentStage);
+        return true;
     }
 
     private static bool IsSupportedSafeAction(string type)

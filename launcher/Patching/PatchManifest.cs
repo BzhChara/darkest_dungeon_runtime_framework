@@ -44,6 +44,9 @@ internal sealed class PluginPatchManifest
     [JsonPropertyName("eventRules")]
     public RuntimeEventRule[] EventRules { get; set; } = [];
 
+    [JsonPropertyName("factEventRules")]
+    public FactEventRule[] FactEventRules { get; set; } = [];
+
     [JsonPropertyName("stateSchema")]
     public Dictionary<string, JsonElement> StateSchema { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -71,6 +74,7 @@ internal sealed class PluginPatchManifest
             manifest.Conflicts ??= [];
             manifest.VirtualFileRules ??= [];
             manifest.EventRules ??= [];
+            manifest.FactEventRules ??= [];
             manifest.StateSchema ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
             foreach (var rule in manifest.EventRules)
             {
@@ -84,6 +88,16 @@ internal sealed class PluginPatchManifest
                 foreach (var action in rule.Actions)
                 {
                     action.Args ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+                }
+            }
+
+            foreach (var rule in manifest.FactEventRules)
+            {
+                rule.RequiresCapabilities ??= [];
+                rule.Payload ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+                if (rule.When is not null)
+                {
+                    NormalizeRuntimeRulePredicate(rule.When);
                 }
             }
 

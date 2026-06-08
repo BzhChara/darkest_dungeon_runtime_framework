@@ -6,12 +6,13 @@ This document defines the generic runtime rule model. It is intentionally not a 
 
 - `virtualFileRules` are implemented and executable.
 - `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions.
+- `factEventRules` are parsed, explained, and can be exercised through `--infer-save-events` to convert save/content/runtime facts into ordinary framework events.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
-- `--explain-rules` reports declared `eventRules`, required capabilities, action capabilities, and skip reasons.
+- `--explain-rules` reports declared `eventRules` and `factEventRules`, required capabilities, action capabilities, and skip reasons.
 - The first safe action executor supports sidecar state primitives and the fixed-stage challenge state primitives. Managed game mutation actions still report as unsupported.
 - Implemented safe actions validate their declared arguments strictly. Missing referenced `event.*` or `state.*` paths, invalid explicit argument types, and missing definition files fail the action and are written to `logs/runtime_event_report.json`.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
-- `--infer-save-events` can translate a save state report into framework events for implemented observe-first bridges. The first bridge maps last-raid progression facts to `challenge.stage_completed` or `challenge.stage_failed` for a matching stage `sourceQuestId`.
+- `--infer-save-events` evaluates active plugin `factEventRules` against a save state report and emits matching framework events through the same `eventRules` executor.
 - Runtime hooks are currently observe-first. Intercepting game flow remains capability-gated work.
 
 ## Core Model
@@ -52,12 +53,15 @@ The manifest may carry future runtime rules alongside existing content patches:
     "state.sidecar"
   ],
   "virtualFileRules": [],
+  "factEventRules": [],
   "eventRules": [],
   "stateSchema": {}
 }
 ```
 
 `eventRules` do not replace `virtualFileRules`. Content patches remain the right primitive for static text, data, localization, and assets. Event rules are for game-flow changes, cross-week behavior, plugin state, and runtime decisions.
+
+`factEventRules` do not execute gameplay actions directly. They observe already-extracted facts, optionally compare them with sidecar state, build an event payload, and emit an ordinary framework event. This keeps save observation separate from the rule action executor.
 
 ## Event Rule Shape
 
@@ -107,6 +111,46 @@ Optional rule fields:
 - `requiresCapabilities`: all listed capabilities must be available or the rule is skipped with diagnostics.
 - `when`: predicate tree.
 
+## Fact Event Rule Shape
+
+```json
+{
+  "id": "emit_stage_completed_from_last_raid",
+  "enabled": true,
+  "emit": "challenge.stage_completed",
+  "phase": "normal",
+  "priority": 0,
+  "requiresCapabilities": [
+    "state.sidecar",
+    "challenge.observe_stage_completed"
+  ],
+  "when": {
+    "all": [
+      { "state": "challengeRun.lockedStageSelection", "op": "exists" },
+      { "fact": "progression.lastRaidSuccess", "op": "equals", "value": true },
+      {
+        "fact": "progression.lastRaidQuest.names",
+        "op": "contains",
+        "valueFromState": "challengeRun.currentStage.sourceQuestId"
+      }
+    ]
+  },
+  "payload": {
+    "stageId": { "fromState": "challengeRun.currentStage.id" },
+    "observedQuestNames": { "fromFact": "progression.lastRaidQuest.names" },
+    "saveStateReportPath": { "fromBridge": "saveStateReportPath" }
+  }
+}
+```
+
+Fact event fields:
+
+- `id`: stable rule id inside the plugin.
+- `emit`: event id passed to the normal event executor.
+- `requiresCapabilities`: all listed capabilities must be available or the rule is skipped with diagnostics.
+- `when`: predicate tree over `fact.*`, `state.*`, and bridge context exposed as `event.*`.
+- `payload`: event payload fields. Each field can be a literal value or an object using `fromFact`, `fromState`, `fromBridge`, `fromEvent`, or `value`.
+
 ## Predicate Contract
 
 Predicates are composable and data-driven:
@@ -151,6 +195,14 @@ capability:<capability id>
 ```
 
 Short forms such as `"fact": "campaign.inRaid"` are allowed and mean `fact:campaign.inRaid`.
+
+Leaf comparisons may use literal `"value"` or dynamic references:
+
+```json
+{ "fact": "progression.lastRaidQuest.names", "op": "contains", "valueFromState": "challengeRun.currentStage.sourceQuestId" }
+```
+
+Current dynamic reference fields are `valueFromFact`, `valueFromEvent`, and `valueFromState`.
 
 ## Action Contract
 
@@ -302,7 +354,7 @@ Current narrow slices to keep visible:
 
 | Area | Current shape | Why it is acceptable now | Generic direction |
 | --- | --- | --- | --- |
-| `SaveEventBridge` | Directly maps last-raid facts to `challenge.stage_completed` / `challenge.stage_failed` for a matching challenge `sourceQuestId` | It proves the save-facts-to-event-to-rule chain using one vertical scenario | Replace with plugin-declared fact-to-event mappings that can emit arbitrary events with payloads from facts/state/content |
+| `SaveEventBridge` | Evaluates plugin-declared `factEventRules` and can emit arbitrary framework events with payloads from facts, bridge context, and sidecar state | The launcher owns the generic bridge only; the concrete last-raid challenge mapping lives in `plugins/_validation` | Keep it generic. If a new mapping needs C# changes, first add a reusable predicate, payload source, or fact extractor |
 | `RuntimeEventExecutor` challenge actions | Implements `challenge.initializeRunState`, `challenge.lockStageSelection`, `challenge.recordFailedAttempt`, and `challenge.advanceStage` directly | They are safe sidecar-state primitives used to validate stateful stage-chain behavior | Keep only if treated as reusable `challenge.*` primitives; otherwise factor repeated behavior into generic `state.*`, `event.*`, and definition-driven actions |
 | `plugins/_validation` and test scripts | Contain concrete boss quest ids, stage ids, selected hero ids, and trinket ids | They are acceptance fixtures, not user-facing framework behavior | Leave concrete data in fixtures, but do not move fixture assumptions into launcher/runtime logic |
 
@@ -317,7 +369,7 @@ The next code slice should stay generic:
 3. Add validation manifests for quest draft, fixed-stage challenge runs, and delayed building upgrades. Done as declaration-level framework acceptance scenarios.
 4. Add a capability registry document or JSON schema.
 5. Add sidecar state file read/write with no gameplay actions. Initial `--init-mod-state` / `--dump-mod-state` support is implemented.
-6. Add an observe-only event bus sourced from existing save watcher/runtime logs. Initial save-state-report to runtime-event bridge exists for last-raid challenge stage results.
+6. Add an observe-only event bus sourced from existing save watcher/runtime logs. Plugin-declared `factEventRules` now bridge save state reports to ordinary runtime events.
 7. Add a no-op action executor for `log.*` and `state.*`. Initial `--emit-event` support now executes implemented safe state actions against sidecar state.
 
 Only after that should gameplay experiments be expressed as ordinary rules.

@@ -21,6 +21,116 @@
   "phase": "normal",
   "priority": 15,
   "virtualFileRules": [],
+  "factEventRules": [
+    {
+      "id": "emit_stage_completed_from_last_raid",
+      "enabled": true,
+      "emit": "challenge.stage_completed",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.observe_stage_completed"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "challengeRun.enabled",
+            "op": "equals",
+            "value": true
+          },
+          {
+            "state": "challengeRun.lockedStageSelection",
+            "op": "exists"
+          },
+          {
+            "fact": "progression.lastRaidSuccess",
+            "op": "equals",
+            "value": true
+          },
+          {
+            "fact": "progression.lastRaidQuest.names",
+            "op": "contains",
+            "valueFromState": "challengeRun.currentStage.sourceQuestId"
+          }
+        ]
+      },
+      "payload": {
+        "stageId": {
+          "fromState": "challengeRun.currentStage.id"
+        },
+        "sourceQuestId": {
+          "fromState": "challengeRun.currentStage.sourceQuestId"
+        },
+        "observedQuestHash": {
+          "fromFact": "progression.lastRaidQuestId"
+        },
+        "observedQuestNames": {
+          "fromFact": "progression.lastRaidQuest.names"
+        },
+        "observedSuccess": {
+          "fromFact": "progression.lastRaidSuccess"
+        },
+        "saveStateReportPath": {
+          "fromBridge": "saveStateReportPath"
+        }
+      }
+    },
+    {
+      "id": "emit_stage_failed_from_last_raid",
+      "enabled": true,
+      "emit": "challenge.stage_failed",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.observe_stage_failed"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "challengeRun.enabled",
+            "op": "equals",
+            "value": true
+          },
+          {
+            "state": "challengeRun.lockedStageSelection",
+            "op": "exists"
+          },
+          {
+            "fact": "progression.lastRaidSuccess",
+            "op": "equals",
+            "value": false
+          },
+          {
+            "fact": "progression.lastRaidQuest.names",
+            "op": "contains",
+            "valueFromState": "challengeRun.currentStage.sourceQuestId"
+          }
+        ]
+      },
+      "payload": {
+        "stageId": {
+          "fromState": "challengeRun.currentStage.id"
+        },
+        "sourceQuestId": {
+          "fromState": "challengeRun.currentStage.sourceQuestId"
+        },
+        "observedQuestHash": {
+          "fromFact": "progression.lastRaidQuestId"
+        },
+        "observedQuestNames": {
+          "fromFact": "progression.lastRaidQuest.names"
+        },
+        "observedSuccess": {
+          "fromFact": "progression.lastRaidSuccess"
+        },
+        "saveStateReportPath": {
+          "fromBridge": "saveStateReportPath"
+        }
+      }
+    }
+  ],
   "eventRules": [
     {
       "id": "initialize_challenge_run",

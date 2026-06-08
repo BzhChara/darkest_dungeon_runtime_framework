@@ -8,6 +8,8 @@ internal sealed partial class RuntimeConfig
         var skippedRules = new List<VirtualFileRuleSkip>();
         var sourceRuntimeRules = new List<RuntimeEventRuleSource>();
         var skippedRuntimeRules = new List<RuntimeEventRuleSkip>();
+        var sourceFactEventRules = new List<FactEventRuleSource>();
+        var skippedFactEventRules = new List<FactEventRuleSkip>();
         var stateSchemas = new List<PluginStateSchemaSource>();
         var compileIssues = new List<PatchCompileIssue>();
         var manifestName = string.IsNullOrWhiteSpace(PluginPatchManifestName) ? "patches.json" : PluginPatchManifestName;
@@ -54,12 +56,22 @@ internal sealed partial class RuntimeConfig
                 $"Plugin patch manifest enabled: order={plugin.LoadOrder} id={plugin.Id} " +
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
-                $"virtualRules={plugin.VirtualFileRuleCount} eventRules={plugin.EventRuleCount} path={plugin.Path}");
+                $"virtualRules={plugin.VirtualFileRuleCount} eventRules={plugin.EventRuleCount} " +
+                $"factEventRules={plugin.FactEventRuleCount} path={plugin.Path}");
             AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds, activeCapabilities);
             AddRuntimeEventRules(
                 sourceRuntimeRules,
                 skippedRuntimeRules,
                 plugin.Manifest.EventRules,
+                plugin.Id,
+                plugin.SourceName,
+                plugin.Path,
+                plugin.LoadOrder,
+                activeCapabilities);
+            AddFactEventRules(
+                sourceFactEventRules,
+                skippedFactEventRules,
+                plugin.Manifest.FactEventRules,
                 plugin.Id,
                 plugin.SourceName,
                 plugin.Path,
@@ -85,6 +97,8 @@ internal sealed partial class RuntimeConfig
             skippedRules,
             sourceRuntimeRules,
             skippedRuntimeRules,
+            sourceFactEventRules,
+            skippedFactEventRules,
             BuildEffectiveVirtualRules(sourceRules, compileIssues, log),
             compileIssues);
     }
@@ -231,6 +245,7 @@ internal sealed partial class RuntimeConfig
                 candidate.Manifest.Enabled,
                 candidate.VirtualFileRuleCount,
                 candidate.EventRuleCount,
+                candidate.FactEventRuleCount,
                 CleanCapabilityReferences(candidate.Manifest.Capabilities).ToArray(),
                 NormalizePhase(candidate.Manifest.Phase),
                 candidate.Manifest.Priority,

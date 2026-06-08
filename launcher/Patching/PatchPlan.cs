@@ -11,6 +11,8 @@ internal sealed class PatchPlan
         IReadOnlyList<VirtualFileRuleSkip> skippedVirtualFileRules,
         IReadOnlyList<RuntimeEventRuleSource> sourceRuntimeEventRules,
         IReadOnlyList<RuntimeEventRuleSkip> skippedRuntimeEventRules,
+        IReadOnlyList<FactEventRuleSource> sourceFactEventRules,
+        IReadOnlyList<FactEventRuleSkip> skippedFactEventRules,
         IReadOnlyList<VirtualFileRule> effectiveVirtualFileRules,
         IReadOnlyList<PatchCompileIssue> compileIssues)
     {
@@ -22,6 +24,8 @@ internal sealed class PatchPlan
         SkippedVirtualFileRules = skippedVirtualFileRules;
         SourceRuntimeEventRules = sourceRuntimeEventRules;
         SkippedRuntimeEventRules = skippedRuntimeEventRules;
+        SourceFactEventRules = sourceFactEventRules;
+        SkippedFactEventRules = skippedFactEventRules;
         EffectiveVirtualFileRules = effectiveVirtualFileRules;
         CompileIssues = compileIssues;
     }
@@ -34,6 +38,8 @@ internal sealed class PatchPlan
     public IReadOnlyList<VirtualFileRuleSkip> SkippedVirtualFileRules { get; }
     public IReadOnlyList<RuntimeEventRuleSource> SourceRuntimeEventRules { get; }
     public IReadOnlyList<RuntimeEventRuleSkip> SkippedRuntimeEventRules { get; }
+    public IReadOnlyList<FactEventRuleSource> SourceFactEventRules { get; }
+    public IReadOnlyList<FactEventRuleSkip> SkippedFactEventRules { get; }
     public IReadOnlyList<VirtualFileRule> EffectiveVirtualFileRules { get; }
     public IReadOnlyList<PatchCompileIssue> CompileIssues { get; }
     public bool HasCompileErrors => CompileIssues.Any(issue => issue.IsError);
@@ -47,7 +53,8 @@ internal sealed class PatchPlan
                 $"patch-manifest status={manifest.Status} order={manifest.LoadOrder} id={manifest.Id} " +
                 $"name={manifest.Name} version={manifest.Version} phase={manifest.Phase} " +
                 $"priority={manifest.Priority} capabilities={FormatLogList(manifest.Capabilities)} " +
-                $"virtualRules={manifest.VirtualFileRuleCount} eventRules={manifest.EventRuleCount} path={manifest.Path}");
+                $"virtualRules={manifest.VirtualFileRuleCount} eventRules={manifest.EventRuleCount} " +
+                $"factEventRules={manifest.FactEventRuleCount} path={manifest.Path}");
         }
 
         log.Info($"Enabled virtual file source rules: {SourceVirtualFileRules.Count}");
@@ -105,7 +112,7 @@ internal sealed class PatchPlan
                 $"patch-explain-manifest order={manifest.LoadOrder} status={manifest.Status} id={manifest.Id} " +
                 $"name={manifest.Name} phase={manifest.Phase} priority={manifest.Priority} " +
                 $"capabilities={FormatLogList(manifest.Capabilities)} virtualRules={manifest.VirtualFileRuleCount} " +
-                $"eventRules={manifest.EventRuleCount} " +
+                $"eventRules={manifest.EventRuleCount} factEventRules={manifest.FactEventRuleCount} " +
                 $"skipReason={QuoteLogValue(manifest.SkipReason)} path={manifest.Path}");
         }
 
@@ -208,6 +215,39 @@ internal sealed class PatchPlan
         log.Info("Runtime rule explanation completed.");
     }
 
+    public void LogFactEventRuleExplanation(LauncherLog log)
+    {
+        log.Info(
+            $"Fact event rule explanation started. activeRules={SourceFactEventRules.Count} " +
+            $"skippedRules={SkippedFactEventRules.Count}");
+
+        foreach (var source in SourceFactEventRules
+                     .OrderBy(rule => PluginPhaseRank(rule.Rule.Phase))
+                     .ThenBy(rule => rule.Rule.Priority)
+                     .ThenBy(rule => rule.SourceName, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(rule => rule.RuleIndex))
+        {
+            log.Info(
+                $"fact-event-rule status=active source={source.SourceName} rule={source.RuleIndex} " +
+                $"id={QuoteLogValue(source.Rule.Id)} emit={source.Rule.Emit} phase={source.Rule.Phase} " +
+                $"priority={source.Rule.Priority} requires={FormatLogList(source.RequiredCapabilities)} " +
+                $"payloadKeys={FormatLogList(source.Rule.Payload.Keys)} reason={QuoteLogValue(source.Reason)} " +
+                $"path={source.SourcePath}");
+        }
+
+        foreach (var skipped in SkippedFactEventRules
+                     .OrderBy(rule => rule.SourceName, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(rule => rule.RuleIndex))
+        {
+            log.Info(
+                $"fact-event-rule status=skipped source={skipped.SourceName} rule={skipped.RuleIndex} " +
+                $"id={QuoteLogValue(skipped.RuleId)} emit={QuoteLogValue(skipped.Emit)} " +
+                $"reason={QuoteLogValue(skipped.Reason)} path={skipped.SourcePath}");
+        }
+
+        log.Info("Fact event rule explanation completed.");
+    }
+
     private IOrderedEnumerable<PatchManifestInfo> OrderedManifestsForDisplay()
     {
         return Manifests
@@ -254,6 +294,7 @@ internal sealed record PatchManifestInfo(
     bool Enabled,
     int VirtualFileRuleCount,
     int EventRuleCount,
+    int FactEventRuleCount,
     string[] Capabilities,
     string Phase,
     int Priority,
@@ -314,6 +355,7 @@ internal sealed class PluginManifestCandidate
     public int LoadOrder { get; set; } = -1;
     public int VirtualFileRuleCount => Manifest.VirtualFileRules.Length;
     public int EventRuleCount => Manifest.EventRules.Length;
+    public int FactEventRuleCount => Manifest.FactEventRules.Length;
 
     public string SourceName => string.Equals(Name, Id, StringComparison.OrdinalIgnoreCase)
         ? Id
@@ -367,6 +409,26 @@ internal sealed record RuntimeEventRuleSkip(
     int RuleIndex,
     string RuleId,
     string EventId,
+    string Reason);
+
+internal sealed record FactEventRuleSource(
+    string PluginId,
+    string SourceName,
+    string SourcePath,
+    int LoadOrder,
+    int RuleIndex,
+    FactEventRule Rule,
+    IReadOnlyList<string> RequiredCapabilities,
+    string Reason);
+
+internal sealed record FactEventRuleSkip(
+    string PluginId,
+    string SourceName,
+    string SourcePath,
+    int LoadOrder,
+    int RuleIndex,
+    string RuleId,
+    string Emit,
     string Reason);
 
 internal sealed record PatchConditionResult(bool Matched, string Reason);

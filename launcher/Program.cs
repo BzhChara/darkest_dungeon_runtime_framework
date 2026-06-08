@@ -61,6 +61,7 @@ internal static class Program
             if (options.ExplainRules)
             {
                 patchPlan.LogRuleExplanation(log);
+                patchPlan.LogFactEventRuleExplanation(log);
             }
 
             if (options.ValidatePatches || options.ValidateOnly)

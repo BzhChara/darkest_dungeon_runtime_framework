@@ -50,6 +50,15 @@ internal sealed class RuntimeRulePredicate
     [JsonPropertyName("value")]
     public JsonElement? Value { get; set; }
 
+    [JsonPropertyName("valueFromFact")]
+    public string ValueFromFact { get; set; } = string.Empty;
+
+    [JsonPropertyName("valueFromEvent")]
+    public string ValueFromEvent { get; set; } = string.Empty;
+
+    [JsonPropertyName("valueFromState")]
+    public string ValueFromState { get; set; } = string.Empty;
+
     [JsonPropertyName("state")]
     public string State { get; set; } = string.Empty;
 }
@@ -70,4 +79,31 @@ internal sealed class RuntimeRuleAction
 
     [JsonPropertyName("args")]
     public Dictionary<string, JsonElement> Args { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+internal sealed class FactEventRule
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = true;
+
+    [JsonPropertyName("emit")]
+    public string Emit { get; set; } = string.Empty;
+
+    [JsonPropertyName("phase")]
+    public string Phase { get; set; } = "normal";
+
+    [JsonPropertyName("priority")]
+    public int Priority { get; set; }
+
+    [JsonPropertyName("requiresCapabilities")]
+    public string[] RequiresCapabilities { get; set; } = [];
+
+    [JsonPropertyName("when")]
+    public RuntimeRulePredicate? When { get; set; }
+
+    [JsonPropertyName("payload")]
+    public Dictionary<string, JsonElement> Payload { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

@@ -266,6 +266,7 @@ save.attach_sidecar_state
   "loadBefore": [],
 
   "virtualFileRules": [],
+  "factEventRules": [],
   "eventRules": [],
   "stateSchema": {}
 }

@@ -96,4 +96,60 @@ internal sealed partial class RuntimeConfig
                     : "optional action capabilities missing: " + string.Join(",", missingOptionalActionCapabilities)));
         }
     }
+
+    private static void AddFactEventRules(
+        List<FactEventRuleSource> output,
+        List<FactEventRuleSkip> skipped,
+        IEnumerable<FactEventRule>? input,
+        string pluginId,
+        string sourceName,
+        string sourcePath,
+        int loadOrder,
+        IReadOnlySet<string> activeCapabilities)
+    {
+        var index = 0;
+        foreach (var rule in input ?? [])
+        {
+            index++;
+            if (!rule.Enabled)
+            {
+                skipped.Add(new FactEventRuleSkip(pluginId, sourceName, sourcePath, loadOrder, index, rule.Id, rule.Emit, "rule disabled"));
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(rule.Emit))
+            {
+                skipped.Add(new FactEventRuleSkip(pluginId, sourceName, sourcePath, loadOrder, index, rule.Id, rule.Emit, "missing emitted event id"));
+                continue;
+            }
+
+            var requiredCapabilities = CleanCapabilityReferences(rule.RequiresCapabilities).ToArray();
+            var missingRequiredCapabilities = requiredCapabilities
+                .Where(capability => !activeCapabilities.Contains(NormalizeCapability(capability)))
+                .ToArray();
+            if (missingRequiredCapabilities.Length > 0)
+            {
+                skipped.Add(new FactEventRuleSkip(
+                    pluginId,
+                    sourceName,
+                    sourcePath,
+                    loadOrder,
+                    index,
+                    rule.Id,
+                    rule.Emit,
+                    "required capabilities missing: " + string.Join(",", missingRequiredCapabilities)));
+                continue;
+            }
+
+            output.Add(new FactEventRuleSource(
+                pluginId,
+                sourceName,
+                sourcePath,
+                loadOrder,
+                index,
+                rule,
+                requiredCapabilities,
+                "capabilities satisfied"));
+        }
+    }
 }

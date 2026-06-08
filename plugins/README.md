@@ -8,9 +8,9 @@
 plugins/<plugin-id>/patches.json
 ```
 
-`patches.json` 目前支持插件元数据和可执行的 `virtualFileRules`。规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
 
-`eventRules` 已作为通用规则契约的声明字段保留，但当前不会执行。`stateSchema` 已可由启动器初始化和读取为独立 sidecar 状态；状态本身还没有接入规则执行器。契约细节见 `docs/capability_rule_contract.md`。
+`eventRules` 可通过 `--emit-event` 执行已实现的安全动作。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`。契约细节见 `docs/capability_rule_contract.md`。
 
 清单字段：
 
@@ -43,6 +43,7 @@ plugins/<plugin-id>/patches.json
       "operations": []
     }
   ],
+  "factEventRules": [],
   "eventRules": [],
   "stateSchema": {}
 }
@@ -86,6 +87,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --init-mod-state --dump-mod-state --no-inject
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --emit-event challenge.stage_completed --event-payload-file ./payload.json --no-inject
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --infer-save-events --save-state-report ./logs/save_states/<sessionId>.json --no-inject
 ```
 
 `--explain-patches` 会输出：
@@ -98,11 +100,13 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 
 `--preview-patches` 会在 diff 中输出 operation subject，并在同一 `.darkest` key 被多个插件修改时记录 `patch-preview-key-conflict`。
 
-`--explain-rules` 会输出声明型 `eventRules` 的事件、所需 capability、action capability、风险等级和跳过原因。
+`--explain-rules` 会输出声明型 `eventRules` 和 `factEventRules` 的事件、所需 capability、action capability、风险等级和跳过原因。
 
 `--init-mod-state` 会把启用插件的 `stateSchema` 默认值写到 `state/mod_state/<plugin-id>.json`。已有文件只补缺失键，不重置已有状态。`--dump-mod-state` 会读取这些 sidecar 状态并写入 `logs/mod_state_dump_report.json`。
 
 `--emit-event` 会执行匹配事件的安全规则动作并写入 `logs/runtime_event_report.json`。当前只执行 sidecar state 和 challenge state 相关安全动作；托管改游戏行为的动作仍会报告未实现。
+
+`--infer-save-events` 会读取 save state report，按启用插件的 `factEventRules` 推导事件并写入 `logs/save_event_bridge_report.json`。桥接器不写原版存档，只把事实观察转成普通框架事件。
 
 `example/patches.json` 默认 `enabled:false`，可以复制成自己的插件后再启用。
 
