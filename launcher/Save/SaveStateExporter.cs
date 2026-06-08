@@ -95,6 +95,7 @@ internal sealed partial class SaveDirectoryWatcher
             ["ambush_start_torchlight"],
             ["shard_consume_percent"],
             ["actor", "buff_group", "*", "amount"],
+            ["battle", "initiative", "*", "*", "initiative"],
             ["chapters", "*", "*", "percent"],
             ["non_rolled_additional_chances", "*", "chance"],
             ["stat_database", "*", "entries", "*", "value"],

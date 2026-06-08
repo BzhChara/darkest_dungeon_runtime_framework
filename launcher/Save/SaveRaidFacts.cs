@@ -20,6 +20,7 @@ internal sealed partial class SaveDirectoryWatcher
                 TryGetInt(raid, "base_root.version"),
                 BuildRaidInstanceFacts(raid),
                 BuildRaidLocationFacts(raid, areaHashToId),
+                BuildRaidBattleFacts(raid),
                 BuildRaidPartyFacts(raid, areaHashToId),
                 BuildRaidCampFacts(raid),
                 BuildRaidMashFacts(raid),
@@ -51,6 +52,7 @@ internal sealed partial class SaveDirectoryWatcher
                     0,
                     []),
                 new SaveStateRaidLocationFacts(null, null, null, null, null, new SaveStateRaidDoorwayFacts(null, null, null, null), null, null, null, null, null, null),
+                EmptyRaidBattleFacts(),
                 new SaveStateRaidPartyFacts(null, null, null, 0, [], null, 0, [], null),
                 new SaveStateRaidCampFacts(null, null, null, 0, [], 0, []),
                 new SaveStateRaidMashFacts(null, null),
@@ -193,6 +195,127 @@ internal sealed partial class SaveDirectoryWatcher
                 ResolveAreaId(areaHashToId, targetAreaHash),
                 TryGetInt(raid, $"{path}.tile_to"),
                 TryGetBool(raid, $"{path}.implied"));
+        }
+
+        private static SaveStateRaidBattleFacts BuildRaidBattleFacts(SaveStateFileReport raid)
+        {
+            var battlePath = "base_root.battle";
+            var exists = raid.DsonObjectPaths.Any(path => path.Equals(battlePath, StringComparison.OrdinalIgnoreCase)
+                                                          || path.StartsWith(battlePath + ".", StringComparison.OrdinalIgnoreCase))
+                         || GetDsonScalars(raid).Any(scalar => scalar.Path.Equals(battlePath, StringComparison.OrdinalIgnoreCase)
+                                                               || scalar.Path.StartsWith(battlePath + ".", StringComparison.OrdinalIgnoreCase));
+            if (!exists)
+            {
+                return EmptyRaidBattleFacts();
+            }
+
+            var enemies = ExtractRaidChildIds(raid, $"{battlePath}.enemies")
+                .OrderBy(NumericAwareSortKey, StringComparer.OrdinalIgnoreCase)
+                .Select(slotId => BuildRaidBattleEnemyFacts(raid, slotId))
+                .ToArray();
+            var heroInitiative = BuildRaidBattleInitiativeFacts(raid, $"{battlePath}.initiative.heroes", isHero: true);
+            var monsterInitiative = BuildRaidBattleInitiativeFacts(raid, $"{battlePath}.initiative.monsters", isHero: false);
+
+            return new SaveStateRaidBattleFacts(
+                true,
+                TryGetBool(raid, $"{battlePath}.before_turn_save"),
+                TryGetInt(raid, $"{battlePath}.monster_actor_guid_offset"),
+                TryGetInt(raid, $"{battlePath}.seed"),
+                TryGetInt(raid, $"{battlePath}.round"),
+                TryGetInt(raid, $"{battlePath}.round_stall_count"),
+                TryGetBool(raid, $"{battlePath}.previous_stall_accelerated"),
+                TryGetBool(raid, $"{battlePath}.party_surprised"),
+                TryGetBool(raid, $"{battlePath}.monsters_surprised"),
+                TryGetInt(raid, $"{battlePath}.retreatattempts"),
+                TryGetInt(raid, $"{battlePath}.current_hero_consecutive_miss_acc_buff"),
+                TryGetInt(raid, $"{battlePath}.consecutive_monster_dodges"),
+                TryGetInt(raid, $"{battlePath}.consecutive_monster_crits"),
+                enemies.Length,
+                enemies,
+                heroInitiative.Count,
+                heroInitiative,
+                monsterInitiative.Count,
+                monsterInitiative);
+        }
+
+        private static SaveStateRaidBattleFacts EmptyRaidBattleFacts()
+        {
+            return new SaveStateRaidBattleFacts(
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                [],
+                0,
+                [],
+                0,
+                []);
+        }
+
+        private static SaveStateRaidBattleEnemyFacts BuildRaidBattleEnemyFacts(
+            SaveStateFileReport raid,
+            string slotId)
+        {
+            var path = $"base_root.battle.enemies.{slotId}";
+            var dataPath = $"{path}.data";
+            var actorPath = $"{dataPath}.actor";
+            var skillCooldownKeys = TryGetIntVector(raid, $"{dataPath}.monster_brain.skill_cooldown_keys");
+            var skillCooldownValues = TryGetIntVector(raid, $"{dataPath}.monster_brain.skill_cooldown_values");
+
+            return new SaveStateRaidBattleEnemyFacts(
+                slotId,
+                TryGetBool(raid, $"{path}.is_hero"),
+                TryGetInt(raid, $"{dataPath}.battle_guid"),
+                EmptyToNull(TryGetString(raid, $"{dataPath}.monster_class")),
+                TryGetBool(raid, $"{dataPath}.can_spawn_loot"),
+                TryGetInt(raid, $"{dataPath}.previous_monster_class"),
+                EmptyToNull(TryGetString(raid, $"{actorPath}.name")),
+                TryGetDouble(raid, $"{actorPath}.current_hp"),
+                TryGetInt(raid, $"{actorPath}.stunned"),
+                TryGetBool(raid, $"{actorPath}.combat_ready"),
+                TryGetInt(raid, $"{actorPath}.damage_source_data"),
+                TryGetInt(raid, $"{actorPath}.damage_source_type"),
+                TryGetInt(raid, $"{actorPath}.damage_type"),
+                TryGetInt(raid, $"{actorPath}.colour_variation"),
+                TryGetInt(raid, $"{actorPath}.performing_turn"),
+                TryGetInt(raid, $"{actorPath}.rounds_in_ranks"),
+                TryGetInt(raid, $"{actorPath}.check_round_ranks"),
+                TryGetInt(raid, $"{dataPath}.death_class.monster_class_id"),
+                skillCooldownKeys.Count,
+                skillCooldownKeys,
+                skillCooldownValues.Count,
+                skillCooldownValues);
+        }
+
+        private static IReadOnlyList<SaveStateRaidBattleInitiativeFacts> BuildRaidBattleInitiativeFacts(
+            SaveStateFileReport raid,
+            string parentPath,
+            bool isHero)
+        {
+            return ExtractRaidChildIds(raid, parentPath)
+                .OrderBy(NumericAwareSortKey, StringComparer.OrdinalIgnoreCase)
+                .Select(slotId =>
+                {
+                    var path = $"{parentPath}.{slotId}";
+                    return new SaveStateRaidBattleInitiativeFacts(
+                        slotId,
+                        isHero ? TryGetInt(raid, $"{path}.roster_guid") : null,
+                        isHero ? null : TryGetInt(raid, $"{path}.battle_guid"),
+                        TryGetDouble(raid, $"{path}.initiative"),
+                        TryGetBool(raid, $"{path}.is_bonus"),
+                        TryGetInt(raid, $"{path}.combat_skill_id_override"));
+                })
+                .ToArray();
         }
 
         private static SaveStateRaidPartyFacts BuildRaidPartyFacts(

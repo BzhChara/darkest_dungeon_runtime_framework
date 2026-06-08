@@ -591,11 +591,19 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<double> MapBounds,
         bool HasStaticSave,
         SaveStateEmbeddedDsonFacts? StaticSave,
+        bool? Populated,
+        int? EntranceAreaHash,
+        string? EntranceAreaId,
+        int? FinalRoomHash,
+        string? FinalRoomId,
         int AreaCount,
         int RoomCount,
         int CorridorCount,
         int TileCount,
         int ActiveDoorCount,
+        int DynamicAreaCount,
+        int DynamicTileCount,
+        IReadOnlyList<SaveStateMapDynamicAreaFacts> DynamicAreas,
         IReadOnlyList<SaveStateMapAreaFacts> Areas);
 
     private sealed record SaveStateEmbeddedDsonFacts(
@@ -644,10 +652,30 @@ internal sealed partial class SaveDirectoryWatcher
         int? Current,
         SaveStateMapDoorFacts? DoorTo);
 
+    private sealed record SaveStateMapDynamicAreaFacts(
+        string AreaId,
+        int? AreaHash,
+        int? Knowledge,
+        bool? Reversed,
+        int TileCount,
+        IReadOnlyList<SaveStateMapDynamicTileFacts> TileSamples);
+
+    private sealed record SaveStateMapDynamicTileFacts(
+        string TileId,
+        int? Light,
+        int? Content,
+        int? CurioPropHash,
+        int? Knowledge,
+        int? TrapHash,
+        int? MashIndex,
+        int? MashType,
+        bool? CritScout);
+
     private sealed record SaveStateRaidFacts(
         int? Version,
         SaveStateRaidInstanceFacts Instance,
         SaveStateRaidLocationFacts Location,
+        SaveStateRaidBattleFacts Battle,
         SaveStateRaidPartyFacts Party,
         SaveStateRaidCampFacts Camp,
         SaveStateRaidMashFacts Mash,
@@ -705,6 +733,59 @@ internal sealed partial class SaveDirectoryWatcher
         string? TargetAreaId,
         int? TargetTileIndex,
         bool? Implied);
+
+    private sealed record SaveStateRaidBattleFacts(
+        bool Exists,
+        bool? BeforeTurnSave,
+        int? MonsterActorGuidOffset,
+        int? Seed,
+        int? Round,
+        int? RoundStallCount,
+        bool? PreviousStallAccelerated,
+        bool? PartySurprised,
+        bool? MonstersSurprised,
+        int? RetreatAttempts,
+        int? CurrentHeroConsecutiveMissAccBuff,
+        int? ConsecutiveMonsterDodges,
+        int? ConsecutiveMonsterCrits,
+        int EnemyCount,
+        IReadOnlyList<SaveStateRaidBattleEnemyFacts> Enemies,
+        int HeroInitiativeCount,
+        IReadOnlyList<SaveStateRaidBattleInitiativeFacts> HeroInitiative,
+        int MonsterInitiativeCount,
+        IReadOnlyList<SaveStateRaidBattleInitiativeFacts> MonsterInitiative);
+
+    private sealed record SaveStateRaidBattleEnemyFacts(
+        string SlotId,
+        bool? IsHero,
+        int? BattleGuid,
+        string? MonsterClass,
+        bool? CanSpawnLoot,
+        int? PreviousMonsterClassHash,
+        string? ActorName,
+        double? CurrentHp,
+        int? Stunned,
+        bool? CombatReady,
+        int? DamageSourceData,
+        int? DamageSourceType,
+        int? DamageType,
+        int? ColourVariation,
+        int? PerformingTurn,
+        int? RoundsInRanks,
+        int? CheckRoundRanks,
+        int? DeathClassMonsterClassHash,
+        int SkillCooldownKeyCount,
+        IReadOnlyList<int> SkillCooldownKeys,
+        int SkillCooldownValueCount,
+        IReadOnlyList<int> SkillCooldownValues);
+
+    private sealed record SaveStateRaidBattleInitiativeFacts(
+        string SlotId,
+        int? RosterGuid,
+        int? BattleGuid,
+        double? Initiative,
+        bool? IsBonus,
+        int? CombatSkillIdOverride);
 
     private sealed record SaveStateRaidPartyFacts(
         bool? IsMovingLeft,

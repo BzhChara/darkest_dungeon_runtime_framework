@@ -43,10 +43,28 @@ function Convert-ToArray {
     return @($Value)
 }
 
-$sampleDirectories = @(Get-ChildItem -LiteralPath $resourceRootPath -Directory)
+$sampleDirectories = @(Get-ChildItem -LiteralPath $resourceRootPath -Directory | ForEach-Object {
+    [pscustomobject]@{
+        Name = $_.Name
+        FullName = $_.FullName
+    }
+})
 if (-not $NoLocalProfiles -and (Test-Path -LiteralPath $LocalResearchRoot)) {
     $localResearchPath = (Resolve-Path -LiteralPath $LocalResearchRoot).Path
-    $sampleDirectories += @(Get-ChildItem -LiteralPath $localResearchPath -Directory -Filter "profile_*")
+    foreach ($profileDirectory in Get-ChildItem -LiteralPath $localResearchPath -Directory -Filter "profile_*") {
+        $sampleDirectories += [pscustomobject]@{
+            Name = $profileDirectory.Name
+            FullName = $profileDirectory.FullName
+        }
+
+        $backupPath = Join-Path $profileDirectory.FullName "backup"
+        if (Test-Path -LiteralPath $backupPath) {
+            $sampleDirectories += [pscustomobject]@{
+                Name = "$($profileDirectory.Name)_backup"
+                FullName = $backupPath
+            }
+        }
+    }
 }
 
 $sampleDirectories = $sampleDirectories |
