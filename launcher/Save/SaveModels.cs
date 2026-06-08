@@ -106,6 +106,7 @@ internal sealed partial class SaveDirectoryWatcher
         IReadOnlyList<string> BuildingIds,
         IReadOnlyList<string> HeroIds,
         SaveStateRosterFacts Roster,
+        SaveStateMapFacts Map,
         IReadOnlyList<SaveStateHeroLoadoutFacts> HeroLoadouts,
         IReadOnlyList<SaveStateHeroFacts> Heroes);
 
@@ -544,6 +545,36 @@ internal sealed partial class SaveDirectoryWatcher
         string EntryId,
         int? Count);
 
+    private sealed record SaveStateMapFacts(
+        bool Exists,
+        IReadOnlyList<double> MapBounds,
+        bool HasStaticSave,
+        SaveStateEmbeddedDsonFacts? StaticSave,
+        int AreaCount,
+        int TileCount,
+        IReadOnlyList<SaveStateMapAreaFacts> Areas);
+
+    private sealed record SaveStateEmbeddedDsonFacts(
+        int Length,
+        int ObjectCount,
+        int FieldCount,
+        int ParsedScalarCount,
+        int RawScalarCount,
+        int ObjectPathCount,
+        int RootChildCount,
+        IReadOnlyList<string> RootChildIds);
+
+    private sealed record SaveStateMapAreaFacts(
+        string AreaId,
+        IReadOnlyList<double> Bounds,
+        int TileCount,
+        IReadOnlyList<SaveStateMapTileFacts> TileSamples);
+
+    private sealed record SaveStateMapTileFacts(
+        string TileId,
+        IReadOnlyList<double> MapPosition,
+        IReadOnlyList<double> SidePosition);
+
     private sealed record SaveStateUpgradeFacts(
         int? Version,
         string SourceScope,
@@ -822,7 +853,14 @@ internal sealed partial class SaveDirectoryWatcher
         int ObjectPathCount,
         int RootChildCount,
         IReadOnlyList<string> RootChildIds,
-        IReadOnlyList<SaveStateEmbeddedDsonScalarSample> ScalarSamples);
+        IReadOnlyList<SaveStateEmbeddedDsonScalarSample> ScalarSamples)
+    {
+        [property: JsonIgnore]
+        public IReadOnlyList<SaveStateDsonScalar> AllScalars { get; init; } = [];
+
+        [property: JsonIgnore]
+        public IReadOnlyList<string> AllObjectPaths { get; init; } = [];
+    }
 
     private sealed record SaveStateEmbeddedDsonScalarSample(
         string Path,

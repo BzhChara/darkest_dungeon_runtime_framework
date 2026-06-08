@@ -146,6 +146,18 @@ internal sealed partial class SaveDirectoryWatcher
             return ParseStringVector(scalar);
         }
 
+        private static IReadOnlyList<double> TryGetFloatArray(SaveStateFileReport? file, string path)
+        {
+            var scalar = FindDsonScalar(file, path);
+            return ParseFloatArray(scalar);
+        }
+
+        private static IReadOnlyList<double> TryGetFloatArray(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
+        {
+            var scalar = FindDsonScalar(scalars, path);
+            return ParseFloatArray(scalar);
+        }
+
         private static int CountSimpleScalarItems(SaveStateDsonScalar scalar)
         {
             if (scalar.Type.Equals("intVector", StringComparison.OrdinalIgnoreCase))
@@ -159,6 +171,25 @@ internal sealed partial class SaveDirectoryWatcher
             }
 
             return 0;
+        }
+
+        private static IReadOnlyList<double> ParseFloatArray(SaveStateDsonScalar? scalar)
+        {
+            if (scalar is null
+                || !scalar.Type.Equals("floatArray", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(scalar.Value))
+            {
+                return [];
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<double[]>(scalar.Value) ?? [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
         }
 
         private static IReadOnlyList<int> ParseIntVector(SaveStateDsonScalar? scalar)

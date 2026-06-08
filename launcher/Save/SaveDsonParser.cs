@@ -593,7 +593,11 @@ internal sealed partial class SaveDirectoryWatcher
                         scalar.Name,
                         scalar.Type,
                         scalar.Value))
-                    .ToArray());
+                    .ToArray())
+            {
+                AllScalars = scalars,
+                AllObjectPaths = embeddedContainer.DsonObjectPaths
+            };
         }
 
         private static bool TryReadDsonStringVector(
