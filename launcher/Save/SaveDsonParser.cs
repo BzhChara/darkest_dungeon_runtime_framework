@@ -230,6 +230,12 @@ internal sealed partial class SaveDirectoryWatcher
                     continue;
                 }
 
+                if (remaining == 1 && (bytes[nameEnd] is < 32 or > 126))
+                {
+                    scalars.Add(new SaveStateDsonScalar(path, field.Name, "bool", bytes[nameEnd] == 0 ? "false" : "true", field.AbsoluteOffset, size, rawHex));
+                    continue;
+                }
+
                 if (IsDsonPath(path, IntVectorPathPatterns)
                     && TryReadDsonIntVector(bytes, valueStart, alignedRemaining, out var intVector))
                 {
@@ -297,6 +303,30 @@ internal sealed partial class SaveDirectoryWatcher
                         field.AbsoluteOffset,
                         size,
                         rawHex));
+                    continue;
+                }
+
+                if (TryReadDsonEmbeddedFile(bytes, valueStart, alignedRemaining, out var embeddedLength, out var embeddedContainer))
+                {
+                    var embeddedSummary = BuildEmbeddedDsonSummary(embeddedLength, embeddedContainer);
+                    scalars.Add(new SaveStateDsonScalar(
+                        path,
+                        field.Name,
+                        "embeddedDson",
+                        JsonSerializer.Serialize(new
+                        {
+                            length = embeddedSummary.Length,
+                            objectCount = embeddedSummary.DsonSummary.ObjectCount,
+                            fieldCount = embeddedSummary.DsonSummary.FieldCount,
+                            parsedScalarCount = embeddedSummary.DsonSummary.ParsedScalarCount,
+                            rawScalarCount = embeddedSummary.DsonSummary.RawScalarCount
+                        }),
+                        field.AbsoluteOffset,
+                        size,
+                        rawHex)
+                    {
+                        EmbeddedDson = embeddedSummary
+                    });
                     continue;
                 }
 
@@ -501,6 +531,69 @@ internal sealed partial class SaveDirectoryWatcher
                 second != 0
             ];
             return true;
+        }
+
+        private static bool TryReadDsonEmbeddedFile(
+            byte[] bytes,
+            int offset,
+            int remaining,
+            out int embeddedLength,
+            out BinaryContainerInfo embeddedContainer)
+        {
+            embeddedLength = 0;
+            embeddedContainer = null!;
+            if (remaining < 4 + 0x40 || offset < 0 || offset + remaining > bytes.Length)
+            {
+                return false;
+            }
+
+            embeddedLength = ReadInt32LittleEndian(bytes, offset);
+            if (embeddedLength < 0x40 || remaining != embeddedLength + 4 || offset + 4 + embeddedLength > bytes.Length)
+            {
+                return false;
+            }
+
+            var embeddedOffset = offset + 4;
+            if (ReadUInt32LittleEndian(bytes, embeddedOffset) != 0x0000B101)
+            {
+                return false;
+            }
+
+            var nestedIssues = new List<string>();
+            var parsed = TryParseDsonContainer(bytes, embeddedOffset, embeddedLength, nestedIssues);
+            if (parsed is null)
+            {
+                return false;
+            }
+
+            embeddedContainer = parsed;
+            return true;
+        }
+
+        private static SaveStateEmbeddedDsonSummary BuildEmbeddedDsonSummary(
+            int length,
+            BinaryContainerInfo embeddedContainer)
+        {
+            var scalars = embeddedContainer.DsonScalars;
+            var rootChildIds = MergeAllDirectChildIds(
+                ExtractAllDirectChildIds(embeddedContainer.DsonObjectPaths, "base_root"),
+                ExtractAllDirectChildIds(scalars, "base_root"));
+
+            return new SaveStateEmbeddedDsonSummary(
+                length,
+                embeddedContainer.DsonSummary,
+                embeddedContainer.DsonObjectPaths.Count,
+                rootChildIds.Count,
+                rootChildIds.Take(120).ToArray(),
+                scalars
+                    .OrderBy(scalar => scalar.Path, StringComparer.OrdinalIgnoreCase)
+                    .Take(80)
+                    .Select(scalar => new SaveStateEmbeddedDsonScalarSample(
+                        scalar.Path,
+                        scalar.Name,
+                        scalar.Type,
+                        scalar.Value))
+                    .ToArray());
         }
 
         private static bool TryReadDsonStringVector(

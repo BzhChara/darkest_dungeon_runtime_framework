@@ -4,7 +4,7 @@ Source: `.research/DarkestDungeonSaveEditor-0.0.70/src/test/resources`.
 
 Scanner: `tools/InspectResearchSaveSamples.ps1`.
 
-Latest scan output: `logs/research_save_samples/saveeditor_samples_20260608_230958.json`.
+Latest scan output: `logs/research_save_samples/saveeditor_samples_20260608_232128.json`.
 
 ## Scan Result
 
@@ -21,14 +21,14 @@ Decoded scalar type totals from the latest scan:
 
 | Type | Count |
 | --- | ---: |
-| `bool` | 14092 |
+| `bool` | 14098 |
 | `boolPair` | 50 |
+| `embeddedDson` | 325 |
 | `float32` | 285 |
 | `floatArray` | 1 |
 | `int32` | 50789 |
 | `intPair` | 68 |
 | `intVector` | 1378 |
-| `raw` | 331 |
 | `string` | 22178 |
 | `stringVector` | 101 |
 | `uint32` | 5429 |
@@ -58,6 +58,8 @@ Decoded scalar type totals from the latest scan:
 - `floatArray` is decoded for map bounds paths such as `base_root.map.bounds`.
 - `intPair` is decoded for raid `killRange`.
 - `boolPair` is decoded for profile option values that are stored as two aligned 32-bit bool values.
+- `embeddedDson` is decoded for SaveEditor `TYPE_FILE` fields such as roster `hero_file_data.raw_data` and map `static_dynamic.static_save`.
+- Non-ASCII single-byte bool values are decoded as bool, matching SaveEditor's rule that non-zero single-byte values are true.
 - DSON wildcard path matching now tolerates object ids containing dots, such as `Dr. Pants`, so `backer_heroes.*.combat_skills` still resolves.
 
 ## Deliberately Deferred
@@ -66,10 +68,12 @@ Decoded scalar type totals from the latest scan:
 
 ## Remaining Raw Fields
 
-The latest scan leaves 331 raw scalar entries:
+The latest scan leaves 0 raw scalar entries across all 80 JSON files.
+
+## Remaining Semantic Backlog
 
 | Pattern | Count | Status |
 | --- | ---: | --- |
-| `base_root.heroes.[].hero_file_data.raw_data` | 211 | Expected at the top-level roster file. State reports decode these nested DSON blobs into `facts.heroes` for `persist.roster.json`; `persist.roster.network.json` remains optional network scope. |
-| `base_root.quests.[].use_default_progression_goals` | 6 | Observed only in `profileReddit` as single byte `0xAC`; keep raw until another sample or SaveEditor behavior explains it. |
-| `base_root.map.static_dynamic.static_save` | 1 | Large embedded map/static dynamic payload. It starts with a DSON-like nested header but needs separate map-specific decoding before promotion. |
+| `base_root.heroes.[].hero_file_data.raw_data` | 324 | Parsed as `embeddedDson`; campaign roster entries also promote to `facts.heroes`. `persist.roster.network.json` remains optional network scope. |
+| `base_root.map.static_dynamic.static_save` | 1 | Parsed as `embeddedDson`: 45,249 bytes, 292 objects, 1,669 fields, 1,377 parsed scalar fields, root children `areas` and `ext_data`. Map-specific semantic facts are still pending. |
+| `base_root.darkest_dungeon_trinket_unlocks` | 0 non-empty samples | Deferred until a non-empty sample exists. |

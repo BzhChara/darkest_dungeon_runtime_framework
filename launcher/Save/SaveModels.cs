@@ -811,7 +811,24 @@ internal sealed partial class SaveDirectoryWatcher
         string? Value,
         int Offset,
         int Size,
-        string? RawHex);
+        string? RawHex)
+    {
+        public SaveStateEmbeddedDsonSummary? EmbeddedDson { get; init; }
+    }
+
+    private sealed record SaveStateEmbeddedDsonSummary(
+        int Length,
+        SaveStateDsonSummary DsonSummary,
+        int ObjectPathCount,
+        int RootChildCount,
+        IReadOnlyList<string> RootChildIds,
+        IReadOnlyList<SaveStateEmbeddedDsonScalarSample> ScalarSamples);
+
+    private sealed record SaveStateEmbeddedDsonScalarSample(
+        string Path,
+        string Name,
+        string Type,
+        string? Value);
 
     private sealed record SaveStateValueCandidate(
         string Key,

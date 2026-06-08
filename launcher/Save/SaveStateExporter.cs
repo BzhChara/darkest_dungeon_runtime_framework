@@ -563,7 +563,7 @@ internal sealed partial class SaveDirectoryWatcher
             if (inspected.ParseStatus.Equals("dsonPartialDecoded", StringComparison.OrdinalIgnoreCase))
             {
                 if (fileName.Equals("persist.roster.json", StringComparison.OrdinalIgnoreCase)
-                    && inspected.DsonSummary?.RawScalarCount > 0)
+                    && (inspected.Heroes.Count > 0 || inspected.DsonSummary?.RawScalarCount > 0))
                 {
                     if (inspected.Heroes.Count > 0)
                     {
@@ -571,6 +571,11 @@ internal sealed partial class SaveDirectoryWatcher
                     }
 
                     return "candidate_nested_raw_pending";
+                }
+
+                if (GetDsonScalars(inspected).Any(scalar => scalar.Type.Equals("embeddedDson", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return isCandidate ? "candidate_embedded_dson_partial" : "mapped_embedded_dson_partial";
                 }
 
                 if (fileName.Equals("persist.upgrades.json", StringComparison.OrdinalIgnoreCase)

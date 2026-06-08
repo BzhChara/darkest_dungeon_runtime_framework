@@ -71,6 +71,7 @@ $summary = foreach ($directory in $sampleDirectories) {
                 $path = [string](Get-ReportProperty $_ "Path")
                 $type = [string](Get-ReportProperty $_ "Type")
                 $type -in @("intVector", "stringVector", "floatArray", "intPair") -or
+                    $type -eq "embeddedDson" -or
                     $path -like "*dead_hero_entries*" -or
                     $path -like "*skill_cooldown*" -or
                     $path -like "*background*" -or
@@ -78,6 +79,7 @@ $summary = foreach ($directory in $sampleDirectories) {
                     $path -like "*narration_audio_event_queue_tags*" -or
                     $path -like "*valid_additional_mash_entry_indexes*" -or
                     $path -like "*raid_finish_quirk_monster_class_ids*" -or
+                    $path -like "*use_default_progression_goals*" -or
                     $path -like "*bounds*" -or
                     $path -like "*mappos*" -or
                     $path -like "*sidepos*"
@@ -107,6 +109,23 @@ $summary = foreach ($directory in $sampleDirectories) {
                 }
             }
 
+        $embeddedDsonScalars = $allScalars |
+            Where-Object { [string](Get-ReportProperty $_ "Type") -eq "embeddedDson" } |
+            Select-Object -First 40 |
+            ForEach-Object {
+                $embedded = Get-ReportProperty $_ "EmbeddedDson"
+                $dsonSummary = Get-ReportProperty $embedded "DsonSummary"
+                [pscustomobject]@{
+                    path = Get-ReportProperty $_ "Path"
+                    length = Get-ReportProperty $embedded "Length"
+                    objectCount = Get-ReportProperty $dsonSummary "ObjectCount"
+                    fieldCount = Get-ReportProperty $dsonSummary "FieldCount"
+                    parsedScalarCount = Get-ReportProperty $dsonSummary "ParsedScalarCount"
+                    rawScalarCount = Get-ReportProperty $dsonSummary "RawScalarCount"
+                    rootChildIds = Convert-ToArray (Get-ReportProperty $embedded "RootChildIds")
+                }
+            }
+
         [pscustomobject]@{
             fileName = $file.Name
             parseStatus = Get-ReportProperty $report "ParseStatus"
@@ -116,6 +135,7 @@ $summary = foreach ($directory in $sampleDirectories) {
             typedScalarCounts = $scalarTypes
             rawScalarPaths = @($rawScalarPaths)
             rawScalarSamples = @($rawScalarSamples)
+            embeddedDsonScalars = @($embeddedDsonScalars)
             accessIssues = Convert-ToArray (Get-ReportProperty $report "AccessIssues")
             interestingScalars = @($interesting)
         }
