@@ -21,6 +21,7 @@ internal static class Program
             log.Info($"Game working directory: {config.GameWorkingDirectory}");
             log.Info($"Runtime DLL: {config.RuntimeDllPath}");
             log.Info($"Mod state directory: {config.ModStateDirectory}");
+            log.Info($"Allow non-atomic state writes: {config.AllowNonAtomicStateWrites}");
             log.Info($"Injection enabled: {config.EnableInjection && !options.NoInject}");
             log.Info($"Start suspended for injection: {config.StartSuspendedForInjection && config.EnableInjection && !options.NoInject}");
 

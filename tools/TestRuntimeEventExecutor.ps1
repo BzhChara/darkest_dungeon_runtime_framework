@@ -40,6 +40,15 @@ function Invoke-Loader {
     }
 }
 
+function Invoke-LoaderExpectFailure {
+    param([string[]]$LoaderArgs)
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- @LoaderArgs
+    if ($LASTEXITCODE -eq 0) {
+        throw "DDRuntimeLoader was expected to fail but returned exit code 0"
+    }
+}
+
 function Write-JsonPayload {
     param(
         [string]$Name,
@@ -84,6 +93,7 @@ New-Item -ItemType Directory -Force -Path $testRoot, $payloadRoot | Out-Null
 $baseArgs = @(
     "--config", (Resolve-ProjectPath $ConfigPath),
     "--no-inject",
+    "--allow-non-atomic-state-writes",
     "--mod-state-id", "validation.challenge_run_contract",
     "--mod-state-dir", $stateRoot
 )
@@ -92,6 +102,7 @@ Invoke-Loader -LoaderArgs ($baseArgs + @("--init-mod-state"))
 $draftArgs = @(
     "--config", (Resolve-ProjectPath $ConfigPath),
     "--no-inject",
+    "--allow-non-atomic-state-writes",
     "--mod-state-id", "validation.quest_draft_contract",
     "--mod-state-dir", $stateRoot
 )
@@ -104,6 +115,17 @@ $draftState = (Read-StateDocument "validation.quest_draft_contract").state
 Assert-True ((Convert-ToArray $draftState.usedHeroIds).Count -eq 2) "Draft event should add selected heroes from event payload."
 Assert-True ((Convert-ToArray $draftState.usedHeroIds) -contains "1") "Draft event should include hero 1."
 Assert-True ((Convert-ToArray $draftState.usedHeroIds) -contains "2") "Draft event should include hero 2."
+
+$missingDraftPayloadPath = Write-JsonPayload "party_selection_missing_selected_heroes.json" ([pscustomobject]@{})
+Invoke-LoaderExpectFailure -LoaderArgs ($draftArgs + @("--emit-event", "party.selection_confirmed", "--event-payload-file", $missingDraftPayloadPath))
+$runtimeEventReportPath = Join-Path $projectRoot.Path "logs\runtime_event_report.json"
+$runtimeEventReport = Get-Content -Raw -LiteralPath $runtimeEventReportPath | ConvertFrom-Json
+$strictArgIssue = @(Convert-ToArray $runtimeEventReport.issues | Where-Object {
+    $_.code -eq "action-failed" -and
+    [string]$_.message -like "*fromEvent*" -and
+    [string]$_.message -like "*selectedHeroIds*"
+})
+Assert-True ($strictArgIssue.Count -gt 0) "Missing event payload field should fail the action instead of being treated as an empty no-op."
 
 $selectionPayload = [pscustomobject]@{
     stageId = "stage_1_necromancer"

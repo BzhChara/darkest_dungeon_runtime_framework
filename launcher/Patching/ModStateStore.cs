@@ -66,15 +66,23 @@ internal static class ModStateStore
                 changed = true;
             }
 
+            var writeMode = "none";
             if (changed)
             {
                 root["updatedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
-                WriteJsonAtomic(statePath, root);
+                var writeResult = WriteJsonAtomic(statePath, root, source, issues, config.AllowNonAtomicStateWrites);
+                writeMode = writeResult.Mode;
+                if (!writeResult.Succeeded)
+                {
+                    plugins.Add(CreatePluginReport(source, statePath, "write-failed", addedKeys, StateKeys(state), CloneNode(state), writeResult.Mode));
+                    continue;
+                }
+
                 writtenCount++;
             }
 
             var status = created ? "created" : addedKeys.Count > 0 ? "merged-defaults" : "unchanged";
-            plugins.Add(CreatePluginReport(source, statePath, status, addedKeys, StateKeys(state), CloneNode(state)));
+            plugins.Add(CreatePluginReport(source, statePath, status, addedKeys, StateKeys(state), CloneNode(state), writeMode));
         }
 
         var report = new ModStateStoreReport(
@@ -178,10 +186,10 @@ internal static class ModStateStore
         return true;
     }
 
-    public static void SaveStateDocument(ModStateDocument document)
+    public static ModStateWriteResult SaveStateDocument(ModStateDocument document, bool allowNonAtomicFallback, List<ModStateIssue> issues)
     {
         document.Root["updatedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
-        WriteJsonAtomic(document.StatePath, document.Root);
+        return WriteJsonAtomic(document.StatePath, document.Root, document.Source, issues, allowNonAtomicFallback);
     }
 
     public static string GetStatePath(RuntimeConfig config, PatchPlan patchPlan, PluginStateSchemaSource source)
@@ -422,7 +430,8 @@ internal static class ModStateStore
         string status,
         IReadOnlyList<string> addedKeys,
         IReadOnlyList<string> stateKeys,
-        JsonNode? state)
+        JsonNode? state,
+        string writeMode = "none")
     {
         return new ModStatePluginReport(
             source.PluginId,
@@ -431,13 +440,19 @@ internal static class ModStateStore
             source.LoadOrder,
             statePath,
             status,
+            writeMode,
             source.StateSchema.Keys.OrderBy(key => key, StringComparer.OrdinalIgnoreCase).ToArray(),
             addedKeys,
             stateKeys,
             state);
     }
 
-    private static void WriteJsonAtomic(string path, JsonObject root)
+    private static ModStateWriteResult WriteJsonAtomic(
+        string path,
+        JsonObject root,
+        PluginStateSchemaSource source,
+        List<ModStateIssue> issues,
+        bool allowNonAtomicFallback)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         var json = root.ToJsonString(JsonOptions);
@@ -446,15 +461,46 @@ internal static class ModStateStore
         try
         {
             File.Move(tempPath, path, overwrite: true);
+            return new ModStateWriteResult(true, "atomic");
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            if (!allowNonAtomicFallback)
+            {
+                issues.Add(new ModStateIssue(
+                    "error",
+                    "state-atomic-write-failed",
+                    source.PluginId,
+                    path,
+                    $"atomic state write failed and non-atomic fallback is disabled: {ex.Message}"));
+                TryDeleteTempFile(tempPath, source, issues);
+                return new ModStateWriteResult(false, "failed");
+            }
+
             File.WriteAllText(path, json, Encoding.UTF8);
-            TryDeleteTempFile(tempPath);
+            issues.Add(new ModStateIssue(
+                "warning",
+                "state-write-fallback-non-atomic",
+                source.PluginId,
+                path,
+                $"atomic state write failed; explicit non-atomic fallback wrote the target file: {ex.Message}"));
+            TryDeleteTempFile(tempPath, source, issues);
+            return new ModStateWriteResult(true, "non-atomic-fallback");
+        }
+        catch (IOException ex)
+        {
+            issues.Add(new ModStateIssue(
+                "error",
+                "state-atomic-write-failed",
+                source.PluginId,
+                path,
+                $"atomic state write failed: {ex.Message}"));
+            TryDeleteTempFile(tempPath, source, issues);
+            return new ModStateWriteResult(false, "failed");
         }
     }
 
-    private static void TryDeleteTempFile(string tempPath)
+    private static void TryDeleteTempFile(string tempPath, PluginStateSchemaSource source, List<ModStateIssue> issues)
     {
         try
         {
@@ -463,11 +509,23 @@ internal static class ModStateStore
                 File.Delete(tempPath);
             }
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            issues.Add(new ModStateIssue(
+                "warning",
+                "state-temp-cleanup-failed",
+                source.PluginId,
+                tempPath,
+                ex.Message));
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            issues.Add(new ModStateIssue(
+                "warning",
+                "state-temp-cleanup-failed",
+                source.PluginId,
+                tempPath,
+                ex.Message));
         }
     }
 
@@ -481,7 +539,8 @@ internal static class ModStateStore
         {
             log.Info(
                 $"mod-state-plugin status={plugin.Status} id={plugin.PluginId} order={plugin.LoadOrder} " +
-                $"schemaKeys={FormatLogList(plugin.SchemaKeys)} stateKeys={FormatLogList(plugin.StateKeys)} path={plugin.StatePath}");
+                $"writeMode={plugin.WriteMode} schemaKeys={FormatLogList(plugin.SchemaKeys)} " +
+                $"stateKeys={FormatLogList(plugin.StateKeys)} path={plugin.StatePath}");
         }
 
         foreach (var issue in report.Issues)
@@ -553,6 +612,7 @@ internal sealed record ModStatePluginReport(
     int LoadOrder,
     string StatePath,
     string Status,
+    string WriteMode,
     IReadOnlyList<string> SchemaKeys,
     IReadOnlyList<string> AddedKeys,
     IReadOnlyList<string> StateKeys,
@@ -570,3 +630,7 @@ internal sealed record ModStateIssue(
     string PluginId,
     string Path,
     string Message);
+
+internal sealed record ModStateWriteResult(
+    bool Succeeded,
+    string Mode);

@@ -159,10 +159,12 @@ logs/save_file_maps/<sessionId>.json
 运行时 Mod 自己需要的状态不写进原版 `profile_*`。启动器会把插件 `stateSchema` 初始化到独立目录：
 
 ```json
-"modStateDirectory": "./state/mod_state"
+"modStateDirectory": "./state/mod_state",
+"allowNonAtomicStateWrites": false
 ```
 
 相对路径会解析到框架项目根目录下，并且必须留在项目目录内，避免误写到游戏目录或 Steam userdata。生成的状态文件默认被 `.gitignore` 忽略。
+状态写入默认要求 `.tmp` 原子替换成功；如果原子写失败，命令会失败并记录 `state-atomic-write-failed`，不会自动改用直接覆盖。只有显式配置 `allowNonAtomicStateWrites: true` 或传入 `--allow-non-atomic-state-writes` 时，才允许非原子直接写入，并且报告中会记录 `state-write-fallback-non-atomic` warning 和 `writeMode=non-atomic-fallback`。
 
 状态命令：
 
@@ -176,6 +178,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 - `--dump-mod-state`：读取当前 sidecar 状态，输出摘要并写入 `logs/mod_state_dump_report.json`。
 - `--mod-state-id <plugin-id>`：只处理指定插件的状态。
 - `--mod-state-dir <path>`：本次运行临时改用另一个 sidecar 状态目录，路径仍必须位于框架项目目录内。
+- `--allow-non-atomic-state-writes`：本次运行允许非原子状态写入，只用于受沙盒、杀软或权限策略限制的开发环境；正常环境应保持关闭。
 
 单个插件默认写入 `state/mod_state/<plugin-id>.json`。如果多个启用插件重复同一 `id`，文件名会追加 manifest 路径哈希，避免互相覆盖。
 
@@ -187,7 +190,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --emit-event challenge.stage_selection_confirmed --event-payload-file ./logs/runtime_event_executor_test/payloads/selection_confirmed.json --no-inject
 ```
 
-当前执行器只实现安全状态动作，例如 `state.addUniqueRange`、`state.incrementCounter`、`challenge.lockStageSelection`、`challenge.recordFailedAttempt`、`challenge.advanceStage` 和 `challenge.initializeRunState`。`managed` 游戏行为动作还不会执行；如果规则把未实现动作标成 `required:true`，本次事件会失败并写入 `logs/runtime_event_report.json`。
+当前执行器只实现安全状态动作，例如 `state.addUniqueRange`、`state.incrementCounter`、`challenge.lockStageSelection`、`challenge.recordFailedAttempt`、`challenge.advanceStage` 和 `challenge.initializeRunState`。`managed` 游戏行为动作还不会执行；如果规则把未实现动作标成 `required:true`，本次事件会失败并写入 `logs/runtime_event_report.json`。已实现 action 的参数按严格模式处理：引用的 `event.xxx` 或 `state.xxx` 路径不存在、显式参数类型错误、定义文件路径错误，都会让 action 失败，而不是当作空值或默认值继续执行。
 
 ## 虚拟文件原型
 

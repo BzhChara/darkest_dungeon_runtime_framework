@@ -4,6 +4,7 @@
   "runtimeDllPath": "./runtime/bin/x64/Release/RuntimeHook.dll",
   "logDirectory": "./logs",
   "modStateDirectory": "./state/mod_state",
+  "allowNonAtomicStateWrites": false,
   "enableInjection": true,
   "killGameOnInjectionFailure": false,
   "startSuspendedForInjection": true,

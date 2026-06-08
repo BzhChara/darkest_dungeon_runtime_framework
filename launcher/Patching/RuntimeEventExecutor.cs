@@ -37,6 +37,7 @@ internal static class RuntimeEventExecutor
         var stateDocuments = new Dictionary<string, ModStateDocument>(StringComparer.OrdinalIgnoreCase);
         var changedStatePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var executedActionCount = 0;
+        var stateWriteCount = 0;
 
         var initReport = ModStateStore.InitializeDefaults(config, patchPlan, log, pluginIdFilter);
         AddStateIssues(initReport.Issues, issues);
@@ -103,7 +104,13 @@ internal static class RuntimeEventExecutor
 
         foreach (var document in stateDocuments.Values.Where(document => changedStatePaths.Contains(document.StatePath)))
         {
-            ModStateStore.SaveStateDocument(document);
+            var stateIssues = new List<ModStateIssue>();
+            var writeResult = ModStateStore.SaveStateDocument(document, config.AllowNonAtomicStateWrites, stateIssues);
+            AddStateIssues(stateIssues, issues);
+            if (writeResult.Succeeded)
+            {
+                stateWriteCount++;
+            }
         }
 
         var report = new RuntimeEventExecutionReport(
@@ -114,7 +121,7 @@ internal static class RuntimeEventExecutor
             rules.Length,
             ruleReports.Count(rule => rule.Status != "predicate-skipped"),
             executedActionCount,
-            changedStatePaths.Count,
+            stateWriteCount,
             payload,
             ruleReports,
             issues);
@@ -331,15 +338,15 @@ internal static class RuntimeEventExecutor
         JsonNode? sourceValue = null;
         if (TryGetStringArg(action, "fromEvent", out var fromEvent))
         {
-            TryGetPath(payload, fromEvent, out sourceValue);
+            sourceValue = RequirePath(payload, fromEvent, "event", action, "fromEvent");
         }
         else if (TryGetStringArg(action, "fromState", out var fromState))
         {
-            TryGetPath(document.State, fromState, out sourceValue);
+            sourceValue = RequirePath(document.State, fromState, "state", action, "fromState");
         }
         else
         {
-            sourceValue = ReadArgNode(action, "values");
+            sourceValue = ReadRequiredArgNode(action, "values");
         }
 
         var array = GetOrCreateArray(document.State, key);
@@ -361,7 +368,7 @@ internal static class RuntimeEventExecutor
     private static bool ExecuteIncrementCounter(RuntimeRuleAction action, ModStateDocument document)
     {
         var key = RequireStringArg(action, "key");
-        var amount = ReadIntArg(action, "amount", 1);
+        var amount = ReadOptionalIntArg(action, "amount", 1);
         var current = 0;
         if (TryGetPath(document.State, key, out var existing) && existing is JsonValue value)
         {
@@ -382,9 +389,9 @@ internal static class RuntimeEventExecutor
     private static bool ExecuteLockStageSelection(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
     {
         var stateKey = RequireStringArg(action, "stateKey");
-        var stageId = ResolveArgNode(action, "stageId", document.State, payload);
-        var heroIds = ResolveArgNode(action, "heroIds", document.State, payload);
-        var trinketIds = ResolveArgNode(action, "trinketIds", document.State, payload);
+        var stageId = ResolveRequiredArgNode(action, "stageId", document.State, payload);
+        var heroIds = ResolveRequiredArgNode(action, "heroIds", document.State, payload);
+        var trinketIds = ResolveRequiredArgNode(action, "trinketIds", document.State, payload);
 
         var locked = new JsonObject
         {
@@ -400,11 +407,11 @@ internal static class RuntimeEventExecutor
     private static bool ExecuteRecordStageAttempt(RuntimeRuleAction action, ModStateDocument document, JsonObject payload, string result)
     {
         var stateKey = RequireStringArg(action, "stateKey");
-        var stageId = ResolveArgNode(action, "stageId", document.State, payload);
+        var stageId = ResolveRequiredArgNode(action, "stageId", document.State, payload);
         JsonNode? selection = null;
         if (TryGetStringArg(action, "selectionStateKey", out var selectionStateKey))
         {
-            TryGetPath(document.State, selectionStateKey, out selection);
+            selection = RequirePath(document.State, selectionStateKey, "state", action, "selectionStateKey");
         }
 
         var attempt = new JsonObject
@@ -423,7 +430,7 @@ internal static class RuntimeEventExecutor
     {
         var stateKey = RequireStringArg(action, "stateKey");
         var runState = GetOrCreateObject(document.State, stateKey);
-        var completedStageId = ResolveArgNode(action, "completedStageId", document.State, payload);
+        var completedStageId = ResolveRequiredArgNode(action, "completedStageId", document.State, payload);
 
         AddUnique(GetOrCreateArray(runState, "completedStageIds"), completedStageId);
 
@@ -459,21 +466,22 @@ internal static class RuntimeEventExecutor
         changed |= EnsureJsonValue(runState, "usedTrinketIds", new JsonArray());
         changed |= EnsureJsonValue(runState, "stageAttempts", new JsonArray());
 
-        if (!TryGetStringArg(action, "definition", out var definition) || string.IsNullOrWhiteSpace(definition))
+        if (!action.Args.ContainsKey("definition"))
         {
             return changed;
         }
 
+        var definition = RequireStringArg(action, "definition");
         var definitionPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceRule.SourcePath) ?? ".", definition));
         if (!File.Exists(definitionPath))
         {
-            return changed;
+            throw new FileNotFoundException("Challenge definition file was not found.", definitionPath);
         }
 
         var challenge = JsonNode.Parse(File.ReadAllText(definitionPath, Encoding.UTF8)) as JsonObject;
         if (challenge is null)
         {
-            return changed;
+            throw new InvalidDataException($"Challenge definition root must be a JSON object: {definitionPath}");
         }
 
         if (challenge["id"] is not null)
@@ -594,28 +602,44 @@ internal static class RuntimeEventExecutor
         }
     }
 
-    private static JsonNode? ResolveArgNode(RuntimeRuleAction action, string argName, JsonObject state, JsonObject payload)
+    private static JsonNode? ResolveRequiredArgNode(RuntimeRuleAction action, string argName, JsonObject state, JsonObject payload)
     {
-        var node = ReadArgNode(action, argName);
+        var node = ReadRequiredArgNode(action, argName);
         if (node is JsonValue value && value.TryGetValue<string>(out var text))
         {
             if (text.StartsWith("event.", StringComparison.OrdinalIgnoreCase))
             {
-                return TryGetPath(payload, text["event.".Length..], out var eventValue) ? CloneNode(eventValue) : null;
+                return RequirePath(payload, text["event.".Length..], "event", action, argName);
             }
 
             if (text.StartsWith("state.", StringComparison.OrdinalIgnoreCase))
             {
-                return TryGetPath(state, text["state.".Length..], out var stateValue) ? CloneNode(stateValue) : null;
+                return RequirePath(state, text["state.".Length..], "state", action, argName);
             }
         }
 
         return CloneNode(node);
     }
 
-    private static JsonNode? ReadArgNode(RuntimeRuleAction action, string argName)
+    private static JsonNode? ReadRequiredArgNode(RuntimeRuleAction action, string argName)
     {
-        return action.Args.TryGetValue(argName, out var value) ? JsonNode.Parse(value.GetRawText()) : null;
+        if (!action.Args.TryGetValue(argName, out var value))
+        {
+            throw new InvalidOperationException($"Action {action.Type} requires arg '{argName}'.");
+        }
+
+        return JsonNode.Parse(value.GetRawText());
+    }
+
+    private static JsonNode? RequirePath(JsonNode? root, string path, string addressSpace, RuntimeRuleAction action, string argName)
+    {
+        if (TryGetPath(root, path, out var value))
+        {
+            return CloneNode(value);
+        }
+
+        throw new InvalidOperationException(
+            $"Action {action.Type} arg '{argName}' references missing {addressSpace} path '{path}'.");
     }
 
     private static string RequireStringArg(RuntimeRuleAction action, string argName)
@@ -639,23 +663,25 @@ internal static class RuntimeEventExecutor
         if (element.ValueKind == JsonValueKind.String)
         {
             value = element.GetString() ?? string.Empty;
-            return true;
+            return !string.IsNullOrWhiteSpace(value);
         }
 
-        value = element.ToString();
-        return !string.IsNullOrWhiteSpace(value);
+        return false;
     }
 
-    private static int ReadIntArg(RuntimeRuleAction action, string argName, int fallback)
+    private static int ReadOptionalIntArg(RuntimeRuleAction action, string argName, int fallback)
     {
         if (!action.Args.TryGetValue(argName, out var element))
         {
             return fallback;
         }
 
-        return element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var value)
-            ? value
-            : fallback;
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var value))
+        {
+            return value;
+        }
+
+        throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must be an integer.");
     }
 
     private static IEnumerable<JsonNode?> AsArrayItems(JsonNode? node)
@@ -791,7 +817,10 @@ internal static class RuntimeEventExecutor
     {
         foreach (var issue in stateIssues)
         {
-            issues.Add(new RuntimeEventExecutionIssue(issue.Severity, issue.Code, issue.PluginId, string.Empty, string.Empty, issue.Message));
+            var message = string.IsNullOrWhiteSpace(issue.Path)
+                ? issue.Message
+                : $"{issue.Message} path={issue.Path}";
+            issues.Add(new RuntimeEventExecutionIssue(issue.Severity, issue.Code, issue.PluginId, string.Empty, string.Empty, message));
         }
     }
 

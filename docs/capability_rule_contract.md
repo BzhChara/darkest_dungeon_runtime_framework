@@ -9,6 +9,7 @@ This document defines the generic runtime rule model. It is intentionally not a 
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
 - `--explain-rules` reports declared `eventRules`, required capabilities, action capabilities, and skip reasons.
 - The first safe action executor supports sidecar state primitives and the fixed-stage challenge state primitives. Managed game mutation actions still report as unsupported.
+- Implemented safe actions validate their declared arguments strictly. Missing referenced `event.*` or `state.*` paths, invalid explicit argument types, and missing definition files fail the action and are written to `logs/runtime_event_report.json`.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
 - Runtime hooks are currently observe-first. Intercepting game flow remains capability-gated work.
 
@@ -32,6 +33,8 @@ The rule engine should evaluate rules in this order:
 5. Evaluate matching `eventRules`.
 6. Execute actions in rule order, honoring capability and risk policy. Current implementation only executes implemented safe actions.
 7. Write diagnostics and state changes.
+
+Sidecar state writes are strict by default: the state store writes a temporary file and requires atomic replacement to succeed. Non-atomic direct-write fallback is only available through explicit opt-in configuration or the `--allow-non-atomic-state-writes` CLI flag, and that downgrade is reported as a warning.
 
 ## Manifest Fields
 

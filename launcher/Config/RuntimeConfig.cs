@@ -17,6 +17,9 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("modStateDirectory")]
     public string ModStateDirectory { get; set; } = "./state/mod_state";
 
+    [JsonPropertyName("allowNonAtomicStateWrites")]
+    public bool AllowNonAtomicStateWrites { get; set; }
+
     [JsonPropertyName("enableInjection")]
     public bool EnableInjection { get; set; } = true;
 
@@ -114,6 +117,7 @@ internal sealed partial class RuntimeConfig
         if (!string.IsNullOrWhiteSpace(options.GameExecutablePath)) GameExecutablePath = options.GameExecutablePath;
         if (!string.IsNullOrWhiteSpace(options.RuntimeDllPath)) RuntimeDllPath = options.RuntimeDllPath;
         if (!string.IsNullOrWhiteSpace(options.ModStateDirectory)) ModStateDirectory = options.ModStateDirectory;
+        if (options.AllowNonAtomicStateWrites) AllowNonAtomicStateWrites = true;
         if (options.NoInject) EnableInjection = false;
     }
 
