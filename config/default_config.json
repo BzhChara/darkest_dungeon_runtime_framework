@@ -40,6 +40,7 @@
   "saveWatchEnabled": true,
   "saveWatchDirectories": [],
   "saveWatchAfterExitSeconds": 10,
+  "saveEventBridgeEnabled": false,
   "pluginDirectories": [
     "./plugins"
   ],

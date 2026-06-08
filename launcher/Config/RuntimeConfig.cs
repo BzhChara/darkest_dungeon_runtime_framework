@@ -95,6 +95,9 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("saveWatchAfterExitSeconds")]
     public int SaveWatchAfterExitSeconds { get; set; } = 10;
 
+    [JsonPropertyName("saveEventBridgeEnabled")]
+    public bool SaveEventBridgeEnabled { get; set; }
+
     [JsonPropertyName("pluginDirectories")]
     public string[] PluginDirectories { get; set; } = ["./plugins"];
 

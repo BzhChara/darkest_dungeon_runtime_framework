@@ -76,7 +76,7 @@ internal sealed partial class SaveDirectoryWatcher
                     .Where(name => !string.IsNullOrWhiteSpace(name))
                     .Select(name => name.Trim())
                     .Distinct(StringComparer.Ordinal)
-                    .GroupBy(name => unchecked((int)HashDsonName(name)))
+                    .GroupBy(DsonHash.HashNameSigned)
                     .ToDictionary(
                         group => group.Key,
                         group => (IReadOnlyList<string>)group

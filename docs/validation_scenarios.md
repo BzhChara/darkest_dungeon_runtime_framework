@@ -147,6 +147,7 @@ Dry-run tool:
 
 ```text
 tools/TestChallengeRunDryRun.ps1
+tools/TestSaveEventBridge.ps1
 ```
 
 Run:
@@ -155,6 +156,7 @@ Run:
 .\tools\TestChallengeRunDryRun.ps1 -AssertSample
 .\tools\TestChallengeRunDryRun.ps1 -Outcome stage_failed -SelectedHeroIds 1,2,7,8 -SelectedTrinketIds berserk_mask,immunity_mask,fortunate_armlet,sb_4,sb_3,sb_2,sb_1,bleeding_pendant
 .\tools\TestChallengeRunDryRun.ps1 -Outcome stage_completed -SelectedHeroIds 1,2,7,8 -SelectedTrinketIds berserk_mask,immunity_mask,fortunate_armlet,sb_4,sb_3,sb_2,sb_1,bleeding_pendant
+.\tools\TestSaveEventBridge.ps1
 ```
 
 Required generic primitives:
@@ -202,7 +204,7 @@ Acceptance ladder:
 8. The framework can inject or replace fixed stages through a managed quest/content primitive.
 9. The framework can materialize preset max-level heroes with randomized positive/negative quirks through verified roster/save primitives.
 
-Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Later steps require runtime event observation and managed mutation capabilities.
+Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Step 7 has an initial save-facts bridge: `--infer-save-events` can map a generated save state report's last raid quest/result to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. In-game selection observation, managed quest injection, roster materialization, and UI filtering still require later capabilities.
 
 ## What Counts As Framework Progress
 

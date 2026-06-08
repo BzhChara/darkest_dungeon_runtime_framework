@@ -263,10 +263,10 @@ Semantic now:
 - `base_root.total_quests_finished`
 - `base_root.total_successful_quests_finished`
 - `base_root.total_recruited_stage_coach_heroes`
-- `base_root.last_quest_played_id`
+- `base_root.last_quest_played_id` resolved through the content hash catalog as `progression.lastQuestPlayed`
 - `base_root.last_quest_played_successfully`
 - `base_root.last_quest_played_xp`
-- `base_root.last_raid_quest_id`
+- `base_root.last_raid_quest_id` resolved through the content hash catalog as `progression.lastRaidQuest`
 - `base_root.last_raid_success`
 - `base_root.last_raid_was_a_plot_quest`
 - `base_root.dungeon.<dungeon>.xp` as `progression.dungeons[]`

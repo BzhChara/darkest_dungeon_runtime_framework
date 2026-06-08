@@ -22,6 +22,7 @@ internal static class Program
             log.Info($"Runtime DLL: {config.RuntimeDllPath}");
             log.Info($"Mod state directory: {config.ModStateDirectory}");
             log.Info($"Allow non-atomic state writes: {config.AllowNonAtomicStateWrites}");
+            log.Info($"Save event bridge enabled: {config.SaveEventBridgeEnabled}");
             log.Info($"Injection enabled: {config.EnableInjection && !options.NoInject}");
             log.Info($"Start suspended for injection: {config.StartSuspendedForInjection && config.EnableInjection && !options.NoInject}");
 
@@ -40,6 +41,7 @@ internal static class Program
                     !options.ExplainRules &&
                     !options.InitModState &&
                     !options.DumpModState &&
+                    !options.InferSaveEvents &&
                     string.IsNullOrWhiteSpace(options.EmitEvent))
                 {
                     return 3;
@@ -100,6 +102,22 @@ internal static class Program
                     options.ModStateId).Succeeded;
             }
 
+            if (options.InferSaveEvents)
+            {
+                if (string.IsNullOrWhiteSpace(options.SaveStateReportPath))
+                {
+                    throw new ArgumentException("--infer-save-events requires --save-state-report <path>.");
+                }
+
+                modStateSucceeded &= SaveEventBridge.Execute(
+                    config,
+                    patchPlan,
+                    log,
+                    options.SaveStateReportPath,
+                    projectRoot,
+                    options.ModStateId).Succeeded;
+            }
+
             if (options.ListPatches ||
                 options.ExplainPatches ||
                 options.ExplainRules ||
@@ -107,6 +125,7 @@ internal static class Program
                 options.PreviewPatches ||
                 options.InitModState ||
                 options.DumpModState ||
+                options.InferSaveEvents ||
                 !string.IsNullOrWhiteSpace(options.EmitEvent))
             {
                 log.Info("Inspection requested. No process was started.");
@@ -122,7 +141,7 @@ internal static class Program
             }
 
             int? gameProcessId = null;
-            using var saveWatcher = SaveDirectoryWatcher.Start(config, log);
+            using var saveWatcher = SaveDirectoryWatcher.Start(config, patchPlan, projectRoot, log);
 
             if (config.EnableInjection && !options.NoInject && config.StartSuspendedForInjection)
             {
@@ -255,6 +274,7 @@ internal static class Program
             !options.PreviewPatches &&
             !options.InitModState &&
             !options.DumpModState &&
+            !options.InferSaveEvents &&
             string.IsNullOrWhiteSpace(options.EmitEvent);
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))
             throw new FileNotFoundException("Runtime DLL was not found. Build runtime/RuntimeHook.vcxproj first.", config.RuntimeDllPath);

@@ -154,6 +154,28 @@ logs/save_file_maps/<sessionId>.json
 
 文件地图会扫描 active profile 下 live/backup 的所有 `persist*.json`，标出是否属于当前核心候选、优先级、类别、mod 相关性、当前覆盖程度、DSON 摘要和访问问题。它用于决定后续解码顺序，不代表对应文件已经有完整语义模型。
 
+## 存档事件桥
+
+存档事件桥把只读 save state facts 转换成框架事件，再交给普通 `eventRules` 执行。它不写原版 `profile_*`，也不直接修改游戏 UI、任务列表或战斗流程；当前只作为 observe-first 到 sidecar state 的桥接层。
+
+```json
+"saveEventBridgeEnabled": false
+```
+
+默认关闭。开启后，启动器 sidecar watcher 在生成 `logs/save_states/<sessionId>.json` 后，会尝试根据该报告推断事件，并写入：
+
+```text
+logs/save_event_bridge_report.json
+```
+
+也可以手动对某个 save state report 执行一次推断：
+
+```text
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --infer-save-events --save-state-report ./logs/save_states/<sessionId>.json --no-inject
+```
+
+当前实现的第一条通用路径是：读取 `facts.progression.lastRaidQuestId`、`facts.progression.lastRaidQuest.names` 和 `facts.progression.lastRaidSuccess`，匹配启用插件中当前 challenge stage 的 `sourceQuestId`，然后发出 `challenge.stage_completed` 或 `challenge.stage_failed`。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤仍属于后续 managed capability，不在这个桥接器里硬编码。
+
 ## 框架 Mod 状态存档
 
 运行时 Mod 自己需要的状态不写进原版 `profile_*`。启动器会把插件 `stateSchema` 初始化到独立目录：

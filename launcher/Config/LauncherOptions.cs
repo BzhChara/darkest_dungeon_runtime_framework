@@ -17,11 +17,13 @@ internal sealed class LauncherOptions
     public bool InitModState { get; private set; }
     public bool DumpModState { get; private set; }
     public bool AllowNonAtomicStateWrites { get; private set; }
+    public bool InferSaveEvents { get; private set; }
     public string? ModStateId { get; private set; }
     public string? ModStateDirectory { get; private set; }
     public string? EmitEvent { get; private set; }
     public string? EventPayload { get; private set; }
     public string? EventPayloadFile { get; private set; }
+    public string? SaveStateReportPath { get; private set; }
     public string? PreviewOutputPath { get; private set; }
 
     public static LauncherOptions Parse(string[] args)
@@ -77,6 +79,9 @@ internal sealed class LauncherOptions
                 case "--allow-non-atomic-state-writes":
                     options.AllowNonAtomicStateWrites = true;
                     break;
+                case "--infer-save-events":
+                    options.InferSaveEvents = true;
+                    break;
                 case "--mod-state-id":
                     options.ModStateId = RequireValue(args, ref i, "--mod-state-id");
                     break;
@@ -91,6 +96,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--event-payload-file":
                     options.EventPayloadFile = RequireValue(args, ref i, "--event-payload-file");
+                    break;
+                case "--save-state-report":
+                    options.SaveStateReportPath = RequireValue(args, ref i, "--save-state-report");
                     break;
                 case "--preview-output":
                     options.PreviewOutputPath = RequireValue(args, ref i, "--preview-output");

@@ -688,7 +688,7 @@ internal sealed partial class SaveDirectoryWatcher
                 BuildPersistFileFacts(files),
                 contentHashCatalog.ToFacts(),
                 BuildCampaignFacts(game),
-                BuildProgressionFacts(progression),
+                BuildProgressionFacts(progression, contentHashCatalog),
                 BuildQuestFacts(quest),
                 BuildTownEventFacts(townEvent),
                 BuildGameKnowledgeFacts(gameKnowledge, contentHashCatalog),

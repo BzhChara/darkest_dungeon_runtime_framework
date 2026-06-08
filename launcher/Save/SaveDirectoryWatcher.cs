@@ -18,6 +18,9 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
     };
 
     private readonly LauncherLog _log;
+    private readonly RuntimeConfig _config;
+    private readonly PatchPlan _patchPlan;
+    private readonly string _projectRoot;
     private readonly List<string> _directories;
     private readonly string _gameWorkingDirectory;
     private readonly string _sessionDirectory;
@@ -34,11 +37,19 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
     private DateTimeOffset? _gameExitedAt;
     private bool _disposed;
 
-    private SaveDirectoryWatcher(IReadOnlyList<string> directories, string logDirectory, string gameWorkingDirectory, LauncherLog log)
+    private SaveDirectoryWatcher(
+        RuntimeConfig config,
+        PatchPlan patchPlan,
+        string projectRoot,
+        IReadOnlyList<string> directories,
+        LauncherLog log)
     {
+        _config = config;
+        _patchPlan = patchPlan;
+        _projectRoot = projectRoot;
         _directories = directories.ToList();
-        _gameWorkingDirectory = gameWorkingDirectory;
-        _sessionDirectory = Path.Combine(logDirectory, "save_sessions");
+        _gameWorkingDirectory = config.GameWorkingDirectory;
+        _sessionDirectory = Path.Combine(config.LogDirectory, "save_sessions");
         _startedAt = DateTimeOffset.Now;
         _sessionId = $"{_startedAt:yyyyMMdd_HHmmss_fff}_launcher_{Environment.ProcessId}";
         _log = log;
@@ -52,7 +63,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         _log.Info($"Save sidecar initial snapshot files={_initialSnapshot.Count}");
     }
 
-    public static SaveDirectoryWatcher? Start(RuntimeConfig config, LauncherLog log)
+    public static SaveDirectoryWatcher? Start(RuntimeConfig config, PatchPlan patchPlan, string projectRoot, LauncherLog log)
     {
         if (!config.SaveWatchEnabled) return null;
 
@@ -69,7 +80,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             log.Info($"Save sidecar watcher directory: {directory}");
         }
 
-        return new SaveDirectoryWatcher(directories, config.LogDirectory, config.GameWorkingDirectory, log);
+        return new SaveDirectoryWatcher(config, patchPlan, projectRoot, directories, log);
     }
 
     public void WaitForGameExit(int processId, int afterExitSeconds)
@@ -553,6 +564,11 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         if (!string.IsNullOrWhiteSpace(stateReportPath))
         {
             CountEvent("save.state_report_written");
+            if (_config.SaveEventBridgeEnabled)
+            {
+                var bridgeReport = SaveEventBridge.Execute(_config, _patchPlan, _log, stateReportPath, _projectRoot, null);
+                CountEvent(bridgeReport.Succeeded ? "save.event_bridge_completed" : "save.event_bridge_failed");
+            }
         }
     }
 

@@ -4,7 +4,9 @@ internal sealed partial class SaveDirectoryWatcher
 {
     private static partial class SaveStateExporter
     {
-        private static SaveStateProgressionFacts BuildProgressionFacts(SaveStateFileReport? progression)
+        private static SaveStateProgressionFacts BuildProgressionFacts(
+            SaveStateFileReport? progression,
+            ContentHashCatalog contentHashCatalog)
         {
             if (progression is null)
             {
@@ -23,9 +25,11 @@ internal sealed partial class SaveDirectoryWatcher
                 TryGetInt(progression, "base_root.total_successful_quests_finished"),
                 TryGetInt(progression, "base_root.total_recruited_stage_coach_heroes"),
                 TryGetInt(progression, "base_root.last_quest_played_id"),
+                ResolveHashValue(TryGetInt(progression, "base_root.last_quest_played_id"), contentHashCatalog),
                 TryGetBool(progression, "base_root.last_quest_played_successfully"),
                 TryGetInt(progression, "base_root.last_quest_played_xp"),
                 TryGetInt(progression, "base_root.last_raid_quest_id"),
+                ResolveHashValue(TryGetInt(progression, "base_root.last_raid_quest_id"), contentHashCatalog),
                 TryGetBool(progression, "base_root.last_raid_success"),
                 TryGetBool(progression, "base_root.last_raid_was_a_plot_quest"),
                 new SaveStateProgressionInfestationFacts(
@@ -57,6 +61,8 @@ internal sealed partial class SaveDirectoryWatcher
         {
             return new SaveStateProgressionFacts(
                 version,
+                null,
+                null,
                 null,
                 null,
                 null,

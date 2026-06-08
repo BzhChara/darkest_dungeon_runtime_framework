@@ -455,7 +455,7 @@ internal sealed partial class SaveDirectoryWatcher
 
                     definitions.Add(new UpgradeTreeDefinition(
                         id,
-                        HashDsonName(id),
+                        DsonHash.HashName(id),
                         isInstanced,
                         tags,
                         relativePath,
@@ -511,7 +511,7 @@ internal sealed partial class SaveDirectoryWatcher
                         var id = $"{heroClass}.{skillId}";
                         definitions.Add(new UpgradeTreeDefinition(
                             id,
-                            HashDsonName(id),
+                            DsonHash.HashName(id),
                             true,
                             ["camping_skill"],
                             relativePath,
@@ -546,7 +546,7 @@ internal sealed partial class SaveDirectoryWatcher
                         continue;
                     }
 
-                    var treeId = TryGetUInt(purchaseProperty.Value, "tree_id") ?? HashDsonName(purchaseProperty.Name);
+                    var treeId = TryGetUInt(purchaseProperty.Value, "tree_id") ?? DsonHash.HashName(purchaseProperty.Name);
                     definitions.Add(new UpgradeTreeDefinition(
                         purchaseProperty.Name,
                         treeId,
@@ -774,20 +774,6 @@ internal sealed partial class SaveDirectoryWatcher
                     ? value
                     : null;
             }
-        }
-
-        private static uint HashDsonName(string value)
-        {
-            var hash = 0u;
-            foreach (var b in Encoding.UTF8.GetBytes(value))
-            {
-                unchecked
-                {
-                    hash = hash * 53u + b;
-                }
-            }
-
-            return hash;
         }
 
         private sealed record UpgradeDefinitionLookup(

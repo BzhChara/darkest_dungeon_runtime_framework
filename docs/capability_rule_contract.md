@@ -11,6 +11,7 @@ This document defines the generic runtime rule model. It is intentionally not a 
 - The first safe action executor supports sidecar state primitives and the fixed-stage challenge state primitives. Managed game mutation actions still report as unsupported.
 - Implemented safe actions validate their declared arguments strictly. Missing referenced `event.*` or `state.*` paths, invalid explicit argument types, and missing definition files fail the action and are written to `logs/runtime_event_report.json`.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
+- `--infer-save-events` can translate a save state report into framework events for implemented observe-first bridges. The first bridge maps last-raid progression facts to `challenge.stage_completed` or `challenge.stage_failed` for a matching stage `sourceQuestId`.
 - Runtime hooks are currently observe-first. Intercepting game flow remains capability-gated work.
 
 ## Core Model
@@ -302,7 +303,7 @@ The next code slice should stay generic:
 3. Add validation manifests for quest draft, fixed-stage challenge runs, and delayed building upgrades. Done as declaration-level framework acceptance scenarios.
 4. Add a capability registry document or JSON schema.
 5. Add sidecar state file read/write with no gameplay actions. Initial `--init-mod-state` / `--dump-mod-state` support is implemented.
-6. Add an observe-only event bus sourced from existing save watcher/runtime logs.
+6. Add an observe-only event bus sourced from existing save watcher/runtime logs. Initial save-state-report to runtime-event bridge exists for last-raid challenge stage results.
 7. Add a no-op action executor for `log.*` and `state.*`. Initial `--emit-event` support now executes implemented safe state actions against sidecar state.
 
 Only after that should gameplay experiments be expressed as ordinary rules.
