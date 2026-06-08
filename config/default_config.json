@@ -3,6 +3,7 @@
   "gameWorkingDirectory": "E:/Steam/steamapps/common/DarkestDungeon",
   "runtimeDllPath": "./runtime/bin/x64/Release/RuntimeHook.dll",
   "logDirectory": "./logs",
+  "modStateDirectory": "./state/mod_state",
   "enableInjection": true,
   "killGameOnInjectionFailure": false,
   "startSuspendedForInjection": true,

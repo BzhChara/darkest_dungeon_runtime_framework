@@ -6,6 +6,7 @@ internal sealed class PatchPlan
         IReadOnlyList<PatchManifestInfo> manifests,
         IReadOnlyList<PluginLoadRule> loadRules,
         IReadOnlyList<PluginLoadDiagnostic> loadDiagnostics,
+        IReadOnlyList<PluginStateSchemaSource> stateSchemas,
         IReadOnlyList<VirtualFileRuleSource> sourceVirtualFileRules,
         IReadOnlyList<VirtualFileRuleSkip> skippedVirtualFileRules,
         IReadOnlyList<RuntimeEventRuleSource> sourceRuntimeEventRules,
@@ -16,6 +17,7 @@ internal sealed class PatchPlan
         Manifests = manifests;
         LoadRules = loadRules;
         LoadDiagnostics = loadDiagnostics;
+        StateSchemas = stateSchemas;
         SourceVirtualFileRules = sourceVirtualFileRules;
         SkippedVirtualFileRules = skippedVirtualFileRules;
         SourceRuntimeEventRules = sourceRuntimeEventRules;
@@ -27,6 +29,7 @@ internal sealed class PatchPlan
     public IReadOnlyList<PatchManifestInfo> Manifests { get; }
     public IReadOnlyList<PluginLoadRule> LoadRules { get; }
     public IReadOnlyList<PluginLoadDiagnostic> LoadDiagnostics { get; }
+    public IReadOnlyList<PluginStateSchemaSource> StateSchemas { get; }
     public IReadOnlyList<VirtualFileRuleSource> SourceVirtualFileRules { get; }
     public IReadOnlyList<VirtualFileRuleSkip> SkippedVirtualFileRules { get; }
     public IReadOnlyList<RuntimeEventRuleSource> SourceRuntimeEventRules { get; }
@@ -273,6 +276,13 @@ internal sealed record PluginLoadDiagnostic(
     string PluginId,
     string RelatedId,
     string Message);
+
+internal sealed record PluginStateSchemaSource(
+    string PluginId,
+    string SourceName,
+    string SourcePath,
+    int LoadOrder,
+    IReadOnlyDictionary<string, JsonElement> StateSchema);
 
 internal sealed class PluginLoadPlan
 {

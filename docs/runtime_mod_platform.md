@@ -97,7 +97,7 @@ ui.widget_created
 默认采用旁路存档：
 
 ```text
-saves/<campaign_id>/runtime_mod_state.json
+state/mod_state/<plugin-id>.json
 ```
 
 状态命名空间按插件隔离：
@@ -125,6 +125,7 @@ saves/<campaign_id>/runtime_mod_state.json
 原则：
 
 - 默认不改原存档结构。
+- 初始实现先存放在框架项目目录下，避免污染原版 profile；后续可以按 campaign/run/profile 再分层。
 - 原存档写入前后都要有日志。
 - 旁路状态损坏时，默认禁用相关插件状态并 warning，不破坏原存档。
 - 插件卸载后，其状态保留但不执行，便于回退。
@@ -233,6 +234,7 @@ save.attach_sidecar_state
 
 ```text
 --trace-events
+--init-mod-state
 --dump-mod-state
 --reset-mod-state <mod-id>
 --explain <target-or-event>
@@ -444,7 +446,7 @@ state.storyFlags
 1. 保持文件虚拟化、验证、预览稳定。
 2. 设计并实现插件加载顺序和依赖图，但默认兼容优先。
 3. 做事件探针，只记录不改逻辑。
-4. 做旁路 Mod 状态存档。
+4. 做旁路 Mod 状态存档。当前已有启动器级 `--init-mod-state` / `--dump-mod-state` 初始读写。
 5. 做最小事件规则执行器。
 6. 选择一个 PoC：固定关卡挑战适合作为第一个玩法 dry-run，因为它先验证 facts、sidecar state、选择过滤和状态推进，不需要马上拦截真实 UI。
 7. 再做建筑升级等待，因为它验证事件、状态、跨周推进和 UI 提示。

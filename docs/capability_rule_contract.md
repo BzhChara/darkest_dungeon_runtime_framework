@@ -5,7 +5,8 @@ This document defines the generic runtime rule model. It is intentionally not a 
 ## Current Status
 
 - `virtualFileRules` are implemented and executable.
-- `eventRules` and `stateSchema` are manifest-level declaration carriers only. They are parsed and reported by the loader, but no runtime event executor exists yet.
+- `eventRules` are manifest-level declaration carriers only. They are parsed and reported by the loader, but no runtime event executor exists yet.
+- `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
 - `--explain-rules` reports declared `eventRules`, required capabilities, action capabilities, and skip reasons.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
 - Runtime hooks are currently observe-first. Intercepting game flow remains capability-gated work.
@@ -214,7 +215,8 @@ Sidecar state rules:
 - State writes are atomic and logged.
 - Corrupt sidecar state disables the affected plugin state namespace, not the original campaign save.
 - Plugin uninstall keeps state unless the user explicitly resets it.
-- The framework must expose `--dump-mod-state` and `--reset-mod-state <mod-id>` before stateful runtime mods are considered user-ready.
+- Initial launcher support writes `state/mod_state/<plugin-id>.json` and reports state through `--dump-mod-state`.
+- A destructive `--reset-mod-state <mod-id>` should be added only after policy and backup behavior are explicit.
 
 ## Capability Contract
 
@@ -295,7 +297,7 @@ The next code slice should stay generic:
 2. Add `--explain-rules` to print declared rules, required capabilities, and skipped reasons. Done for manifest-level rule declarations.
 3. Add validation manifests for quest draft, fixed-stage challenge runs, and delayed building upgrades. Done as declaration-level framework acceptance scenarios.
 4. Add a capability registry document or JSON schema.
-5. Add sidecar state file read/write with no gameplay actions.
+5. Add sidecar state file read/write with no gameplay actions. Initial `--init-mod-state` / `--dump-mod-state` support is implemented.
 6. Add an observe-only event bus sourced from existing save watcher/runtime logs.
 7. Add a no-op action executor for `log.*` and `state.*`.
 

@@ -20,6 +20,7 @@ internal static class Program
             log.Info($"Game executable: {config.GameExecutablePath}");
             log.Info($"Game working directory: {config.GameWorkingDirectory}");
             log.Info($"Runtime DLL: {config.RuntimeDllPath}");
+            log.Info($"Mod state directory: {config.ModStateDirectory}");
             log.Info($"Injection enabled: {config.EnableInjection && !options.NoInject}");
             log.Info($"Start suspended for injection: {config.StartSuspendedForInjection && config.EnableInjection && !options.NoInject}");
 
@@ -32,7 +33,12 @@ internal static class Program
             if (patchPlan.CompileIssues.Count > 0)
             {
                 patchPlan.LogCompileIssues(log);
-                if ((patchPlan.HasCompileErrors || options.StrictPatches) && !options.ListPatches && !options.ExplainPatches && !options.ExplainRules)
+                if ((patchPlan.HasCompileErrors || options.StrictPatches) &&
+                    !options.ListPatches &&
+                    !options.ExplainPatches &&
+                    !options.ExplainRules &&
+                    !options.InitModState &&
+                    !options.DumpModState)
                 {
                     return 3;
                 }
@@ -68,10 +74,27 @@ internal static class Program
                 PatchPreviewer.WritePreview(config, patchPlan, previewOutput, log);
             }
 
-            if (options.ListPatches || options.ExplainPatches || options.ExplainRules || options.ValidateOnly || options.PreviewPatches)
+            var modStateSucceeded = true;
+            if (options.InitModState)
             {
-                log.Info("Patch inspection requested. No process was started.");
-                return 0;
+                modStateSucceeded &= ModStateStore.InitializeDefaults(config, patchPlan, log, options.ModStateId).Succeeded;
+            }
+
+            if (options.DumpModState)
+            {
+                modStateSucceeded &= ModStateStore.Dump(config, patchPlan, log, options.ModStateId).Succeeded;
+            }
+
+            if (options.ListPatches ||
+                options.ExplainPatches ||
+                options.ExplainRules ||
+                options.ValidateOnly ||
+                options.PreviewPatches ||
+                options.InitModState ||
+                options.DumpModState)
+            {
+                log.Info("Inspection requested. No process was started.");
+                return modStateSucceeded ? 0 : 3;
             }
 
             var runtimeEnvironment = config.BuildRuntimeEnvironment(projectRoot, patchPlan);
@@ -208,7 +231,14 @@ internal static class Program
         if (!Directory.Exists(config.GameWorkingDirectory))
             throw new DirectoryNotFoundException($"Game working directory was not found: {config.GameWorkingDirectory}");
 
-        var willStartGame = !options.DryRun && !options.ListPatches && !options.ExplainPatches && !options.ExplainRules && !options.ValidateOnly && !options.PreviewPatches;
+        var willStartGame = !options.DryRun &&
+            !options.ListPatches &&
+            !options.ExplainPatches &&
+            !options.ExplainRules &&
+            !options.ValidateOnly &&
+            !options.PreviewPatches &&
+            !options.InitModState &&
+            !options.DumpModState;
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))
             throw new FileNotFoundException("Runtime DLL was not found. Build runtime/RuntimeHook.vcxproj first.", config.RuntimeDllPath);
 

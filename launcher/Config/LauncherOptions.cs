@@ -14,6 +14,9 @@ internal sealed class LauncherOptions
     public bool ValidateOnly { get; private set; }
     public bool PreviewPatches { get; private set; }
     public bool StrictPatches { get; private set; }
+    public bool InitModState { get; private set; }
+    public bool DumpModState { get; private set; }
+    public string? ModStateId { get; private set; }
     public string? PreviewOutputPath { get; private set; }
 
     public static LauncherOptions Parse(string[] args)
@@ -59,6 +62,15 @@ internal sealed class LauncherOptions
                     break;
                 case "--strict-patches":
                     options.StrictPatches = true;
+                    break;
+                case "--init-mod-state":
+                    options.InitModState = true;
+                    break;
+                case "--dump-mod-state":
+                    options.DumpModState = true;
+                    break;
+                case "--mod-state-id":
+                    options.ModStateId = RequireValue(args, ref i, "--mod-state-id");
                     break;
                 case "--preview-output":
                     options.PreviewOutputPath = RequireValue(args, ref i, "--preview-output");

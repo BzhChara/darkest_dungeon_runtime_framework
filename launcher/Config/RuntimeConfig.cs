@@ -14,6 +14,9 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("logDirectory")]
     public string LogDirectory { get; set; } = string.Empty;
 
+    [JsonPropertyName("modStateDirectory")]
+    public string ModStateDirectory { get; set; } = "./state/mod_state";
+
     [JsonPropertyName("enableInjection")]
     public bool EnableInjection { get; set; } = true;
 
@@ -119,10 +122,17 @@ internal sealed partial class RuntimeConfig
         GameWorkingDirectory = ResolvePath(projectRoot, GameWorkingDirectory);
         RuntimeDllPath = ResolvePath(projectRoot, RuntimeDllPath);
         LogDirectory = ResolvePath(projectRoot, LogDirectory);
+        ModStateDirectory = ResolvePath(projectRoot, ModStateDirectory);
+        if (!IsInsideDirectory(projectRoot, ModStateDirectory))
+        {
+            throw new InvalidOperationException($"modStateDirectory must stay inside project root: {ModStateDirectory}");
+        }
+
         SaveWatchDirectories = SaveWatchDirectories
             .Select(path => ResolvePath(projectRoot, path))
             .ToArray();
         Directory.CreateDirectory(LogDirectory);
+        Directory.CreateDirectory(ModStateDirectory);
     }
 
     private static string ResolvePath(string basePath, string path)

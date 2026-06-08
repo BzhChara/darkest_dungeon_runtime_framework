@@ -6,6 +6,8 @@
 *.log
 logs/*
 !logs/.gitkeep
+state/*
+!state/.gitkeep
 .research/
 runtime/bin/
 runtime/obj/

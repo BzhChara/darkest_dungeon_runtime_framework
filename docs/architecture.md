@@ -63,7 +63,7 @@ C++ DLL。
 - 每个插件目录读取一个 `patches.json`。
 - `enabled:false` 的清单只记录日志，不参与规则合并。
 - `enabled:true` 的清单可提供 `id`、`version`、`capabilities`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts` 和 `virtualFileRules`。
-- 清单现在也可以声明 `eventRules` 和 `stateSchema`，但它们暂时只作为通用规则契约载体解析和展示，不参与执行。
+- 清单现在也可以声明 `eventRules` 和 `stateSchema`。`eventRules` 暂时只作为通用规则契约载体解析和展示；`stateSchema` 可初始化/读取到框架 sidecar 状态目录，但还不参与规则执行。
 - 重复 `id`、声明冲突和顺序循环默认只记录 warning；必需依赖缺失时跳过当前插件，不阻止其他插件。
 - `virtualFileRules` 可使用 `when.modsPresent` / `when.modsAbsent` / `when.capabilitiesPresent` / `when.capabilitiesAbsent` 做规则级条件；条件不满足的规则只进入 explain 诊断，不参与最终补丁链。
 - `operations` 会在启动前按加载顺序、基于当前虚拟文本逐步编译成底层字符串 `replacements`。

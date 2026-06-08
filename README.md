@@ -39,6 +39,7 @@ runtime/                        C++ RuntimeHook.dll
 runtime/hooks/                  Hook 模块接口
 plugins/                        插件补丁清单目录
 logs/                           启动器和 DLL 日志
+state/                          框架 sidecar 状态目录，运行生成内容默认不进 git
 docs/architecture.md            架构说明
 ```
 
@@ -152,6 +153,30 @@ logs/save_file_maps/<sessionId>.json
 ```
 
 文件地图会扫描 active profile 下 live/backup 的所有 `persist*.json`，标出是否属于当前核心候选、优先级、类别、mod 相关性、当前覆盖程度、DSON 摘要和访问问题。它用于决定后续解码顺序，不代表对应文件已经有完整语义模型。
+
+## 框架 Mod 状态存档
+
+运行时 Mod 自己需要的状态不写进原版 `profile_*`。启动器会把插件 `stateSchema` 初始化到独立目录：
+
+```json
+"modStateDirectory": "./state/mod_state"
+```
+
+相对路径会解析到框架项目根目录下，并且必须留在项目目录内，避免误写到游戏目录或 Steam userdata。生成的状态文件默认被 `.gitignore` 忽略。
+
+状态命令：
+
+```text
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --init-mod-state --no-inject
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --dump-mod-state --no-inject
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --mod-state-id validation.challenge_run_contract --init-mod-state --dump-mod-state --no-inject
+```
+
+- `--init-mod-state`：按当前启用插件的 `stateSchema` 创建或合并默认键，不清空已有状态。
+- `--dump-mod-state`：读取当前 sidecar 状态，输出摘要并写入 `logs/mod_state_dump_report.json`。
+- `--mod-state-id <plugin-id>`：只处理指定插件的状态。
+
+单个插件默认写入 `state/mod_state/<plugin-id>.json`。如果多个启用插件重复同一 `id`，文件名会追加 manifest 路径哈希，避免互相覆盖。
 
 ## 虚拟文件原型
 
