@@ -406,6 +406,17 @@ internal static class RuntimeEventExecutor
             "quest.injectFixedStage" => BuildQuestInjectFixedStagePlan(action, document, payload),
             "roster.filterAvailableHeroes" => BuildAvailabilityFilterPlan(action, document, payload, "roster.heroes", "hero"),
             "equipment.filterAvailableTrinkets" => BuildAvailabilityFilterPlan(action, document, payload, "equipment.trinkets", "trinket"),
+            "roster.ensureClassInstances" => BuildGenericManagedActionPlan(action, document, payload, "ensureClassInstances", "profile.roster"),
+            "roster.setProgression" => BuildGenericManagedActionPlan(action, document, payload, "setProgression", "profile.roster"),
+            "roster.setSkillUnlocks" => BuildGenericManagedActionPlan(action, document, payload, "setSkillUnlocks", "profile.roster"),
+            "stagecoach.suppressRecruits" => BuildGenericManagedActionPlan(action, document, payload, "suppressRecruits", "profile.stagecoach"),
+            "estate.ensureInventoryCounts" => BuildGenericManagedActionPlan(action, document, payload, "ensureInventoryCounts", "profile.estate.inventory"),
+            "wallet.setCurrencyAmount" => BuildGenericManagedActionPlan(action, document, payload, "setCurrencyAmount", "profile.wallet"),
+            "inventory.disableItemSale" => BuildGenericManagedActionPlan(action, document, payload, "disableItemSale", "profile.inventory"),
+            "town.unlockAllBuildings" => BuildGenericManagedActionPlan(action, document, payload, "unlockAllBuildings", "profile.town"),
+            "town.setBuildingLevels" => BuildGenericManagedActionPlan(action, document, payload, "setBuildingLevels", "profile.town"),
+            "townEvent.overrideCurrent" => BuildGenericManagedActionPlan(action, document, payload, "overrideCurrent", "profile.townEvent"),
+            "questBoard.replaceWithFixedSet" => BuildGenericManagedActionPlan(action, document, payload, "replaceWithFixedSet", "profile.questBoard"),
             _ => throw new InvalidOperationException($"managed action type is not plannable: {type}")
         };
     }
@@ -515,6 +526,90 @@ internal static class RuntimeEventExecutor
             ["lockedCount"] = lockedCount,
             ["items"] = rows
         };
+    }
+
+    private static JsonObject BuildGenericManagedActionPlan(
+        RuntimeRuleAction action,
+        ModStateDocument document,
+        JsonObject payload,
+        string effect,
+        string defaultTarget)
+    {
+        var arguments = ResolveManagedActionArguments(action, document.State, payload);
+        var target = defaultTarget;
+        if (arguments["target"] is JsonValue targetValue &&
+            targetValue.TryGetValue<string>(out var targetText) &&
+            !string.IsNullOrWhiteSpace(targetText))
+        {
+            target = targetText;
+        }
+
+        return new JsonObject
+        {
+            ["kind"] = action.Type,
+            ["effect"] = effect,
+            ["target"] = target,
+            ["arguments"] = arguments
+        };
+    }
+
+    private static JsonObject ResolveManagedActionArguments(RuntimeRuleAction action, JsonObject state, JsonObject payload)
+    {
+        var arguments = new JsonObject();
+        foreach (var pair in action.Args)
+        {
+            var node = JsonNode.Parse(pair.Value.GetRawText());
+            arguments[pair.Key] = ResolveManagedActionArgumentNode(action, pair.Key, node, state, payload);
+        }
+
+        return arguments;
+    }
+
+    private static JsonNode? ResolveManagedActionArgumentNode(
+        RuntimeRuleAction action,
+        string argName,
+        JsonNode? node,
+        JsonObject state,
+        JsonObject payload)
+    {
+        if (node is JsonValue value && value.TryGetValue<string>(out var text))
+        {
+            if (text.StartsWith("event.", StringComparison.OrdinalIgnoreCase))
+            {
+                return RequirePath(payload, text["event.".Length..], "event", action, argName);
+            }
+
+            if (text.StartsWith("state.", StringComparison.OrdinalIgnoreCase))
+            {
+                return RequirePath(state, text["state.".Length..], "state", action, argName);
+            }
+
+            return JsonValue.Create(text);
+        }
+
+        if (node is JsonArray array)
+        {
+            var resolved = new JsonArray();
+            foreach (var item in array)
+            {
+                resolved.Add(ResolveManagedActionArgumentNode(action, argName, item, state, payload));
+            }
+
+            return resolved;
+        }
+
+        if (node is JsonObject obj)
+        {
+            var resolved = new JsonObject();
+            foreach (var property in obj)
+            {
+                resolved[property.Key] = ResolveManagedActionArgumentNode(action, $"{argName}.{property.Key}", property.Value, state, payload);
+            }
+
+            return resolved;
+        }
+
+        return CloneNode(node);
     }
 
     private static JsonArray ResolveSourceArray(RuntimeRuleAction action, string argName, string source, JsonObject state, JsonObject payload)
@@ -1192,7 +1287,18 @@ internal static class RuntimeEventExecutor
         return type is
             "quest.injectFixedStage" or
             "roster.filterAvailableHeroes" or
-            "equipment.filterAvailableTrinkets";
+            "equipment.filterAvailableTrinkets" or
+            "roster.ensureClassInstances" or
+            "roster.setProgression" or
+            "roster.setSkillUnlocks" or
+            "stagecoach.suppressRecruits" or
+            "estate.ensureInventoryCounts" or
+            "wallet.setCurrencyAmount" or
+            "inventory.disableItemSale" or
+            "town.unlockAllBuildings" or
+            "town.setBuildingLevels" or
+            "townEvent.overrideCurrent" or
+            "questBoard.replaceWithFixedSet";
     }
 
     private static ModStateDocument? GetStateDocument(

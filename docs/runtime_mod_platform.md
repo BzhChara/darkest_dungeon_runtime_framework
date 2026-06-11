@@ -162,7 +162,7 @@ state/mod_state/<plugin-id>.json
 - managed：通过已知游戏 API 或已验证 Hook 改结果。
 - risky：内存补丁、深层流程替换、UI 强改。默认需要显式启用。
 
-当前第一批 managed 动作仍采用 observe-first 物化：`quest.injectFixedStage`、`roster.filterAvailableHeroes` 和 `equipment.filterAvailableTrinkets` 会写入 `modStateDirectory/_managed_actions/`。启动器已经能把 `quest.injectFixedStage` artifact 编译成 `logs/managed_action_overlay_manifest.json`，并把 manifest 路径和计数传给 RuntimeHook 做诊断；同时会为 `campaign/quest/quest.plot_quests.json` 追加一条虚拟文件替换，把当前 fixed stage 的源 plot quest 强制为早期可用、可重复。真正控制任务列表、过滤英雄或过滤饰品仍是后续能力。
+当前第一批 managed 动作仍采用 observe-first 物化：`quest.injectFixedStage`、`roster.filterAvailableHeroes`、`equipment.filterAvailableTrinkets` 以及 boss gauntlet 的 profile-normalization 动作会写入 `modStateDirectory/_managed_actions/`。启动器已经能把 `quest.injectFixedStage` artifact 编译成 `logs/managed_action_overlay_manifest.json`，并把 manifest 路径和计数传给 RuntimeHook 做诊断；同时会为 `campaign/quest/quest.plot_quests.json` 追加一条虚拟文件替换，把当前 fixed stage 的源 plot quest 强制为早期可用、可重复。profile-normalization、任务板、英雄过滤或饰品过滤 artifact 当前仍需要后续 runtime consumer。
 
 第一批动作候选：
 

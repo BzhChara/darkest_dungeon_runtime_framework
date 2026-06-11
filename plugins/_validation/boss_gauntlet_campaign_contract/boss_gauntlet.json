@@ -8,6 +8,10 @@
   "heroCopiesPerClass": 2,
   "heroLevel": "max",
   "skills": "all_unlocked_and_maxed",
+  "heroQuirks": {
+    "positive": "full_random",
+    "negative": "one_random"
+  },
   "trinketCopies": 2,
   "trinketSaleDisabled": true,
   "stageCoachRecruits": "suppressed",

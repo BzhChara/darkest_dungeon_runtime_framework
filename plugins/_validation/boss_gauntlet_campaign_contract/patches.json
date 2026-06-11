@@ -46,6 +46,17 @@
       "requiresCapabilities": [
         "state.sidecar",
         "profile.detect_new_or_uninitialized",
+        "roster.ensure_class_instances",
+        "roster.set_progression",
+        "roster.set_skill_unlocks",
+        "stagecoach.suppress_recruits",
+        "estate.ensure_inventory_counts",
+        "wallet.set_currency_amount",
+        "inventory.disable_item_sale",
+        "town.unlock_all_buildings",
+        "town.set_building_levels",
+        "town_event.override_current",
+        "quest_board.replace_with_fixed_set",
         "profile.mark_initialized"
       ],
       "when": {
@@ -67,6 +78,129 @@
             "stateKey": "bossGauntlet",
             "definition": "boss_gauntlet.json",
             "overwriteExisting": true
+          }
+        },
+        {
+          "type": "roster.ensureClassInstances",
+          "capability": "roster.ensure_class_instances",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.roster",
+            "classSource": "content.hero_classes.enabled",
+            "copiesPerClass": "state.bossGauntlet.heroCopiesPerClass",
+            "level": "state.bossGauntlet.heroLevel",
+            "positiveQuirks": "state.bossGauntlet.heroQuirks.positive",
+            "negativeQuirks": "state.bossGauntlet.heroQuirks.negative"
+          }
+        },
+        {
+          "type": "roster.setProgression",
+          "capability": "roster.set_progression",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.roster",
+            "level": "state.bossGauntlet.heroLevel",
+            "equipment": "max",
+            "resolveXp": "max"
+          }
+        },
+        {
+          "type": "roster.setSkillUnlocks",
+          "capability": "roster.set_skill_unlocks",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.roster",
+            "skills": "state.bossGauntlet.skills"
+          }
+        },
+        {
+          "type": "stagecoach.suppressRecruits",
+          "capability": "stagecoach.suppress_recruits",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.stagecoach",
+            "mode": "state.bossGauntlet.stageCoachRecruits"
+          }
+        },
+        {
+          "type": "estate.ensureInventoryCounts",
+          "capability": "estate.ensure_inventory_counts",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.estate.inventory",
+            "itemKind": "trinket",
+            "source": "content.trinkets.enabled",
+            "count": "state.bossGauntlet.trinketCopies"
+          }
+        },
+        {
+          "type": "wallet.setCurrencyAmount",
+          "capability": "wallet.set_currency_amount",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.wallet",
+            "currency": "gold",
+            "amount": "state.bossGauntlet.initialGold"
+          }
+        },
+        {
+          "type": "inventory.disableItemSale",
+          "capability": "inventory.disable_item_sale",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.inventory",
+            "itemKind": "trinket",
+            "disabled": "state.bossGauntlet.trinketSaleDisabled"
+          }
+        },
+        {
+          "type": "town.unlockAllBuildings",
+          "capability": "town.unlock_all_buildings",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.town",
+            "mode": "state.bossGauntlet.townBuildings"
+          }
+        },
+        {
+          "type": "town.setBuildingLevels",
+          "capability": "town.set_building_levels",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.town",
+            "level": "max"
+          }
+        },
+        {
+          "type": "townEvent.overrideCurrent",
+          "capability": "town_event.override_current",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.town_event",
+            "event": "state.bossGauntlet.townEvent"
+          }
+        },
+        {
+          "type": "questBoard.replaceWithFixedSet",
+          "capability": "quest_board.replace_with_fixed_set",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.quest_board",
+            "questIds": "state.bossGauntlet.fixedQuestIds",
+            "quests": "state.bossGauntlet.fixedBossQuests",
+            "removeCompleted": true,
+            "completedStateKey": "bossGauntlet.completedQuestIds"
           }
         },
         {

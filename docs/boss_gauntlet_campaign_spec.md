@@ -208,6 +208,8 @@ The exact action names can change during implementation. The important constrain
 6. Add runtime consumers one by one, starting with fixed quest board enforcement and pre-finale hero/trinket availability enforcement.
 7. Only after diagnostics and tests are stable, consider original-save write capabilities for profile normalization. Those writes must be schema-verified, logged, reversible, and gated as managed or risky capabilities.
 
+Current implementation status: steps 1-3 are represented in the validation plugin and safe sidecar executor. Step 5 now has observe-first managed artifacts for profile normalization, including roster shape, progression, skills, stagecoach suppression, trinket inventory counts, starting gold, trinket-sale lockout, town state, town event override, and fixed quest board. These artifacts are plans only; no original save mutation or runtime enforcement happens until later consumers are added.
+
 ## Open Design Points
 
 - Exact boss quest set should be content-derived, but fixtures may start with explicit original quest ids.

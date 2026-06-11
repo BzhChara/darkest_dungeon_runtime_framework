@@ -69,6 +69,49 @@ function Read-BossGauntletState {
     return $document.state.bossGauntlet
 }
 
+function Read-RuntimeEventReport {
+    $path = Join-Path $projectRoot.Path "logs\runtime_event_report.json"
+    Assert-True (Test-Path -LiteralPath $path) "Runtime event report was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
+function Get-ActionReport {
+    param(
+        [object]$Report,
+        [string]$Type
+    )
+
+    $actions = @(Convert-ToArray $Report.rules | ForEach-Object {
+        Convert-ToArray $_.actions
+    } | Where-Object {
+        $_.type -eq $Type
+    })
+
+    Assert-True ($actions.Count -eq 1) "Expected exactly one action report for '$Type', found $($actions.Count)."
+    return $actions[0]
+}
+
+function Read-ManagedActionArtifact {
+    param(
+        [object]$Action,
+        [string]$ExpectedType
+    )
+
+    Assert-True ($Action.status -eq "materialized") "Managed action '$ExpectedType' should be materialized."
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$Action.artifactPath)) "Managed action '$ExpectedType' should include an artifact path."
+
+    $artifactPath = [System.IO.Path]::GetFullPath([string]$Action.artifactPath)
+    $resolvedStateRoot = [System.IO.Path]::GetFullPath($stateRoot)
+    Assert-True ($artifactPath.StartsWith($resolvedStateRoot, [System.StringComparison]::OrdinalIgnoreCase)) "Managed action artifact should stay inside this test state root: $artifactPath"
+    Assert-True (Test-Path -LiteralPath $artifactPath -PathType Leaf) "Managed action artifact was not written: $artifactPath"
+
+    $artifact = Get-Content -Raw -LiteralPath $artifactPath | ConvertFrom-Json
+    Assert-True ($artifact.status -eq "materialized") "Managed action artifact status should be materialized."
+    Assert-True ($artifact.action.type -eq $ExpectedType) "Managed action artifact type mismatch."
+    Assert-True ($artifact.plan.kind -eq $ExpectedType) "Managed action artifact plan kind mismatch."
+    return $artifact
+}
+
 New-Item -ItemType Directory -Force -Path $testRoot, $payloadRoot | Out-Null
 
 $baseArgs = @(
@@ -93,6 +136,29 @@ Assert-True ([bool]$state.trinketSaleDisabled) "Initialization should disable tr
 Assert-True ((Convert-ToArray $state.fixedQuestIds).Count -eq 2) "Initialization should load the fixed boss quest ids from the definition."
 Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necromancer_3") "Fixed quest ids should include the Necromancer fixture quest."
 Assert-True ([bool]$state.finaleDoesNotReviveDeadHeroes) "Definition should record that finale unlock does not revive dead heroes."
+
+$initializationReport = Read-RuntimeEventReport
+Assert-True ([int]$initializationReport.materializedActionCount -eq 11) "Initialization should materialize eleven managed profile-normalization actions."
+
+$rosterAction = Get-ActionReport -Report $initializationReport -Type "roster.ensureClassInstances"
+$rosterArtifact = Read-ManagedActionArtifact -Action $rosterAction -ExpectedType "roster.ensureClassInstances"
+Assert-True ([int]$rosterArtifact.plan.arguments.copiesPerClass -eq 2) "Roster normalization should request two heroes per class."
+Assert-True ($rosterArtifact.plan.arguments.level -eq "max") "Roster normalization should request max-level heroes."
+Assert-True ($rosterArtifact.plan.arguments.positiveQuirks -eq "full_random") "Roster normalization should request full random positive quirks."
+Assert-True ($rosterArtifact.plan.arguments.negativeQuirks -eq "one_random") "Roster normalization should request one random negative quirk."
+
+$walletAction = Get-ActionReport -Report $initializationReport -Type "wallet.setCurrencyAmount"
+$walletArtifact = Read-ManagedActionArtifact -Action $walletAction -ExpectedType "wallet.setCurrencyAmount"
+Assert-True ([int]$walletArtifact.plan.arguments.amount -eq 20000) "Wallet normalization should request 20000 starting gold."
+
+$questBoardAction = Get-ActionReport -Report $initializationReport -Type "questBoard.replaceWithFixedSet"
+$questBoardArtifact = Read-ManagedActionArtifact -Action $questBoardAction -ExpectedType "questBoard.replaceWithFixedSet"
+Assert-True ((Convert-ToArray $questBoardArtifact.plan.arguments.questIds) -contains "plot_kill_necromancer_3") "Quest board normalization should include the Necromancer fixture quest."
+Assert-True ([bool]$questBoardArtifact.plan.arguments.removeCompleted) "Quest board normalization should request completed fixed quests to be removed."
+
+$townEventAction = Get-ActionReport -Report $initializationReport -Type "townEvent.overrideCurrent"
+$townEventArtifact = Read-ManagedActionArtifact -Action $townEventAction -ExpectedType "townEvent.overrideCurrent"
+Assert-True ($townEventArtifact.plan.arguments.event.message -eq "Enjoy the inferno") "Town event normalization should request the fixed event message."
 
 $deadHeroPayloadPath = Write-JsonPayload "dead_hero_observed.json" ([pscustomobject]@{
     heroIds = @("dead_hero_1")
@@ -133,6 +199,9 @@ Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "profile.initialization
 $state = Read-BossGauntletState
 Assert-True ([int]$state.wallet.gold -eq 30000) "Initialization must be idempotent and must not reset gold after the run has changed."
 Assert-True ((Convert-ToArray $state.completedQuestIds) -contains "plot_kill_necromancer_3") "Initialization must not clear completed boss quests."
+$reinitializationReport = Read-RuntimeEventReport
+Assert-True ([int]$reinitializationReport.materializedActionCount -eq 0) "Repeated initialization should not materialize profile-normalization actions after initialized=true."
+Assert-True ([int]$reinitializationReport.executedActionCount -eq 0) "Repeated initialization should not execute state initialization actions after initialized=true."
 
 $failedSelectionPayloadPath = Write-JsonPayload "selection_prophet_failed.json" ([pscustomobject]@{
     questId = "plot_kill_prophet_3"
