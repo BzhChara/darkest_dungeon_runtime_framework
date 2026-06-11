@@ -329,6 +329,82 @@ Assert-True ($executed.Count -eq 2) "Post-task campaign log bridge should execut
 Assert-True (($executed | Where-Object { $_.eventId -eq "challenge.stage_selection_confirmed" }).Count -eq 1) "Post-task campaign log bridge should emit challenge.stage_selection_confirmed."
 Assert-True (($executed | Where-Object { $_.eventId -eq "challenge.stage_completed" }).Count -eq 1) "Post-task campaign log bridge should emit challenge.stage_completed."
 
+$postTaskNoTrinketStateRoot = Join-Path $stateRoot "post_task_campaign_log_without_trinkets"
+New-Item -ItemType Directory -Force -Path $postTaskNoTrinketStateRoot | Out-Null
+$postTaskNoTrinketArgs = @(
+    "--config", (Resolve-ProjectPath $ConfigPath),
+    "--no-inject",
+    "--allow-non-atomic-state-writes",
+    "--mod-state-id", "validation.challenge_run_contract",
+    "--mod-state-dir", $postTaskNoTrinketStateRoot
+)
+
+Invoke-Loader -LoaderArgs ($postTaskNoTrinketArgs + @("--init-mod-state"))
+Invoke-Loader -LoaderArgs ($postTaskNoTrinketArgs + @("--emit-event", "challenge.run_started"))
+
+$campaignLogCompletedNoTrinketsReportPath = Write-JsonPayload "save_state_report_necromancer_campaign_log_completed_without_trinkets.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "save_event_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        progression = [pscustomobject]@{
+            lastRaidQuestId = $questHash
+            lastRaidQuest = [pscustomobject]@{
+                value = $questHash
+                isResolved = $true
+                isAmbiguous = $false
+                names = @($questId)
+            }
+            lastRaidSuccess = $true
+            lastRaidWasPlotQuest = $true
+        }
+        campaignLog = [pscustomobject]@{
+            partyRaidRecordCount = 1
+            completedPartyRaidRecordCount = 1
+            latestCompletedPartyRaidRecord = [pscustomobject]@{
+                questId = [pscustomobject]@{
+                    value = $questHash
+                    isResolved = $true
+                    isAmbiguous = $false
+                    names = @($questId)
+                }
+                start = $false
+                success = $true
+                heroCount = 4
+                heroGuids = @(1, 2, 7, 8)
+            }
+            partyRaidRecords = @(
+                [pscustomobject]@{
+                    questId = [pscustomobject]@{
+                        value = $questHash
+                        isResolved = $true
+                        isAmbiguous = $false
+                        names = @($questId)
+                    }
+                    start = $false
+                    success = $true
+                    heroCount = 4
+                    heroGuids = @(1, 2, 7, 8)
+                }
+            )
+        }
+        heroes = @(
+            [pscustomobject]@{ id = "1" },
+            [pscustomobject]@{ id = "2" },
+            [pscustomobject]@{ id = "7" },
+            [pscustomobject]@{ id = "8" }
+        )
+    }
+})
+
+Invoke-Loader -LoaderArgs ($postTaskNoTrinketArgs + @("--infer-save-events", "--save-state-report", $campaignLogCompletedNoTrinketsReportPath))
+
+$postTaskNoTrinketState = Read-ChallengeState -Root $postTaskNoTrinketStateRoot
+Assert-True ([int]$postTaskNoTrinketState.currentStageIndex -eq 1) "Post-task campaign log bridge should complete even when selected heroes have no trinketIds."
+Assert-True ((Convert-ToArray $postTaskNoTrinketState.usedHeroIds).Count -eq 4) "Post-task campaign log bridge should still consume inferred heroes without trinkets."
+Assert-True ((Convert-ToArray $postTaskNoTrinketState.usedTrinketIds).Count -eq 0) "Post-task campaign log bridge should treat missing trinketIds as an empty optional selection."
+
 $uninitializedStateRoot = Join-Path $stateRoot "uninitialized_challenge_state"
 New-Item -ItemType Directory -Force -Path $uninitializedStateRoot | Out-Null
 
@@ -379,9 +455,9 @@ Invoke-LoaderExpectExit -ExpectedExitCode 3 -LoaderArgs @(
 
 $bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
 $payloadFailed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "payload-failed" })
-Assert-True ($payloadFailed.Count -eq 7) "Bad payload projection rules should be reported as payload-failed."
+Assert-True ($payloadFailed.Count -eq 8) "Bad payload projection rules should be reported as payload-failed."
 $payloadIssues = @(Convert-ToArray $bridgeReport.issues | Where-Object { $_.code -eq "payload-build-failed" -and $_.severity -eq "error" })
-Assert-True ($payloadIssues.Count -eq 7) "Bad payload projection rules should produce payload-build-failed issues."
+Assert-True ($payloadIssues.Count -eq 8) "Bad payload projection rules should produce payload-build-failed issues."
 Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "Bad payload projection rules should not emit events."
 
 Write-Host "PASS: save event bridge inferred and executed challenge selection/completion."

@@ -85,6 +85,7 @@
             "valuesFromFact": "raid.party.heroGuids"
           },
           "selectMany": "trinketIds",
+          "selectManyMissing": "skip",
           "map": "stringArray",
           "distinct": true
         },
@@ -177,6 +178,7 @@
             "valuesFromFact": "campaignLog.latestCompletedPartyRaidRecord.heroGuids"
           },
           "selectMany": "trinketIds",
+          "selectManyMissing": "skip",
           "map": "stringArray",
           "distinct": true
         },

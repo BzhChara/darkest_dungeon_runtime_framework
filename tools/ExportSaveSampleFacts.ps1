@@ -49,6 +49,34 @@ function Convert-ToArray {
     return @($Value)
 }
 
+function ConvertTo-CamelCaseObject {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    if ($Value -is [System.Management.Automation.PSCustomObject]) {
+        $result = [ordered]@{}
+        foreach ($property in $Value.PSObject.Properties) {
+            $name = [string]$property.Name
+            if (-not [string]::IsNullOrEmpty($name)) {
+                $name = $name.Substring(0, 1).ToLowerInvariant() + $name.Substring(1)
+            }
+
+            $result[$name] = ConvertTo-CamelCaseObject $property.Value
+        }
+
+        return [pscustomobject]$result
+    }
+
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        return @($Value | ForEach-Object { ConvertTo-CamelCaseObject $_ })
+    }
+
+    return $Value
+}
+
 function Get-ScalarValue {
     param(
         [object]$FileReport,
@@ -108,7 +136,9 @@ $payload = [pscustomobject]@{
     accessIssues = @($accessIssues)
 }
 
-$payload | ConvertTo-Json -Depth 80 | Set-Content -LiteralPath $outputPath -Encoding UTF8
+$payloadJson = $payload | ConvertTo-Json -Depth 80
+$camelPayload = ConvertTo-CamelCaseObject ($payloadJson | ConvertFrom-Json)
+$camelPayload | ConvertTo-Json -Depth 80 | Set-Content -LiteralPath $outputPath -Encoding UTF8
 [pscustomobject]@{
     output = (Resolve-Path -LiteralPath $outputPath).Path
     sample = $sampleName

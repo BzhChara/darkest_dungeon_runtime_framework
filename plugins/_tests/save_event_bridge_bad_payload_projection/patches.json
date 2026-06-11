@@ -130,6 +130,23 @@
           "selectMany": "trinketIds"
         }
       }
+    },
+    {
+      "id": "select_many_missing_mode_must_be_valid",
+      "enabled": true,
+      "emit": "validation.bad_payload_event",
+      "when": {
+        "fact": "progression.lastRaidSuccess",
+        "op": "equals",
+        "value": true
+      },
+      "payload": {
+        "broken": {
+          "fromFact": "progression.lastRaidQuest.names",
+          "selectMany": "trinketIds",
+          "selectManyMissing": "ignore"
+        }
+      }
     }
   ],
   "eventRules": [],

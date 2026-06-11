@@ -294,7 +294,10 @@ internal static class SaveEventBridge
 
         if (TryGetStringProperty(element, "selectMany", out var selectManyPath))
         {
-            result = ApplySelectManyProjection(sourceRule, key, selectManyPath, result);
+            var missingMode = TryGetStringProperty(element, "selectManyMissing", out var configuredMissingMode)
+                ? configuredMissingMode
+                : "error";
+            result = ApplySelectManyProjection(sourceRule, key, selectManyPath, missingMode, result);
         }
 
         if (TryGetStringProperty(element, "map", out var map))
@@ -430,6 +433,7 @@ internal static class SaveEventBridge
         FactEventRuleSource sourceRule,
         string key,
         string path,
+        string missingMode,
         JsonNode? value)
     {
         if (value is not JsonArray sourceArray)
@@ -437,11 +441,22 @@ internal static class SaveEventBridge
             throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' selectMany requires an array source.");
         }
 
+        var skipMissing = missingMode.Trim().Equals("skip", StringComparison.OrdinalIgnoreCase);
+        if (!skipMissing && !missingMode.Trim().Equals("error", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' selectManyMissing must be 'error' or 'skip'.");
+        }
+
         var selected = new JsonArray();
         foreach (var item in sourceArray)
         {
             if (!TryGetPath(item, path, out var child))
             {
+                if (skipMissing)
+                {
+                    continue;
+                }
+
                 throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' selectMany item is missing path '{path}'.");
             }
 
