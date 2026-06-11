@@ -223,9 +223,10 @@ docs/boss_gauntlet_campaign_spec.md
 Goal:
 
 - Automatically initialize a newly created eligible save into a fixed-resource campaign on first entry. The initialized profile then saves normally and is not rebuilt on later entries.
-- Normalize the new save into two max-level heroes per class, all skills unlocked and upgraded, two of every trinket, fully unlocked and upgraded town, empty stage coach, and fixed or suppressed town events.
+- Normalize the new save into two max-level heroes per class, all skills unlocked and upgraded, two of every trinket, 20000 gold, fully unlocked and upgraded town, empty stage coach, disabled trinket selling, and fixed or suppressed town events.
 - Replace normal quest generation with a fixed simultaneous board of highest-difficulty non-Darkest boss quests.
 - Consume selected heroes and selected trinkets on any terminal boss attempt result, success or failure.
+- Add 10000 gold after each successful pre-finale boss quest.
 - Keep failed boss quests available, but do not restore the consumed selection or roll back original settlement consequences. If roster attrition makes the campaign unwinnable, the player deletes the save and starts a new one.
 - Remove defeated fixed boss quests without generating replacements.
 - Unlock the Darkest Dungeon finale after all fixed boss quests are defeated.
@@ -248,6 +249,7 @@ state.bossGauntlet.activeSelection
 action attempt.recordOnce
 action selection.consumeHeroes
 action selection.consumeTrinkets
+action wallet.addCurrencyOnEvent
 action quest.markCompletedIfSuccessful
 action state.transitionWhenAllCompleted
 action state.clearPaths
@@ -258,6 +260,9 @@ capability roster.set_progression
 capability roster.set_skill_unlocks
 capability stagecoach.suppress_recruits
 capability estate.ensure_inventory_counts
+capability wallet.set_currency_amount
+capability wallet.modify_currency
+capability inventory.disable_item_sale
 capability town.unlock_all_buildings
 capability town.set_building_levels
 capability town_event.override_current
@@ -273,12 +278,13 @@ Acceptance ladder:
 1. The scenario has a validation manifest draft and content-derived or fixture-defined boss quest set.
 2. The rule engine can simulate first-entry initialization and prove it is idempotent on later entries.
 3. The rule engine can simulate `quest.attempt_resolved` and consume selected heroes/trinkets on both success and failure.
-4. The rule engine can mark only successful boss attempts as completed and transition to `darkest_finale` when all fixed boss quests are completed.
-5. Save/content facts can report enough data for roster, trinket inventory, town state, quest board, campaign log, and Darkest Dungeon participation decisions.
-6. Managed action artifacts can describe the normalized roster, trinket inventory, town maxing, fixed quest board, and town-event override without mutating original saves.
-7. Runtime consumers enforce the fixed quest board and pre-finale hero/trinket availability.
-8. Managed original-save initialization, if introduced, is schema-verified, logged, idempotent, and does not restore later campaign failures.
-9. The finale phase can rely on original Darkest Dungeon entry restrictions where possible and only adds sidecar run-completion tracking.
+4. The rule engine can add the 10000 gold victory reward exactly once for each successful pre-finale boss attempt.
+5. The rule engine can mark only successful boss attempts as completed and transition to `darkest_finale` when all fixed boss quests are completed.
+6. Save/content facts can report enough data for roster, wallet, trinket inventory, trinket sale UI/actions, town state, quest board, campaign log, and Darkest Dungeon participation decisions.
+7. Managed action artifacts can describe the normalized roster, wallet, trinket inventory, town maxing, fixed quest board, trinket-sale lockout, and town-event override without mutating original saves.
+8. Runtime consumers enforce the fixed quest board, disabled trinket selling, wallet reward, and pre-finale hero/trinket availability.
+9. Managed original-save initialization, if introduced, is schema-verified, logged, idempotent, and does not restore later campaign failures.
+10. The finale phase can rely on original Darkest Dungeon entry restrictions where possible and only adds sidecar run-completion tracking.
 
 ## What Counts As Framework Progress
 
@@ -297,6 +303,9 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Stop stage coach generation | `stagecoach.suppress_recruits` |
 | Initialize only new challenge saves | `profile.detect_new_or_uninitialized` plus `profile.mark_initialized` |
 | Preserve campaign attrition and unwinnable states | normal save observation; no hidden restore/recovery action |
+| Set fixed starting gold | `wallet.set_currency_amount` |
+| Add gold after selected victories | `wallet.add_currency_on_event` with idempotent attempt identity |
+| Prevent selling fixed trinket resources | `inventory.disable_item_sale` or an equivalent economy intercept |
 | Normalize roster/trinkets/town | managed profile-normalization actions |
 | Reuse original DD participation rule | phase-scoped filters and original quest entry rules |
 | Queue upgrades | sidecar state object-list actions |

@@ -9,16 +9,19 @@ The mod turns a normal Darkest Dungeon campaign into a fixed-resource boss gaunt
 1. A newly created save is automatically initialized into this challenge rule set on first entry. The initialization is idempotent: after the profile is marked initialized, entering the same save again must not rebuild the roster, restore spent trinkets, resurrect heroes, reset town state, or regenerate completed fixed quests.
 2. On initialization, the roster is normalized to exactly two max-level heroes for each available hero class. Their combat and camping skills are unlocked and fully upgraded. The stage coach no longer offers recruits.
 3. The estate owns every available trinket with a count of two for each trinket id.
-4. Town buildings are unlocked and fully upgraded. Town events are either suppressed or replaced with a fixed event message such as `Enjoy the inferno`.
-5. The quest board shows only the highest-difficulty boss quests for each non-Darkest region, all at the same time.
-6. Defeating a boss removes that fixed boss quest from the board and does not generate a replacement quest.
-7. Before the Darkest Dungeon finale unlocks, each hero and each trinket can be selected only once. This selection is consumed on any terminal attempt result, successful or failed.
-8. A failed or abandoned boss attempt is not rolled back. Original settlement state, deaths, stress, diseases, quirks, loot, and other resolved consequences remain as the game recorded them.
-9. The game continues to save normally. The original profile save remains the canonical record for deaths, roster attrition, stress, inventory changes, and town consequences after initialization.
-10. Because the stage coach is suppressed, a campaign can become unwinnable if too many heroes die or the player suffers a major strategic failure. That failure state is intentional. The player starts over by deleting the campaign and creating a new save.
-11. When every fixed boss quest is defeated, the Darkest Dungeon finale unlocks.
-12. In the finale phase, sidecar boss-gauntlet reuse restrictions are cleared. The framework should prefer the original game Darkest Dungeon participation rule: heroes who completed a Darkest Dungeon quest cannot enter another Darkest Dungeon quest.
-13. Defeating the Ancestor completes the run.
+4. Gold is set to `20000` on initialization.
+5. Trinkets cannot be sold. This prevents the fixed trinket pool from becoming a repeatable or front-loaded gold source.
+6. Town buildings are unlocked and fully upgraded. Town events are either suppressed or replaced with a fixed event message such as `Enjoy the inferno`.
+7. The quest board shows only the highest-difficulty boss quests for each non-Darkest region, all at the same time.
+8. Defeating a boss removes that fixed boss quest from the board and does not generate a replacement quest.
+9. Winning a pre-finale boss quest grants `10000` gold after the result is observed.
+10. Before the Darkest Dungeon finale unlocks, each hero and each trinket can be selected only once. This selection is consumed on any terminal attempt result, successful or failed.
+11. A failed or abandoned boss attempt is not rolled back. Original settlement state, deaths, stress, diseases, quirks, loot, and other resolved consequences remain as the game recorded them.
+12. The game continues to save normally. The original profile save remains the canonical record for deaths, roster attrition, stress, inventory changes, and town consequences after initialization.
+13. Because the stage coach is suppressed, a campaign can become unwinnable if too many heroes die or the player suffers a major strategic failure. That failure state is intentional. The player starts over by deleting the campaign and creating a new save.
+14. When every fixed boss quest is defeated, the Darkest Dungeon finale unlocks.
+15. In the finale phase, sidecar boss-gauntlet reuse restrictions are cleared. The framework should prefer the original game Darkest Dungeon participation rule: heroes who completed a Darkest Dungeon quest cannot enter another Darkest Dungeon quest.
+16. Defeating the Ancestor completes the run.
 
 If a hero dies during the boss gauntlet, "all heroes available in the finale" means the sidecar reuse restriction is cleared. It does not resurrect heroes unless a separate revival or roster-normalization rule explicitly says so.
 
@@ -71,6 +74,9 @@ Required generic capabilities:
 | All skills unlocked and upgraded | `roster.set_skill_unlocks` |
 | No stage coach recruits | `stagecoach.suppress_recruits` |
 | Two of every trinket | `estate.ensure_inventory_counts` |
+| Fixed starting gold | `wallet.set_currency_amount` |
+| Gold reward after boss victory | `wallet.add_currency_on_event` |
+| Disable trinket selling | `inventory.disable_item_sale` |
 | Fully unlocked town | `town.unlock_all_buildings` |
 | Fully upgraded town | `town.set_building_levels` |
 | Fixed or suppressed event | `town_event.override_current` or `town_event.suppress_rotation` |
@@ -114,6 +120,7 @@ quest.selection_confirmed
 quest.attempt_resolved(success=true)
   -> record attempt
   -> consume selected heroes and trinkets
+  -> add victory gold
   -> mark quest completed
   -> clear activeSelection
   -> unlock darkest_finale if every fixed quest is completed
@@ -136,6 +143,7 @@ Required generic capabilities:
 | Know selected trinkets | `equipment.observe_loadout_confirmed` |
 | Observe terminal quest result | `quest.observe_attempt_resolved` |
 | Idempotent attempt recording | `attempt.record_once` or stable `attemptFingerprint` payload |
+| Add gold only for successful boss attempts | `wallet.add_currency_on_event` gated by event success and attempt fingerprint |
 | Consume selected heroes on any terminal result | `selection.consume_heroes` |
 | Consume selected trinkets on any terminal result | `selection.consume_trinkets` |
 | Hide completed fixed boss quests | `quest_board.filter_completed_fixed_quests` |
@@ -179,6 +187,7 @@ The validation plugin should eventually express the boss gauntlet without specia
     { "type": "attempt.recordOnce", "capability": "state.sidecar" },
     { "type": "selection.consumeHeroes", "capability": "state.sidecar" },
     { "type": "selection.consumeTrinkets", "capability": "state.sidecar" },
+    { "type": "wallet.addCurrencyOnEvent", "capability": "wallet.modify_currency" },
     { "type": "quest.markCompletedIfSuccessful", "capability": "state.sidecar" },
     { "type": "state.transitionWhenAllCompleted", "capability": "state.sidecar" }
   ]

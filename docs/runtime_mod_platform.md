@@ -291,7 +291,7 @@ save.attach_sidecar_state
 docs/boss_gauntlet_campaign_spec.md
 ```
 
-目标：取消长期马车养成，改成固定资源的 Boss 讨伐战役。新建存档第一次进入时自动初始化固定满级英雄池、固定饰品池、满级城镇和固定任务板；之后游戏正常保存，不再重建或恢复损失。前置 Boss 阶段中，人物和饰品在任意终局尝试后都会被消耗，成功和失败都不回滚结算状态；如果人物死光或严重失误导致不可通关，这是预期失败状态，玩家删除存档并新建存档重新挑战。全部前置 Boss 被击败后进入极暗地牢终局，并尽量复用原版极暗地牢“通关角色不能再次进入”的限制。
+目标：取消长期马车养成，改成固定资源的 Boss 讨伐战役。新建存档第一次进入时自动初始化固定满级英雄池、固定饰品池、20000 金币、满级城镇和固定任务板，并禁用饰品出售；之后游戏正常保存，不再重建或恢复损失。前置 Boss 阶段中，人物和饰品在任意终局尝试后都会被消耗，成功和失败都不回滚结算状态；每次前置 Boss 胜利额外补充 10000 金币；如果人物死光或严重失误导致不可通关，这是预期失败状态，玩家删除存档并新建存档重新挑战。全部前置 Boss 被击败后进入极暗地牢终局，并尽量复用原版极暗地牢“通关角色不能再次进入”的限制。
 
 需要能力：
 
@@ -310,6 +310,9 @@ roster.set_skill_unlocks
 roster.enforce_availability_filter
 equipment.enforce_availability_filter
 estate.ensure_inventory_counts
+wallet.set_currency_amount
+wallet.modify_currency
+inventory.disable_item_sale
 stagecoach.suppress_recruits
 town.unlock_all_buildings
 town.set_building_levels
@@ -326,6 +329,8 @@ state.bossGauntlet.consumedTrinketIds
   "actions": [
     { "type": "roster.ensureClassInstances", "classCount": 2, "level": "max" },
     { "type": "estate.ensureInventoryCounts", "kind": "trinket", "count": 2 },
+    { "type": "wallet.setCurrencyAmount", "currency": "gold", "amount": 20000 },
+    { "type": "inventory.disableItemSale", "kind": "trinket" },
     { "type": "stagecoach.suppressRecruits" },
     { "type": "town.unlockAllBuildings" },
     { "type": "town.setBuildingLevels", "level": "max" },
@@ -351,6 +356,7 @@ state.bossGauntlet.consumedTrinketIds
     { "type": "attempt.recordOnce", "stateKey": "bossGauntlet.attempts" },
     { "type": "selection.consumeHeroes", "stateKey": "bossGauntlet.consumedHeroIds" },
     { "type": "selection.consumeTrinkets", "stateKey": "bossGauntlet.consumedTrinketIds" },
+    { "type": "wallet.addCurrencyOnEvent", "currency": "gold", "amount": 10000, "when": "event.success == true" },
     { "type": "quest.markCompletedIfSuccessful", "stateKey": "bossGauntlet.completedQuestIds" },
     { "type": "state.transitionWhenAllCompleted", "stateKey": "bossGauntlet.phase", "to": "darkest_finale" }
   ]
