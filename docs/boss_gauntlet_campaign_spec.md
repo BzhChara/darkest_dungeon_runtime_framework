@@ -20,7 +20,7 @@ The mod turns a normal Darkest Dungeon campaign into a fixed-resource boss gaunt
 12. The game continues to save normally. The original profile save remains the canonical record for deaths, roster attrition, stress, inventory changes, and town consequences after initialization.
 13. Because the stage coach is suppressed, a campaign can become unwinnable if too many heroes die or the player suffers a major strategic failure. That failure state is intentional. The player starts over by deleting the campaign and creating a new save.
 14. When every fixed boss quest is defeated, the Darkest Dungeon finale unlocks.
-15. In the finale phase, sidecar boss-gauntlet reuse restrictions are cleared. The framework should prefer the original game Darkest Dungeon participation rule: heroes who completed a Darkest Dungeon quest cannot enter another Darkest Dungeon quest.
+15. In the finale phase, sidecar boss-gauntlet reuse restrictions are cleared. This does not resurrect dead heroes or recreate missing heroes. The framework should prefer the original game Darkest Dungeon participation rule: heroes who completed a Darkest Dungeon quest cannot enter another Darkest Dungeon quest.
 16. Defeating the Ancestor completes the run.
 
 If a hero dies during the boss gauntlet, "all heroes available in the finale" means the sidecar reuse restriction is cleared. It does not resurrect heroes unless a separate revival or roster-normalization rule explicitly says so.
@@ -157,15 +157,17 @@ Required generic capabilities:
 The finale phase should minimize custom logic:
 
 1. Clear or ignore `consumedHeroIds`, `consumedTrinketIds`, and pre-finale availability filters.
-2. Use original Darkest Dungeon quest definitions and original post-DD hero restriction where possible.
-3. Observe finale completion through progression or campaign log facts.
-4. Mark sidecar run state as `run_completed` after the Ancestor quest resolves successfully.
+2. Do not resurrect dead heroes, recreate missing heroes, restore trinkets, or otherwise recover resources lost during the boss-gauntlet phase.
+3. Use original Darkest Dungeon quest definitions and original post-DD hero restriction where possible.
+4. Observe finale completion through progression or campaign log facts.
+5. Mark sidecar run state as `run_completed` after the Ancestor quest resolves successfully.
 
 Required generic capabilities:
 
 | Need | Reusable primitive |
 | --- | --- |
 | Clear sidecar restrictions by phase | `state.clear_paths` or phase-scoped filters |
+| Preserve dead or missing heroes | no revival action; original roster facts remain authoritative |
 | Keep original DD entry restriction | `quest.use_original_entry_rules` / no override |
 | Observe DD completion | `progression.observe_plot_completion` |
 | Complete run | `state.set_phase` |

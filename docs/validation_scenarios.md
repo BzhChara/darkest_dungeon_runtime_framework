@@ -230,7 +230,7 @@ Goal:
 - Keep failed boss quests available, but do not restore the consumed selection or roll back original settlement consequences. If roster attrition makes the campaign unwinnable, the player deletes the save and starts a new one.
 - Remove defeated fixed boss quests without generating replacements.
 - Unlock the Darkest Dungeon finale after all fixed boss quests are defeated.
-- In the finale, clear pre-finale sidecar reuse restrictions and prefer original Darkest Dungeon participation rules.
+- In the finale, clear pre-finale sidecar reuse restrictions and prefer original Darkest Dungeon participation rules. Dead or missing heroes from the boss-gauntlet phase are not revived or recreated.
 
 Required generic primitives:
 
@@ -284,7 +284,7 @@ Acceptance ladder:
 7. Managed action artifacts can describe the normalized roster, wallet, trinket inventory, town maxing, fixed quest board, trinket-sale lockout, and town-event override without mutating original saves.
 8. Runtime consumers enforce the fixed quest board, disabled trinket selling, wallet reward, and pre-finale hero/trinket availability.
 9. Managed original-save initialization, if introduced, is schema-verified, logged, idempotent, and does not restore later campaign failures.
-10. The finale phase can rely on original Darkest Dungeon entry restrictions where possible and only adds sidecar run-completion tracking.
+10. The finale phase can rely on original Darkest Dungeon entry restrictions where possible, does not revive dead heroes, and only adds sidecar run-completion tracking.
 
 ## What Counts As Framework Progress
 
@@ -307,6 +307,7 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Add gold after selected victories | `wallet.add_currency_on_event` with idempotent attempt identity |
 | Prevent selling fixed trinket resources | `inventory.disable_item_sale` or an equivalent economy intercept |
 | Normalize roster/trinkets/town | managed profile-normalization actions |
+| Unlock finale without reviving dead heroes | phase-scoped filter clearing, not roster rebuilding |
 | Reuse original DD participation rule | phase-scoped filters and original quest entry rules |
 | Queue upgrades | sidecar state object-list actions |
 | Move time forward | `campaign.week_advanced` event |
