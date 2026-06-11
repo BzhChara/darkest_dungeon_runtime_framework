@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace DDRuntimeLoader;
 
-internal static class ManagedActionSaveApplier
+internal static partial class ManagedActionSaveApplier
 {
     private const int ReportVersion = 1;
 
@@ -98,6 +98,9 @@ internal static class ManagedActionSaveApplier
                     break;
                 case "estate.ensureInventoryCounts":
                     ApplyEstateEnsureInventoryCounts(context, artifactPath, artifact);
+                    break;
+                case "roster.ensureClassInstances":
+                    ApplyRosterEnsureClassInstances(context, artifactPath, artifact);
                     break;
                 default:
                     AddUnsupportedAction(context, artifactPath, artifact, actionType);

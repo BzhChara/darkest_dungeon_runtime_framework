@@ -1,0 +1,824 @@
+using System.Text.Json.Nodes;
+
+namespace DDRuntimeLoader;
+
+internal static partial class ManagedActionSaveApplier
+{
+    private const int FullQuirkSlotCount = 5;
+    private const int DefaultSelectedCombatSkillCount = 4;
+    private const int DefaultSelectedCampingSkillCount = 4;
+    private const int MaxResolveXp = 46;
+
+    private static void ApplyRosterEnsureClassInstances(ApplyContext context, string artifactPath, JsonObject artifact)
+    {
+        var classSource = ReadString(artifact, "plan.arguments.classSource");
+        var copiesPerClass = ReadInt(ReadNode(artifact, "plan.arguments.copiesPerClass"), "plan.arguments.copiesPerClass");
+        if (copiesPerClass < 0)
+        {
+            throw new InvalidDataException("plan.arguments.copiesPerClass must be zero or greater.");
+        }
+
+        var level = ReadString(artifact, "plan.arguments.level");
+        var positiveQuirks = ReadString(artifact, "plan.arguments.positiveQuirks");
+        var negativeQuirks = ReadString(artifact, "plan.arguments.negativeQuirks");
+        var classDefinitions = ResolveHeroClassDefinitions(context, classSource);
+        if (classDefinitions.Count == 0)
+        {
+            throw new InvalidDataException($"Hero class source produced no class ids: {classSource}");
+        }
+
+        var quirkCatalog = LoadEnabledQuirkDefinitions(context.GameWorkingDirectory);
+        var file = context.LoadDecodedJsonFile("persist.roster.json");
+        var baseRoot = EnsureObject(file.Root, "base_root");
+        var heroes = EnsureObject(file.Root, "base_root.heroes");
+        var existingHeroes = EnumerateRosterHeroes(heroes).ToArray();
+        var fallbackTemplate = existingHeroes.FirstOrDefault()?.Entry;
+        var maxHeroId = Math.Max(GetMaxNumericKey(heroes), ReadOptionalInt(baseRoot, "nextGuid") is { } nextGuid ? nextGuid - 1 : -1);
+        var nextHeroId = maxHeroId + 1;
+        var added = 0;
+        var unchanged = 0;
+        var additionsByClass = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var classDefinition in classDefinitions)
+        {
+            var existingForClass = existingHeroes
+                .Where(hero => hero.HeroClass.Equals(classDefinition.Id, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (existingForClass.Length >= copiesPerClass)
+            {
+                unchanged++;
+                continue;
+            }
+
+            var template = existingForClass.FirstOrDefault()?.Entry ?? fallbackTemplate;
+            for (var copyIndex = existingForClass.Length; copyIndex < copiesPerClass; copyIndex++)
+            {
+                var heroId = nextHeroId++;
+                var heroEntry = BuildGeneratedRosterHeroEntry(
+                    template,
+                    classDefinition,
+                    heroId,
+                    copyIndex,
+                    level,
+                    positiveQuirks,
+                    negativeQuirks,
+                    quirkCatalog);
+                if (context.WriteChanges)
+                {
+                    heroes[heroId.ToString(CultureInfo.InvariantCulture)] = heroEntry;
+                    baseRoot["nextGuid"] = nextHeroId;
+                }
+
+                added++;
+                additionsByClass[classDefinition.Id] = additionsByClass.TryGetValue(classDefinition.Id, out var value) ? value + 1 : 1;
+            }
+        }
+
+        if (added > 0)
+        {
+            file.MarkChanged(added);
+        }
+
+        AddSuccessfulAction(
+            context,
+            artifactPath,
+            artifact,
+            file.Path,
+            [
+                $"ensure {classDefinitions.Count} hero classes from {classSource} copiesPerClass={copiesPerClass}",
+                $"added={added} unchangedClasses={unchanged} level={level} positiveQuirks={positiveQuirks} negativeQuirks={negativeQuirks}",
+                $"addedClasses={FormatAddedClassSummary(additionsByClass)}"
+            ]);
+    }
+
+    private static IReadOnlyList<RosterHeroClassDefinition> ResolveHeroClassDefinitions(ApplyContext context, string source)
+    {
+        return source switch
+        {
+            "content.hero_classes.enabled" => LoadEnabledHeroClassDefinitions(context.GameWorkingDirectory),
+            _ => throw new InvalidDataException($"Unsupported hero class source: {source}")
+        };
+    }
+
+    private static JsonObject BuildGeneratedRosterHeroEntry(
+        JsonObject? templateEntry,
+        RosterHeroClassDefinition classDefinition,
+        int heroId,
+        int copyIndex,
+        string level,
+        string positiveQuirkPolicy,
+        string negativeQuirkPolicy,
+        IReadOnlyList<QuirkDefinition> quirkCatalog)
+    {
+        var entry = templateEntry?.DeepClone() as JsonObject ?? new JsonObject();
+        var heroRoot = EnsureObject(entry, "hero_file_data.raw_data.base_root");
+        heroRoot["roster.status"] = 0;
+        heroRoot["roster.before_on_start_town_visit_status"] = 0;
+        heroRoot["roster.missing_duration"] = 0;
+        heroRoot["roster.story_variation"] = 0;
+        heroRoot["roster.missing_from"] = 0;
+        heroRoot["roster.building_name"] = string.Empty;
+        heroRoot["roster.timestamp"] = 0;
+        heroRoot["heroClass"] = classDefinition.Id;
+        heroRoot["resolveXp"] = ResolveHeroResolveXp(level);
+        heroRoot["m_Stress"] = JsonFloat(0.0);
+        heroRoot["is_death_heart_attack_completed"] = false;
+        heroRoot["visited_deaths_door"] = false;
+        heroRoot["deaths_door_enter_effect_round_cooldown"] = 0;
+        heroRoot["has_had_heart_attack"] = false;
+        heroRoot["backer_hero"] = false;
+        heroRoot["steps_taken"] = 0;
+        heroRoot["enemies_killed"] = 0;
+        heroRoot["weapon_rank"] = ResolveHeroEquipmentRank(level, classDefinition.MaxWeaponRank);
+        heroRoot["armour_rank"] = ResolveHeroEquipmentRank(level, classDefinition.MaxArmourRank);
+        heroRoot["dd_test_survived"] = 0;
+        heroRoot["affliction_type_id"] = string.Empty;
+        heroRoot["affliction_severity"] = 0;
+        heroRoot["virtue_type_id"] = string.Empty;
+        heroRoot["provisions_consumed"] = 0;
+        heroRoot["number_of_successful_darkest_dungeon_quests"] = 0;
+        heroRoot["is_from_town_event"] = false;
+        heroRoot["dungeon_history"] = new JsonArray();
+        heroRoot["has_item_Tracking"] = true;
+        heroRoot["item_tracking"] = new JsonObject { ["supply"] = new JsonObject() };
+
+        var actor = EnsureObject(heroRoot, "actor");
+        actor["name"] = BuildGeneratedHeroName(classDefinition.Id, heroId);
+        actor["current_hp"] = JsonFloat(classDefinition.MaxHp ?? ReadOptionalDouble(actor, "current_hp") ?? 1.0);
+        actor["stunned"] = 0;
+        actor["combat_ready"] = false;
+        actor["damage_source_data"] = 0;
+        actor["damage_source_type"] = 0;
+        actor["damage_type"] = 0;
+        actor["colour_variation"] = copyIndex % 4;
+        actor["enemy_rank_targets"] = 0;
+        actor["friendly_rank_targets"] = 0;
+        actor["performing_turn"] = 0;
+        actor["controlling_actor_guid"] = 0;
+        actor["controlling_duration"] = 0;
+        actor["current_mode_id"] = 0;
+        actor["rounds_in_ranks"] = 0;
+        actor["check_round_ranks"] = 0;
+        actor["health_damage_blocks"] = 0;
+        actor["buff_group_next_guid"] = 0;
+        actor["buff_group"] = new JsonObject();
+        actor["actor_dot"] = new JsonObject();
+
+        var positiveQuirkIds = SelectQuirkIds(quirkCatalog, positive: true, positiveQuirkPolicy, classDefinition.Id, copyIndex);
+        var negativeQuirkIds = SelectQuirkIds(quirkCatalog, positive: false, negativeQuirkPolicy, classDefinition.Id, copyIndex);
+        heroRoot["quirks"] = BuildRosterQuirkObject(positiveQuirkIds.Concat(negativeQuirkIds));
+        heroRoot["skills"] = new JsonObject
+        {
+            ["selected_combat_skills"] = BuildSkillSelectionObject(
+                classDefinition.CombatSkillIds,
+                Math.Max(1, classDefinition.SelectedCombatSkillMax ?? DefaultSelectedCombatSkillCount)),
+            ["selected_camping_skills"] = BuildSkillSelectionObject(
+                classDefinition.CampingSkillIds,
+                DefaultSelectedCampingSkillCount)
+        };
+        heroRoot["trinkets"] = new JsonObject { ["items"] = new JsonObject() };
+        return entry;
+    }
+
+    private static IReadOnlyList<RosterHeroEntry> EnumerateRosterHeroes(JsonObject heroes)
+    {
+        return heroes
+            .Select(pair =>
+            {
+                if (pair.Value is not JsonObject entry)
+                {
+                    return null;
+                }
+
+                var heroRoot = TryGetObject(entry, "hero_file_data.raw_data.base_root");
+                if (heroRoot is null)
+                {
+                    return null;
+                }
+
+                var heroClass = ReadOptionalString(heroRoot, "heroClass");
+                return string.IsNullOrWhiteSpace(heroClass) ? null : new RosterHeroEntry(pair.Key, entry, heroRoot, heroClass);
+            })
+            .Where(hero => hero is not null)
+            .Select(hero => hero!)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<RosterHeroClassDefinition> LoadEnabledHeroClassDefinitions(string gameWorkingDirectory)
+    {
+        var definitions = new SortedDictionary<string, RosterHeroClassDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var infoPath in EnumerateCampaignHeroInfoFiles(gameWorkingDirectory))
+        {
+            var classId = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(infoPath));
+            if (string.IsNullOrWhiteSpace(classId))
+            {
+                continue;
+            }
+
+            definitions[classId] = ReadRosterHeroClassDefinition(infoPath, classId);
+        }
+
+        return definitions.Values.ToArray();
+    }
+
+    private static IEnumerable<string> EnumerateCampaignHeroInfoFiles(string gameWorkingDirectory)
+    {
+        var heroDirectory = Path.Combine(gameWorkingDirectory, "heroes");
+        if (Directory.Exists(heroDirectory))
+        {
+            foreach (var directory in Directory.EnumerateDirectories(heroDirectory).OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                var classId = Path.GetFileName(directory);
+                var infoPath = Path.Combine(directory, $"{classId}.info.darkest");
+                if (File.Exists(infoPath))
+                {
+                    yield return infoPath;
+                }
+            }
+        }
+
+        var dlcDirectory = Path.Combine(gameWorkingDirectory, "dlc");
+        if (!Directory.Exists(dlcDirectory))
+        {
+            yield break;
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(dlcDirectory).OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            var name = Path.GetFileName(directory);
+            if (string.IsNullOrWhiteSpace(name) ||
+                !char.IsDigit(name[0]) ||
+                name.Contains("arena", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var path in Directory.EnumerateFiles(directory, "*.info.darkest", SearchOption.AllDirectories)
+                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                var classId = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(path));
+                var parent = Path.GetFileName(Path.GetDirectoryName(path));
+                if (!string.IsNullOrWhiteSpace(classId) &&
+                    classId.Equals(parent, StringComparison.OrdinalIgnoreCase) &&
+                    path.Contains($"{Path.DirectorySeparatorChar}heroes{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return path;
+                }
+            }
+        }
+    }
+
+    private static RosterHeroClassDefinition ReadRosterHeroClassDefinition(string path, string classId)
+    {
+        var maxHp = (int?)null;
+        var maxWeaponRank = (int?)null;
+        var maxArmourRank = (int?)null;
+        var selectedCombatSkillsMax = (int?)null;
+        var combatSkillIds = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in File.ReadLines(path, Encoding.UTF8))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith("//", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var separator = line.IndexOf(':');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var kind = line[..separator].Trim();
+            var attributes = ParseDarkestAttributeLine(line[(separator + 1)..]);
+            switch (kind)
+            {
+                case "weapon":
+                    maxWeaponRank = Math.Max(maxWeaponRank ?? 0, TryReadTrailingLevel(ReadDarkestString(attributes, "name")) ?? 0);
+                    break;
+                case "armour":
+                    maxArmourRank = Math.Max(maxArmourRank ?? 0, TryReadTrailingLevel(ReadDarkestString(attributes, "name")) ?? 0);
+                    if (ReadDarkestInt(attributes, "hp") is { } hp)
+                    {
+                        maxHp = Math.Max(maxHp ?? 0, hp);
+                    }
+                    break;
+                case "combat_skill":
+                    if (ReadDarkestString(attributes, "id") is { } skillId)
+                    {
+                        combatSkillIds.Add(skillId);
+                    }
+                    break;
+                case "skill_selection":
+                    selectedCombatSkillsMax = ReadDarkestInt(attributes, "number_of_selected_combat_skills_max");
+                    break;
+            }
+        }
+
+        return new RosterHeroClassDefinition(
+            classId,
+            maxHp,
+            maxWeaponRank,
+            maxArmourRank,
+            selectedCombatSkillsMax,
+            combatSkillIds.ToArray(),
+            LoadCampingSkillIdsForHeroClass(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path)!, "..", "..")), classId));
+    }
+
+    private static IReadOnlyList<string> LoadCampingSkillIdsForHeroClass(string searchRoot, string classId)
+    {
+        var gameRoot = FindGameRootFromHeroSearchRoot(searchRoot);
+        if (gameRoot is null)
+        {
+            return [];
+        }
+
+        var result = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var campingDirectory = Path.Combine(gameRoot, "raid", "camping");
+        if (Directory.Exists(campingDirectory))
+        {
+            ReadCampingSkillIds(campingDirectory, classId, result);
+        }
+
+        var dlcDirectory = Path.Combine(gameRoot, "dlc");
+        if (Directory.Exists(dlcDirectory))
+        {
+            foreach (var directory in Directory.EnumerateDirectories(dlcDirectory).OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                var name = Path.GetFileName(directory);
+                if (string.IsNullOrWhiteSpace(name) ||
+                    !char.IsDigit(name[0]) ||
+                    name.Contains("arena", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                ReadCampingSkillIds(directory, classId, result);
+            }
+        }
+
+        return result.ToArray();
+    }
+
+    private static string? FindGameRootFromHeroSearchRoot(string searchRoot)
+    {
+        var current = new DirectoryInfo(searchRoot);
+        while (current is not null)
+        {
+            if (Directory.Exists(Path.Combine(current.FullName, "heroes")) &&
+                Directory.Exists(Path.Combine(current.FullName, "raid")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return null;
+    }
+
+    private static void ReadCampingSkillIds(string root, string classId, SortedSet<string> result)
+    {
+        foreach (var path in Directory.EnumerateFiles(root, "*.camping_skills.json", SearchOption.AllDirectories)
+                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            });
+            if (!document.RootElement.TryGetProperty("skills", out var skills) ||
+                skills.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var skill in skills.EnumerateArray())
+            {
+                if (skill.ValueKind != JsonValueKind.Object ||
+                    !skill.TryGetProperty("id", out var idElement) ||
+                    idElement.ValueKind != JsonValueKind.String ||
+                    !skill.TryGetProperty("hero_classes", out var classesElement) ||
+                    classesElement.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                var includesClass = classesElement
+                    .EnumerateArray()
+                    .Any(item => item.ValueKind == JsonValueKind.String &&
+                        item.GetString()!.Equals(classId, StringComparison.OrdinalIgnoreCase));
+                if (includesClass && !string.IsNullOrWhiteSpace(idElement.GetString()))
+                {
+                    result.Add(idElement.GetString()!);
+                }
+            }
+        }
+    }
+
+    private static IReadOnlyList<QuirkDefinition> LoadEnabledQuirkDefinitions(string gameWorkingDirectory)
+    {
+        var definitions = new SortedDictionary<string, QuirkDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in EnumerateCampaignQuirkLibraryFiles(gameWorkingDirectory))
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            });
+            if (!document.RootElement.TryGetProperty("quirks", out var quirks) ||
+                quirks.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var quirk in quirks.EnumerateArray())
+            {
+                if (quirk.ValueKind != JsonValueKind.Object ||
+                    !quirk.TryGetProperty("id", out var idElement) ||
+                    idElement.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(idElement.GetString()) ||
+                    !quirk.TryGetProperty("is_positive", out var positiveElement) ||
+                    positiveElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                {
+                    continue;
+                }
+
+                var id = idElement.GetString()!;
+                var randomChance = quirk.TryGetProperty("random_chance", out var randomChanceElement) &&
+                    randomChanceElement.ValueKind == JsonValueKind.Number &&
+                    randomChanceElement.TryGetDouble(out var chance)
+                    ? chance
+                    : 1.0;
+                var isDisease = quirk.TryGetProperty("is_disease", out var diseaseElement) &&
+                    diseaseElement.ValueKind is JsonValueKind.True;
+                if (randomChance <= 0 || isDisease)
+                {
+                    continue;
+                }
+
+                definitions[id] = new QuirkDefinition(
+                    id,
+                    positiveElement.GetBoolean(),
+                    ReadStringArrayProperty(quirk, "incompatible_quirks"));
+            }
+        }
+
+        return definitions.Values.ToArray();
+    }
+
+    private static IEnumerable<string> EnumerateCampaignQuirkLibraryFiles(string gameWorkingDirectory)
+    {
+        var baseQuirkDirectory = Path.Combine(gameWorkingDirectory, "shared", "quirk");
+        if (Directory.Exists(baseQuirkDirectory))
+        {
+            foreach (var path in Directory.EnumerateFiles(baseQuirkDirectory, "*.quirk_library.json", SearchOption.TopDirectoryOnly)
+                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                yield return path;
+            }
+        }
+
+        var dlcDirectory = Path.Combine(gameWorkingDirectory, "dlc");
+        if (!Directory.Exists(dlcDirectory))
+        {
+            yield break;
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(dlcDirectory).OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            var name = Path.GetFileName(directory);
+            if (string.IsNullOrWhiteSpace(name) ||
+                !char.IsDigit(name[0]) ||
+                name.Contains("arena", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var path in Directory.EnumerateFiles(directory, "*.quirk_library.json", SearchOption.AllDirectories)
+                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                yield return path;
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> SelectQuirkIds(
+        IReadOnlyList<QuirkDefinition> catalog,
+        bool positive,
+        string policy,
+        string classId,
+        int copyIndex)
+    {
+        var count = policy switch
+        {
+            "none" => 0,
+            "one_random" => 1,
+            "full_random" => FullQuirkSlotCount,
+            _ => throw new InvalidDataException($"Unsupported quirk policy: {policy}")
+        };
+        if (count == 0)
+        {
+            return [];
+        }
+
+        var selected = new List<QuirkDefinition>();
+        foreach (var quirk in catalog
+                     .Where(quirk => quirk.IsPositive == positive)
+                     .OrderBy(quirk => StableOrderKey($"{classId}:{copyIndex}:{positive}:{policy}:{quirk.Id}"), StringComparer.Ordinal)
+                     .ThenBy(quirk => quirk.Id, StringComparer.OrdinalIgnoreCase))
+        {
+            if (selected.Any(existing => QuirksConflict(existing, quirk)))
+            {
+                continue;
+            }
+
+            selected.Add(quirk);
+            if (selected.Count == count)
+            {
+                break;
+            }
+        }
+
+        if (selected.Count < count)
+        {
+            throw new InvalidDataException($"Quirk catalog did not contain enough compatible {(positive ? "positive" : "negative")} quirks for policy {policy}.");
+        }
+
+        return selected.Select(quirk => quirk.Id).ToArray();
+    }
+
+    private static bool QuirksConflict(QuirkDefinition first, QuirkDefinition second)
+    {
+        return first.Id.Equals(second.Id, StringComparison.OrdinalIgnoreCase) ||
+            first.IncompatibleQuirks.Contains(second.Id, StringComparer.OrdinalIgnoreCase) ||
+            second.IncompatibleQuirks.Contains(first.Id, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static JsonObject BuildRosterQuirkObject(IEnumerable<string> quirkIds)
+    {
+        var result = new JsonObject();
+        foreach (var quirkId in quirkIds)
+        {
+            result[quirkId] = new JsonObject
+            {
+                ["is_new"] = false,
+                ["is_locked"] = false,
+                ["mission_count"] = 0,
+                ["replaces_quirk"] = 0,
+                ["replaces_quirk_viewed"] = false,
+                ["evolution_duration_remaining"] = 0
+            };
+        }
+
+        return result;
+    }
+
+    private static JsonObject BuildSkillSelectionObject(IReadOnlyList<string> skillIds, int maxCount)
+    {
+        var result = new JsonObject();
+        foreach (var skillId in skillIds.Take(maxCount))
+        {
+            result[skillId] = 0;
+        }
+
+        return result;
+    }
+
+    private static int ResolveHeroResolveXp(string level)
+    {
+        if (level.Equals("max", StringComparison.OrdinalIgnoreCase))
+        {
+            return MaxResolveXp;
+        }
+
+        if (int.TryParse(level, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericLevel))
+        {
+            return numericLevel switch
+            {
+                <= 0 => 0,
+                1 => 2,
+                2 => 8,
+                3 => 14,
+                4 => 26,
+                _ => MaxResolveXp
+            };
+        }
+
+        throw new InvalidDataException($"Unsupported hero level value: {level}");
+    }
+
+    private static int ResolveHeroEquipmentRank(string level, int? maxRank)
+    {
+        if (level.Equals("max", StringComparison.OrdinalIgnoreCase))
+        {
+            return maxRank ?? 0;
+        }
+
+        return int.TryParse(level, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericLevel)
+            ? Math.Clamp(numericLevel - 1, 0, maxRank ?? 0)
+            : throw new InvalidDataException($"Unsupported hero level value: {level}");
+    }
+
+    private static string BuildGeneratedHeroName(string classId, int heroId)
+    {
+        var displayClass = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(classId.Replace('_', ' '));
+        return $"DDRF {displayClass} {heroId.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static int GetMaxNumericKey(JsonObject obj)
+    {
+        var max = -1;
+        foreach (var key in obj.Select(pair => pair.Key))
+        {
+            if (int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+            {
+                max = Math.Max(max, value);
+            }
+        }
+
+        return max;
+    }
+
+    private static JsonObject? TryGetObject(JsonObject root, string path)
+    {
+        JsonNode? current = root;
+        foreach (var part in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            current = current is JsonObject obj ? obj[part] : null;
+            if (current is null)
+            {
+                return null;
+            }
+        }
+
+        return current as JsonObject;
+    }
+
+    private static double? ReadOptionalDouble(JsonObject root, string key)
+    {
+        return root[key] is JsonValue value && value.TryGetValue<double>(out var result)
+            ? result
+            : null;
+    }
+
+    private static IReadOnlyList<string> ReadStringArrayProperty(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var arrayElement) ||
+            arrayElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return arrayElement
+            .EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+            .Select(item => item.GetString()!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> ParseDarkestAttributeLine(string value)
+    {
+        var tokens = TokenizeDarkestLine(value);
+        var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            var token = tokens[i];
+            if (!token.StartsWith(".", StringComparison.Ordinal) || token.Length <= 1)
+            {
+                continue;
+            }
+
+            var key = token[1..];
+            var values = new List<string>();
+            while (i + 1 < tokens.Count && !tokens[i + 1].StartsWith(".", StringComparison.Ordinal))
+            {
+                i++;
+                values.Add(tokens[i]);
+            }
+
+            result[key] = values;
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<string> TokenizeDarkestLine(string value)
+    {
+        var tokens = new List<string>();
+        for (var i = 0; i < value.Length;)
+        {
+            while (i < value.Length && char.IsWhiteSpace(value[i]))
+            {
+                i++;
+            }
+
+            if (i >= value.Length)
+            {
+                break;
+            }
+
+            if (value[i] == '"')
+            {
+                i++;
+                var start = i;
+                while (i < value.Length && value[i] != '"')
+                {
+                    i++;
+                }
+
+                tokens.Add(value[start..Math.Min(i, value.Length)]);
+                if (i < value.Length && value[i] == '"')
+                {
+                    i++;
+                }
+
+                continue;
+            }
+
+            var tokenStart = i;
+            while (i < value.Length && !char.IsWhiteSpace(value[i]))
+            {
+                i++;
+            }
+
+            tokens.Add(value[tokenStart..i]);
+        }
+
+        return tokens;
+    }
+
+    private static string? ReadDarkestString(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> attributes,
+        string key)
+    {
+        return attributes.TryGetValue(key, out var values) && values.Count > 0
+            ? string.IsNullOrWhiteSpace(values[0]) ? null : values[0]
+            : null;
+    }
+
+    private static int? ReadDarkestInt(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> attributes,
+        string key)
+    {
+        return attributes.TryGetValue(key, out var values) &&
+            values.Count > 0 &&
+            int.TryParse(values[0].TrimEnd('%'), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : null;
+    }
+
+    private static int? TryReadTrailingLevel(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var underscore = value.LastIndexOf('_');
+        return underscore >= 0 &&
+            underscore + 1 < value.Length &&
+            int.TryParse(value[(underscore + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var result)
+                ? result
+                : null;
+    }
+
+    private static string StableOrderKey(string value)
+    {
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    }
+
+    private static JsonNode JsonFloat(double value)
+    {
+        return JsonNode.Parse(value.ToString("0.0###############", CultureInfo.InvariantCulture))!;
+    }
+
+    private static string FormatAddedClassSummary(IReadOnlyDictionary<string, int> additionsByClass)
+    {
+        return additionsByClass.Count == 0
+            ? "none"
+            : string.Join(
+                ",",
+                additionsByClass
+                    .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(pair => $"{pair.Key}:{pair.Value.ToString(CultureInfo.InvariantCulture)}"));
+    }
+
+    private sealed record RosterHeroEntry(string Id, JsonObject Entry, JsonObject HeroRoot, string HeroClass);
+
+    private sealed record RosterHeroClassDefinition(
+        string Id,
+        int? MaxHp,
+        int? MaxWeaponRank,
+        int? MaxArmourRank,
+        int? SelectedCombatSkillMax,
+        IReadOnlyList<string> CombatSkillIds,
+        IReadOnlyList<string> CampingSkillIds);
+
+    private sealed record QuirkDefinition(
+        string Id,
+        bool IsPositive,
+        IReadOnlyList<string> IncompatibleQuirks);
+}

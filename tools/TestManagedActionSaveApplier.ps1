@@ -54,6 +54,168 @@ function Read-DecodedEstate {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-DecodedRoster {
+    $path = Join-Path $saveRoot "persist.roster.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded roster file was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
+function Write-DecodedRosterFixture {
+    $path = Join-Path $saveRoot "persist.roster.json"
+    @'
+{
+  "base_root": {
+    "version": 513,
+    "nextGuid": 3,
+    "dismissed_hero_count": 0,
+    "heroes": {
+      "1": {
+        "hero_file_data": {
+          "raw_data": {
+            "base_root": {
+              "roster.status": 0,
+              "roster.before_on_start_town_visit_status": 0,
+              "roster.missing_duration": 0,
+              "roster.story_variation": 0,
+              "roster.missing_from": 0,
+              "roster.building_name": "",
+              "roster.timestamp": 0,
+              "actor": {
+                "name": "Existing Crusader",
+                "current_hp": 33.0,
+                "stunned": 0,
+                "combat_ready": false,
+                "damage_source_data": 0,
+                "damage_source_type": 0,
+                "damage_type": 0,
+                "colour_variation": 0,
+                "enemy_rank_targets": 0,
+                "friendly_rank_targets": 0,
+                "performing_turn": 0,
+                "controlling_actor_guid": 0,
+                "controlling_duration": 0,
+                "current_mode_id": 0,
+                "rounds_in_ranks": 0,
+                "check_round_ranks": 0,
+                "health_damage_blocks": 0,
+                "buff_group_next_guid": 0,
+                "buff_group": {},
+                "actor_dot": {}
+              },
+              "heroClass": "crusader",
+              "resolveXp": 0,
+              "m_Stress": 0.0,
+              "is_death_heart_attack_completed": false,
+              "visited_deaths_door": false,
+              "deaths_door_enter_effect_round_cooldown": 0,
+              "has_had_heart_attack": false,
+              "backer_hero": false,
+              "steps_taken": 0,
+              "enemies_killed": 0,
+              "weapon_rank": 0,
+              "armour_rank": 0,
+              "dd_test_survived": 0,
+              "affliction_type_id": "",
+              "affliction_severity": 0,
+              "virtue_type_id": "",
+              "provisions_consumed": 0,
+              "quirks": {},
+              "skills": {
+                "selected_combat_skills": {},
+                "selected_camping_skills": {}
+              },
+              "trinkets": {
+                "items": {}
+              },
+              "has_item_Tracking": true,
+              "item_tracking": {
+                "supply": {}
+              },
+              "number_of_successful_darkest_dungeon_quests": 0,
+              "is_from_town_event": false,
+              "dungeon_history": []
+            }
+          }
+        }
+      },
+      "2": {
+        "hero_file_data": {
+          "raw_data": {
+            "base_root": {
+              "roster.status": 0,
+              "roster.before_on_start_town_visit_status": 0,
+              "roster.missing_duration": 0,
+              "roster.story_variation": 0,
+              "roster.missing_from": 0,
+              "roster.building_name": "",
+              "roster.timestamp": 0,
+              "actor": {
+                "name": "Existing Highwayman",
+                "current_hp": 23.0,
+                "stunned": 0,
+                "combat_ready": false,
+                "damage_source_data": 0,
+                "damage_source_type": 0,
+                "damage_type": 0,
+                "colour_variation": 0,
+                "enemy_rank_targets": 0,
+                "friendly_rank_targets": 0,
+                "performing_turn": 0,
+                "controlling_actor_guid": 0,
+                "controlling_duration": 0,
+                "current_mode_id": 0,
+                "rounds_in_ranks": 0,
+                "check_round_ranks": 0,
+                "health_damage_blocks": 0,
+                "buff_group_next_guid": 0,
+                "buff_group": {},
+                "actor_dot": {}
+              },
+              "heroClass": "highwayman",
+              "resolveXp": 0,
+              "m_Stress": 0.0,
+              "is_death_heart_attack_completed": false,
+              "visited_deaths_door": false,
+              "deaths_door_enter_effect_round_cooldown": 0,
+              "has_had_heart_attack": false,
+              "backer_hero": false,
+              "steps_taken": 0,
+              "enemies_killed": 0,
+              "weapon_rank": 0,
+              "armour_rank": 0,
+              "dd_test_survived": 0,
+              "affliction_type_id": "",
+              "affliction_severity": 0,
+              "virtue_type_id": "",
+              "provisions_consumed": 0,
+              "quirks": {},
+              "skills": {
+                "selected_combat_skills": {},
+                "selected_camping_skills": {}
+              },
+              "trinkets": {
+                "items": {}
+              },
+              "has_item_Tracking": true,
+              "item_tracking": {
+                "supply": {}
+              },
+              "number_of_successful_darkest_dungeon_quests": 0,
+              "is_from_town_event": false,
+              "dungeon_history": []
+            }
+          }
+        }
+      }
+    },
+    "last_party": {
+      "last_party_guids": []
+    }
+  }
+}
+'@ | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
 function Get-WalletAmount {
     param(
         [object]$Estate,
@@ -86,6 +248,21 @@ function Get-TrinketAmount {
     return [int]$entry.amount
 }
 
+function Get-HeroRoots {
+    param([object]$Roster)
+
+    return @($Roster.base_root.heroes.PSObject.Properties | ForEach-Object { $_.Value.hero_file_data.raw_data.base_root })
+}
+
+function Get-HeroClassCount {
+    param(
+        [object]$Roster,
+        [string]$ClassId
+    )
+
+    return @((Get-HeroRoots -Roster $Roster) | Where-Object { $_.heroClass -eq $ClassId }).Count
+}
+
 function Convert-ToArray {
     param([object]$Value)
 
@@ -100,6 +277,7 @@ Assert-True (Test-Path -LiteralPath (Join-Path $sourceSaveRoot "persist.estate.j
 New-Item -ItemType Directory -Force -Path $testRoot, $saveRoot | Out-Null
 Get-ChildItem -LiteralPath $sourceSaveRoot -Filter "*.json" |
     Copy-Item -Destination $saveRoot -Force
+Write-DecodedRosterFixture
 
 $baseArgs = @(
     "--config", (Resolve-ProjectPath $ConfigPath),
@@ -116,30 +294,36 @@ $estate = Read-DecodedEstate
 $startingGold = Get-WalletAmount -Estate $estate -Currency "gold"
 Assert-True ($startingGold -ne 20000) "Fixture should start with a non-normalized gold amount so the write assertion is meaningful."
 Assert-True ($null -eq (Get-TrinketAmount -Estate $estate -Id "focus_ring")) "Fixture should start without focus_ring so the trinket write assertion is meaningful."
+$roster = Read-DecodedRoster
+Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Fixture should start with one crusader."
+Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Fixture should start without arbalest so roster write assertions are meaningful."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--managed-action-save-dir", $saveRoot))
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
 Assert-True ([int]$dryRunReport.artifactCount -eq 11) "Dry-run should inspect eleven boss gauntlet initialization artifacts."
-Assert-True ([int]$dryRunReport.supportedActionCount -eq 2) "Dry-run should recognize two currently supported decoded-save actions."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 2) "Dry-run should report two dry-run actions."
+Assert-True ([int]$dryRunReport.supportedActionCount -eq 3) "Dry-run should recognize three currently supported decoded-save actions."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 3) "Dry-run should report three dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
-Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 9) "Dry-run should report the remaining profile-normalization actions as unsupported."
+Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 8) "Dry-run should report the remaining profile-normalization actions as unsupported."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
-Assert-True ([int]$dryRunReport.changedFileCount -eq 1) "Dry-run should report one would-change decoded save file."
+Assert-True ([int]$dryRunReport.changedFileCount -eq 2) "Dry-run should report two would-change decoded save files."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
 Assert-True ($null -eq (Get-TrinketAmount -Estate $estate -Id "focus_ring")) "Dry-run must not add trinkets to decoded save JSON."
+$roster = Read-DecodedRoster
+Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Dry-run must not add roster heroes."
+Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Dry-run must not add missing roster classes."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
-Assert-True ([int]$writeReport.supportedActionCount -eq 2) "Write pass should recognize two currently supported decoded-save actions."
+Assert-True ([int]$writeReport.supportedActionCount -eq 3) "Write pass should recognize three currently supported decoded-save actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 2) "Write pass should apply two currently supported decoded-save actions."
-Assert-True ([int]$writeReport.changedFileCount -eq 1) "Write pass should change one decoded save file."
-Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 1) "Write pass should mark one file as written."
+Assert-True ([int]$writeReport.appliedActionCount -eq 3) "Write pass should apply three currently supported decoded-save actions."
+Assert-True ([int]$writeReport.changedFileCount -eq 2) "Write pass should change two decoded save files."
+Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 2) "Write pass should mark two files as written."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq 20000) "Write pass should set starting gold to 20000."
@@ -150,5 +334,19 @@ Assert-True ((Get-WalletAmount -Estate $estate -Currency "crest") -eq 0) "Write 
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "shard") -eq 0) "Write pass should set starting shards to 0."
 Assert-True ((Get-TrinketAmount -Estate $estate -Id "focus_ring") -eq 2) "Write pass should add two copies of focus_ring."
 Assert-True ((Get-TrinketAmount -Estate $estate -Id "berserk_mask") -eq 2) "Write pass should add two copies of berserk_mask."
+$roster = Read-DecodedRoster
+Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 2) "Write pass should ensure two crusaders."
+Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "highwayman") -eq 2) "Write pass should ensure two highwaymen."
+Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 2) "Write pass should ensure two arbalests."
+Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "vestal") -eq 2) "Write pass should ensure two vestals."
+$arbalest = @((Get-HeroRoots -Roster $roster) | Where-Object { $_.heroClass -eq "arbalest" }) | Select-Object -First 1
+Assert-True ([int]$arbalest.resolveXp -eq 46) "Generated max-level heroes should use max resolve XP."
+Assert-True ([int]$arbalest.weapon_rank -eq 4) "Generated max-level heroes should use max weapon rank."
+Assert-True ([int]$arbalest.armour_rank -eq 4) "Generated max-level heroes should use max armour rank."
+Assert-True (@($arbalest.quirks.PSObject.Properties).Count -eq 6) "Generated heroes should have five positive quirks and one negative quirk."
+Assert-True (@($arbalest.skills.selected_combat_skills.PSObject.Properties).Count -gt 0) "Generated heroes should receive selected combat skills from content definitions."
+$rosterText = Get-Content -Raw -LiteralPath (Join-Path $saveRoot "persist.roster.json")
+Assert-True ($rosterText -match '"current_hp": 47\.0') "Generated DSON-decoded roster should preserve float token shape for current_hp."
+Assert-True ($rosterText -match '"m_Stress": 0\.0') "Generated DSON-decoded roster should preserve float token shape for m_Stress."
 
-Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket write assertions passed."
+Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster write assertions passed."
