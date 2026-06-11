@@ -162,6 +162,8 @@ state/mod_state/<plugin-id>.json
 - managed：通过已知游戏 API 或已验证 Hook 改结果。
 - risky：内存补丁、深层流程替换、UI 强改。默认需要显式启用。
 
+当前第一批 managed 动作仍采用 observe-first 物化：`quest.injectFixedStage`、`roster.filterAvailableHeroes` 和 `equipment.filterAvailableTrinkets` 会写入 `modStateDirectory/_managed_actions/`。启动器已经能把 `quest.injectFixedStage` artifact 编译成 `logs/managed_action_overlay_manifest.json`，并把 manifest 路径和计数传给 RuntimeHook 做诊断；真正消费 manifest 来替换任务列表、过滤英雄或过滤饰品仍是后续能力。
+
 第一批动作候选：
 
 ```text
@@ -216,6 +218,7 @@ save.attach_sidecar_state
 - 哪些事件被触发。
 - 哪些动作执行了。
 - 哪些状态被写入。
+- 哪些 managed action artifact 被编译成 overlay manifest，哪些只是保留在 sidecar 中。
 - 最终游戏读到的虚拟文件是什么。
 - 某个玩法修改来自哪个插件、哪条规则、哪个动作。
 

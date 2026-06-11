@@ -199,7 +199,7 @@ logs/save_states/<sessionId>.json
 logs/save_event_bridge_report.json
 ```
 
-`factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。payload 可以声明通用数组投影，例如从 `facts.heroes` 里筛出当前 raid 队伍成员，再展开这些英雄的 `trinketIds`，或用 `where` 从 `campaignLog.partyRaidRecords` 里筛出匹配关卡的完成记录。验证插件现在用这些规则从 active raid facts 或任务后的 campaign log facts 发出 `challenge.stage_selection_confirmed`，并从 last raid quest/result facts 发出 `challenge.stage_completed` 或 `challenge.stage_failed`。同一次 bridge pass 中，前一个事件写入 sidecar state 后，后续规则会重新读取 state，因此任务后存档可以先补推选人确认，再推进完成事件。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤不在这个桥接器里硬编码；它们由普通 `eventRules` 声明，并先物化为 managed action artifact 供后续 overlay/hook 层消费。
+`factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。payload 可以声明通用数组投影，例如从 `facts.heroes` 里筛出当前 raid 队伍成员，再展开这些英雄的 `trinketIds`，或用 `where` 从 `campaignLog.partyRaidRecords` 里筛出匹配关卡的完成记录。验证插件现在用这些规则从 active raid facts 或任务后的 campaign log facts 发出 `challenge.stage_selection_confirmed`，并从 last raid quest/result facts 发出 `challenge.stage_completed` 或 `challenge.stage_failed`。同一次 bridge pass 中，前一个事件写入 sidecar state 后，后续规则会重新读取 state，因此任务后存档可以先补推选人确认，再推进完成事件。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤不在这个桥接器里硬编码；它们由普通 `eventRules` 声明，并先物化为 managed action artifact，再由 overlay/hook 层按能力逐步消费。
 
 watcher 的实时桥接可以用不启动游戏的诊断脚本测试：
 
@@ -272,6 +272,14 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 ```
 
 当前执行器实现安全状态动作，例如 `state.addUniqueRange`、`state.incrementCounter`、`challenge.lockStageSelection`、`challenge.recordFailedAttempt`、`challenge.advanceStage` 和 `challenge.initializeRunState`。部分 `managed` 游戏行为动作会生成可审计 artifact，但仍不执行真实游戏修改：`quest.injectFixedStage`、`roster.filterAvailableHeroes` 和 `equipment.filterAvailableTrinkets` 会在 `logs/runtime_event_report.json` 中记录 `status: "materialized"`、`materializedActionCount`、`plan` 和 `artifactPath`，并把完整 artifact 写入 `modStateDirectory/_managed_actions/`。其他未实现 action 如果标成 `required:true`，本次事件仍会失败。已实现和已物化 action 的参数按严格模式处理：引用的 `event.xxx`、`state.xxx` 或 `challenge.xxx` 路径不存在、显式参数类型错误、定义文件路径错误，都会让 action 失败，而不是当作空值或默认值继续执行。
+
+启动游戏或 `--dry-run` 前，启动器会把 `_managed_actions/` 下的可消费 artifact 编译成：
+
+```text
+logs/managed_action_overlay_manifest.json
+```
+
+当前第一版 overlay compiler 只消费 `quest.injectFixedStage`，并按 `kind + target + pluginId + sourcePath + ruleId + actionIndex` 只保留最新 artifact，避免旧 stage 残留影响运行时，同时不把重复插件 id 的不同 manifest 误合并。英雄和饰品过滤 artifact 仍会保留在 sidecar 中，但暂不进入 overlay manifest。RuntimeHook 会通过 `DD_RUNTIME_MANAGED_OVERLAY_MANIFEST` 看到该 manifest 并在启动日志中记录路径、大小和 overlay 数量；这一层目前仍是诊断可见性，不会替换游戏内容。
 
 ## 虚拟文件原型
 

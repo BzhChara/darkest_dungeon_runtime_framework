@@ -151,7 +151,9 @@ internal static class Program
                 return modStateSucceeded ? 0 : 3;
             }
 
+            var managedOverlay = ManagedActionOverlayCompiler.Compile(config, log);
             var runtimeEnvironment = config.BuildRuntimeEnvironment(projectRoot, patchPlan);
+            ManagedActionOverlayCompiler.ApplyEnvironment(runtimeEnvironment, managedOverlay);
 
             if (options.DryRun)
             {
