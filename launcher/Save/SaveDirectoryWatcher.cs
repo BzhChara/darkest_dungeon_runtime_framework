@@ -5,6 +5,16 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
     private const string DarkestDungeonAppId = "262060";
     private const int MaxSummaryFilesPerLine = 32;
     private static readonly TimeSpan DedupeWindow = TimeSpan.FromMilliseconds(250);
+    private static readonly HashSet<string> KnownAuxiliaryOrNetworkSaveFiles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "persist.circus_estate.json",
+        "persist.rankings.json",
+        "persist.prize_booth.json",
+        "persist.banner_custom.json",
+        "persist.mp_progression.json",
+        "persist.roster.network.json",
+        "novelty_tracker_mp.json"
+    };
     private static readonly JsonSerializerOptions SessionJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -283,6 +293,15 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         var stablePath = StableSavePath.TryCreate(path);
         if (stablePath is null)
         {
+            return;
+        }
+
+        if (!ShouldRunRealtimeSaveEventBridge(stablePath, out var skipReason))
+        {
+            CountEvent("save.event_bridge_realtime_ignored_auxiliary");
+            _log.Info(
+                $"event name=save.event_bridge_realtime_ignored_auxiliary profile={stablePath.Profile} " +
+                $"root={Quote(stablePath.ProfileRoot)} reason={Quote(skipReason)} path={Quote(stablePath.RelativePath)}");
             return;
         }
 
@@ -704,18 +723,10 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             reasons.Add($"live stable json changed={profile.Live}");
         }
 
-        var knownAuxiliaryFiles = new[]
-        {
-            "persist.circus_estate.json",
-            "persist.rankings.json",
-            "persist.prize_booth.json",
-            "persist.banner_custom.json",
-            "persist.mp_progression.json"
-        };
-        if (liveFiles.Length > 0 && liveFiles.All(file => knownAuxiliaryFiles.Contains(file, StringComparer.OrdinalIgnoreCase)))
+        if (liveFiles.Length > 0 && liveFiles.All(IsKnownAuxiliaryOrNetworkSaveFile))
         {
             score = Math.Max(0, score - 20);
-            reasons.Add("only auxiliary or circus files changed");
+            reasons.Add("only auxiliary, circus, or network files changed");
         }
 
         return new ScoredProfile(profile.Profile, profile.Root, score, reasons);
@@ -841,6 +852,25 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         return fileName.EndsWith(".stmp", StringComparison.OrdinalIgnoreCase)
             || fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
             || fileName.Contains("~RF", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldRunRealtimeSaveEventBridge(StableSavePath stablePath, out string skipReason)
+    {
+        var fileName = Path.GetFileName(stablePath.RelativePath);
+        if (IsKnownAuxiliaryOrNetworkSaveFile(fileName))
+        {
+            skipReason = "known auxiliary or network save file";
+            return false;
+        }
+
+        skipReason = "";
+        return true;
+    }
+
+    private static bool IsKnownAuxiliaryOrNetworkSaveFile(string relativePath)
+    {
+        var fileName = Path.GetFileName(relativePath);
+        return KnownAuxiliaryOrNetworkSaveFiles.Contains(fileName);
     }
 
     private enum SaveSnapshotChangeKind

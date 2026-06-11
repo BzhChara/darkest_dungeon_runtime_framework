@@ -175,6 +175,8 @@ logs/save_event_bridge_report.json
 logs/save_states/<watchSessionId>_realtime_<n>.json
 ```
 
+实时桥接会跳过已知非战役/网络辅助文件，例如 `persist.circus_estate.json`、`persist.rankings.json`、`persist.mp_progression.json`、`persist.roster.network.json` 和 `novelty_tracker_mp.json`；未知 `.json` 仍保留触发资格，避免未来新存档文件或新玩法扩展被静默挡掉。
+
 实时桥接仍然只读原版存档，只写框架自己的 sidecar state。游戏退出时保留原来的最终 session report / save state report，用于完整诊断和文件地图分析。
 
 也可以手动对某个 save state report 执行一次推断：

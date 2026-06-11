@@ -11,6 +11,7 @@ $testRoot = Join-Path $projectRoot.Path "logs\realtime_save_bridge_test\$session
 $stateRoot = Join-Path $projectRoot.Path "state\realtime_save_bridge_test\$sessionId"
 $remoteRoot = Join-Path $stateRoot "remote"
 $profileRoot = Join-Path $remoteRoot "profile_0"
+$auxiliaryProfileRoot = Join-Path $remoteRoot "profile_9"
 $configPath = Join-Path $projectRoot.Path "config\_realtime_save_bridge_test_$sessionId.json"
 $stdoutPath = Join-Path $testRoot "watch_stdout.txt"
 $stderrPath = Join-Path $testRoot "watch_stderr.txt"
@@ -121,6 +122,18 @@ try {
     }
     Assert-True $ready "Watch-save diagnostic did not report readiness before timeout."
 
+    New-Item -ItemType Directory -Force -Path $auxiliaryProfileRoot | Out-Null
+    $auxiliaryStartedAt = Get-Date
+    $auxiliaryFile = Join-Path $auxiliaryProfileRoot "persist.circus_estate.json"
+    Set-Content -LiteralPath $auxiliaryFile -Value "{}" -Encoding UTF8
+    Start-Sleep -Milliseconds 900
+
+    $saveStateRoot = Join-Path $projectRoot.Path "logs\save_states"
+    $auxiliaryRealtimeReports = @(Get-ChildItem -LiteralPath $saveStateRoot -Filter "*_realtime_*.json" -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge $auxiliaryStartedAt.AddMilliseconds(-100) } |
+        Sort-Object LastWriteTime)
+    Assert-True ($auxiliaryRealtimeReports.Count -eq 0) "Auxiliary-only save changes should not write realtime save state reports."
+
     $changedFile = Join-Path $profileRoot "persist.game.json"
     Assert-True (Test-Path -LiteralPath $changedFile -PathType Leaf) "Copied sample profile is missing persist.game.json."
     (Get-Item -LiteralPath $changedFile).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(5)
@@ -136,7 +149,6 @@ try {
         throw "Watch-save diagnostic failed with exit code $($process.ExitCode). STDOUT: $stdout STDERR: $stderr"
     }
 
-    $saveStateRoot = Join-Path $projectRoot.Path "logs\save_states"
     $realtimeReports = @(Get-ChildItem -LiteralPath $saveStateRoot -Filter "*_realtime_*.json" -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -ge $startedAt.AddSeconds(-1) } |
         Sort-Object LastWriteTime)
@@ -154,10 +166,11 @@ try {
 
     $sessionReport = Get-Content -Raw -LiteralPath $sessionReports[-1].FullName | ConvertFrom-Json
     $eventCounts = $sessionReport.eventCounts
+    Assert-True ([int]$eventCounts.'save.event_bridge_realtime_ignored_auxiliary' -ge 1) "Realtime watcher should record ignored auxiliary-only save changes."
     Assert-True ([int]$eventCounts.'save.state_report_realtime_written' -ge 1) "Realtime watcher should record a realtime save state report write."
     Assert-True ([int]$eventCounts.'save.event_bridge_realtime_completed' -ge 1) "Realtime watcher should record a completed save event bridge pass."
 
-    Write-Host "PASS: realtime save watcher generated a save state report and executed SaveEventBridge."
+    Write-Host "PASS: realtime save watcher ignored auxiliary-only changes, then generated a campaign save state report and executed SaveEventBridge."
 }
 finally {
     if (Test-Path -LiteralPath $configPath) {
