@@ -365,8 +365,19 @@ internal static class RuntimeEventExecutor
         {
             var changed = type switch
             {
+                "state.setValue" => ExecuteSetValue(action, document, payload),
+                "state.clearPaths" => ExecuteClearPaths(action, document),
                 "state.addUniqueRange" => ExecuteAddUniqueRange(action, document, payload),
+                "state.addUnique" => ExecuteAddUnique(action, document, payload),
                 "state.incrementCounter" => ExecuteIncrementCounter(action, document),
+                "state.mergeDefinition" => ExecuteMergeDefinition(sourceRule, action, document),
+                "attempt.recordOnce" => ExecuteRecordAttemptOnce(action, document, payload),
+                "selection.lock" => ExecuteLockSelection(action, document, payload),
+                "selection.consumeHeroes" => ExecuteConsumeSelectionArray(action, document, "heroIds"),
+                "selection.consumeTrinkets" => ExecuteConsumeSelectionArray(action, document, "trinketIds"),
+                "quest.markCompletedIfSuccessful" => ExecuteMarkCompletedIfSuccessful(action, document, payload),
+                "state.transitionWhenAllCompleted" => ExecuteTransitionWhenAllCompleted(action, document),
+                "wallet.addCurrencyOnEvent" => ExecuteAddCurrencyOnEvent(action, document, payload),
                 "challenge.lockStageSelection" => ExecuteLockStageSelection(action, document, payload),
                 "challenge.recordFailedAttempt" => ExecuteRecordStageAttempt(action, document, payload, "failed"),
                 "challenge.advanceStage" => ExecuteAdvanceStage(action, document, payload),
@@ -588,20 +599,7 @@ internal static class RuntimeEventExecutor
     private static bool ExecuteAddUniqueRange(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
     {
         var key = RequireStringArg(action, "key");
-        JsonNode? sourceValue = null;
-        if (TryGetStringArg(action, "fromEvent", out var fromEvent))
-        {
-            sourceValue = RequirePath(payload, fromEvent, "event", action, "fromEvent");
-        }
-        else if (TryGetStringArg(action, "fromState", out var fromState))
-        {
-            sourceValue = RequirePath(document.State, fromState, "state", action, "fromState");
-        }
-        else
-        {
-            sourceValue = ReadRequiredArgNode(action, "values");
-        }
-
+        var sourceValue = ResolveOptionalSourceArg(action, document.State, payload, "values");
         var array = GetOrCreateArray(document.State, key);
         var changed = false;
         foreach (var value in AsArrayItems(sourceValue))
@@ -616,6 +614,274 @@ internal static class RuntimeEventExecutor
         }
 
         return changed;
+    }
+
+    private static bool ExecuteSetValue(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
+    {
+        var key = RequireStringArg(action, "key");
+        var value = ResolveRequiredArgNode(action, "value", document.State, payload);
+        if (TryGetPath(document.State, key, out var existing) && JsonNode.DeepEquals(existing, value))
+        {
+            return false;
+        }
+
+        SetPath(document.State, key, value);
+        return true;
+    }
+
+    private static bool ExecuteClearPaths(RuntimeRuleAction action, ModStateDocument document)
+    {
+        var value = action.Args.ContainsKey("value")
+            ? ReadRequiredArgNode(action, "value")
+            : null;
+        var changed = false;
+        foreach (var path in ReadStringArgArray(action, "paths"))
+        {
+            if (TryGetPath(document.State, path, out var existing) && JsonNode.DeepEquals(existing, value))
+            {
+                continue;
+            }
+
+            SetPath(document.State, path, value);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool ExecuteAddUnique(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
+    {
+        var key = RequireStringArg(action, "key");
+        var value = ResolveRequiredArgNode(action, "value", document.State, payload);
+        var array = GetOrCreateArray(document.State, key);
+        if (array.Any(existing => JsonNode.DeepEquals(existing, value)))
+        {
+            return false;
+        }
+
+        array.Add(CloneNode(value));
+        return true;
+    }
+
+    private static bool ExecuteMergeDefinition(RuntimeEventRuleSource sourceRule, RuntimeRuleAction action, ModStateDocument document)
+    {
+        var stateKey = RequireStringArg(action, "stateKey");
+        var definition = RequireStringArg(action, "definition");
+        var overwriteExisting = ReadOptionalBoolArg(action, "overwriteExisting", false);
+        var definitionPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceRule.SourcePath) ?? ".", definition));
+        if (!File.Exists(definitionPath))
+        {
+            throw new FileNotFoundException("Definition file was not found.", definitionPath);
+        }
+
+        var definitionObject = JsonNode.Parse(File.ReadAllText(definitionPath, Encoding.UTF8)) as JsonObject;
+        if (definitionObject is null)
+        {
+            throw new InvalidDataException($"Definition root must be a JSON object: {definitionPath}");
+        }
+
+        var target = GetOrCreateObject(document.State, stateKey);
+        var changed = false;
+        foreach (var property in definitionObject)
+        {
+            if (!overwriteExisting && target.ContainsKey(property.Key))
+            {
+                continue;
+            }
+
+            if (target.TryGetPropertyValue(property.Key, out var existing) && JsonNode.DeepEquals(existing, property.Value))
+            {
+                continue;
+            }
+
+            target[property.Key] = CloneNode(property.Value);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool ExecuteRecordAttemptOnce(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
+    {
+        var stateKey = RequireStringArg(action, "stateKey");
+        var fingerprint = ResolveFingerprintArg(action, document.State, payload, "fingerprint");
+        var attempts = GetOrCreateArray(document.State, stateKey);
+        if (attempts.Any(attempt => attempt is JsonObject obj &&
+            TryReadString(obj["attemptFingerprint"], out var existing) &&
+            existing.Equals(fingerprint, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        var attempt = new JsonObject
+        {
+            ["attemptFingerprint"] = fingerprint,
+            ["event"] = CloneNode(payload),
+            ["recordedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
+        };
+
+        if (TryGetStringArg(action, "selectionStateKey", out var selectionStateKey) &&
+            TryGetPath(document.State, selectionStateKey, out var selection))
+        {
+            attempt["selection"] = CloneNode(selection);
+        }
+
+        attempts.Add(attempt);
+        return true;
+    }
+
+    private static bool ExecuteLockSelection(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
+    {
+        var stateKey = RequireStringArg(action, "stateKey");
+        var questId = ResolveRequiredArgNode(action, "questId", document.State, payload);
+        var heroIds = ResolveRequiredArgNode(action, "heroIds", document.State, payload);
+        var trinketIds = ResolveRequiredArgNode(action, "trinketIds", document.State, payload);
+
+        var locked = new JsonObject
+        {
+            ["questId"] = CloneNode(questId),
+            ["heroIds"] = new JsonArray(AsArrayItems(heroIds).Select(CloneNode).ToArray()),
+            ["trinketIds"] = new JsonArray(AsArrayItems(trinketIds).Select(CloneNode).ToArray()),
+            ["lockedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
+        };
+
+        if (TryGetStringArg(action, "attemptId", out var attemptIdArg))
+        {
+            locked["attemptId"] = ResolveSourceText(action, document.State, payload, attemptIdArg, "attemptId");
+        }
+
+        if (TryGetPath(document.State, stateKey, out var existing) && JsonNode.DeepEquals(existing, locked))
+        {
+            return false;
+        }
+
+        SetPath(document.State, stateKey, locked);
+        return true;
+    }
+
+    private static bool ExecuteConsumeSelectionArray(RuntimeRuleAction action, ModStateDocument document, string selectionArrayName)
+    {
+        var key = RequireStringArg(action, "key");
+        var selectionStateKey = RequireStringArg(action, "selectionStateKey");
+        var sourcePath = $"{selectionStateKey}.{selectionArrayName}";
+        var sourceValue = RequirePath(document.State, sourcePath, "state", action, "selectionStateKey");
+        var array = GetOrCreateArray(document.State, key);
+        var changed = false;
+        foreach (var value in AsArrayItems(sourceValue))
+        {
+            if (array.Any(existing => JsonNode.DeepEquals(existing, value)))
+            {
+                continue;
+            }
+
+            array.Add(CloneNode(value));
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool ExecuteMarkCompletedIfSuccessful(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
+    {
+        if (!ResolveBoolArg(action, "success", document.State, payload))
+        {
+            return false;
+        }
+
+        var key = RequireStringArg(action, "key");
+        var questId = ResolveRequiredArgNode(action, "questId", document.State, payload);
+        var array = GetOrCreateArray(document.State, key);
+        if (array.Any(existing => JsonNode.DeepEquals(existing, questId)))
+        {
+            return false;
+        }
+
+        array.Add(CloneNode(questId));
+        return true;
+    }
+
+    private static bool ExecuteTransitionWhenAllCompleted(RuntimeRuleAction action, ModStateDocument document)
+    {
+        var completed = ReadComparableSet(RequirePath(document.State, RequireStringArg(action, "completedKey"), "state", action, "completedKey"));
+        var required = ReadComparableSet(RequirePath(document.State, RequireStringArg(action, "requiredKey"), "state", action, "requiredKey"));
+        if (required.Count == 0 || !required.All(completed.Contains))
+        {
+            return false;
+        }
+
+        var changed = false;
+        var phaseKey = RequireStringArg(action, "phaseKey");
+        var nextPhase = JsonValue.Create(RequireStringArg(action, "to"));
+        if (!TryGetPath(document.State, phaseKey, out var currentPhase) || !JsonNode.DeepEquals(currentPhase, nextPhase))
+        {
+            SetPath(document.State, phaseKey, nextPhase);
+            changed = true;
+        }
+
+        if (action.Args.ContainsKey("clearPaths"))
+        {
+            var clearValue = action.Args.ContainsKey("clearValue")
+                ? ReadRequiredArgNode(action, "clearValue")
+                : null;
+            foreach (var path in ReadStringArgArray(action, "clearPaths"))
+            {
+                if (TryGetPath(document.State, path, out var existing) && JsonNode.DeepEquals(existing, clearValue))
+                {
+                    continue;
+                }
+
+                SetPath(document.State, path, clearValue);
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool ExecuteAddCurrencyOnEvent(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
+    {
+        var successArg = TryGetStringArg(action, "success", out _) || action.Args.ContainsKey("success")
+            ? ResolveBoolArg(action, "success", document.State, payload)
+            : true;
+        if (!successArg)
+        {
+            return false;
+        }
+
+        var fingerprint = ResolveFingerprintArg(action, document.State, payload, "fingerprint");
+        if (TryGetStringArg(action, "fingerprintStateKey", out var fingerprintStateKey))
+        {
+            var fingerprints = GetOrCreateArray(document.State, fingerprintStateKey);
+            if (fingerprints.Any(existing => TryReadString(existing, out var existingText) &&
+                existingText.Equals(fingerprint, StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            fingerprints.Add(fingerprint);
+        }
+
+        var key = RequireStringArg(action, "key");
+        var amount = ResolveIntArg(action, "amount", document.State, payload);
+        var current = 0;
+        if (TryGetPath(document.State, key, out var existing) && existing is JsonValue value)
+        {
+            if (value.TryGetValue<int>(out var intValue))
+            {
+                current = intValue;
+            }
+            else if (value.TryGetValue<long>(out var longValue))
+            {
+                current = checked((int)longValue);
+            }
+            else
+            {
+                throw new InvalidOperationException($"State path is not an integer currency amount: {key}");
+            }
+        }
+
+        SetPath(document.State, key, JsonValue.Create(checked(current + amount)));
+        return amount != 0;
     }
 
     private static bool ExecuteIncrementCounter(RuntimeRuleAction action, ModStateDocument document)
@@ -902,8 +1168,19 @@ internal static class RuntimeEventExecutor
     private static bool IsSupportedSafeAction(string type)
     {
         return type is
+            "state.setValue" or
+            "state.clearPaths" or
             "state.addUniqueRange" or
+            "state.addUnique" or
             "state.incrementCounter" or
+            "state.mergeDefinition" or
+            "attempt.recordOnce" or
+            "selection.lock" or
+            "selection.consumeHeroes" or
+            "selection.consumeTrinkets" or
+            "quest.markCompletedIfSuccessful" or
+            "state.transitionWhenAllCompleted" or
+            "wallet.addCurrencyOnEvent" or
             "challenge.lockStageSelection" or
             "challenge.recordFailedAttempt" or
             "challenge.advanceStage" or
@@ -1026,6 +1303,99 @@ internal static class RuntimeEventExecutor
         return CloneNode(node);
     }
 
+    private static JsonNode? ResolveOptionalSourceArg(RuntimeRuleAction action, JsonObject state, JsonObject payload, string literalArgName)
+    {
+        if (TryGetStringArg(action, "fromEvent", out var fromEvent))
+        {
+            return RequirePath(payload, fromEvent, "event", action, "fromEvent");
+        }
+
+        if (TryGetStringArg(action, "fromState", out var fromState))
+        {
+            return RequirePath(state, fromState, "state", action, "fromState");
+        }
+
+        return ReadRequiredArgNode(action, literalArgName);
+    }
+
+    private static string ResolveFingerprintArg(RuntimeRuleAction action, JsonObject state, JsonObject payload, string argName)
+    {
+        var node = ResolveRequiredArgNode(action, argName, state, payload);
+        if (!TryReadString(node, out var text) || string.IsNullOrWhiteSpace(text))
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must resolve to a non-empty scalar fingerprint.");
+        }
+
+        return text;
+    }
+
+    private static string ResolveSourceText(RuntimeRuleAction action, JsonObject state, JsonObject payload, string source, string argName)
+    {
+        JsonNode? node;
+        if (source.StartsWith("event.", StringComparison.OrdinalIgnoreCase))
+        {
+            node = RequirePath(payload, source["event.".Length..], "event", action, argName);
+        }
+        else if (source.StartsWith("state.", StringComparison.OrdinalIgnoreCase))
+        {
+            node = RequirePath(state, source["state.".Length..], "state", action, argName);
+        }
+        else
+        {
+            node = JsonValue.Create(source);
+        }
+
+        if (!TryReadString(node, out var text) || string.IsNullOrWhiteSpace(text))
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must resolve to a non-empty scalar string.");
+        }
+
+        return text;
+    }
+
+    private static bool ResolveBoolArg(RuntimeRuleAction action, string argName, JsonObject state, JsonObject payload)
+    {
+        var node = ResolveRequiredArgNode(action, argName, state, payload);
+        if (node is JsonValue value)
+        {
+            if (value.TryGetValue<bool>(out var boolValue))
+            {
+                return boolValue;
+            }
+
+            if (value.TryGetValue<string>(out var text) && bool.TryParse(text, out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must resolve to a boolean.");
+    }
+
+    private static int ResolveIntArg(RuntimeRuleAction action, string argName, JsonObject state, JsonObject payload)
+    {
+        var node = ResolveRequiredArgNode(action, argName, state, payload);
+        if (node is JsonValue value)
+        {
+            if (value.TryGetValue<int>(out var intValue))
+            {
+                return intValue;
+            }
+
+            if (value.TryGetValue<long>(out var longValue))
+            {
+                return checked((int)longValue);
+            }
+
+            if (value.TryGetValue<string>(out var text) && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must resolve to an integer.");
+    }
+
     private static JsonNode? ReadRequiredArgNode(RuntimeRuleAction action, string argName)
     {
         if (!action.Args.TryGetValue(argName, out var value))
@@ -1034,6 +1404,30 @@ internal static class RuntimeEventExecutor
         }
 
         return JsonNode.Parse(value.GetRawText());
+    }
+
+    private static string[] ReadStringArgArray(RuntimeRuleAction action, string argName)
+    {
+        var node = ReadRequiredArgNode(action, argName);
+        if (node is not JsonArray array)
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must be an array of non-empty strings.");
+        }
+
+        var values = new List<string>();
+        foreach (var item in array)
+        {
+            if (item is not JsonValue value ||
+                !value.TryGetValue<string>(out var text) ||
+                string.IsNullOrWhiteSpace(text))
+            {
+                throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must be an array of non-empty strings.");
+            }
+
+            values.Add(text);
+        }
+
+        return values.ToArray();
     }
 
     private static JsonNode? RequirePath(JsonNode? root, string path, string addressSpace, RuntimeRuleAction action, string argName)
@@ -1087,6 +1481,37 @@ internal static class RuntimeEventExecutor
         }
 
         throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must be an integer.");
+    }
+
+    private static bool ReadOptionalBoolArg(RuntimeRuleAction action, string argName, bool fallback)
+    {
+        if (!action.Args.TryGetValue(argName, out var element))
+        {
+            return fallback;
+        }
+
+        if (element.ValueKind == JsonValueKind.True || element.ValueKind == JsonValueKind.False)
+        {
+            return element.GetBoolean();
+        }
+
+        throw new InvalidOperationException($"Action {action.Type} arg '{argName}' must be a boolean.");
+    }
+
+    private static HashSet<string> ReadComparableSet(JsonNode? node)
+    {
+        var values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in AsArrayItems(node))
+        {
+            if (!TryReadString(item, out var text) || string.IsNullOrWhiteSpace(text))
+            {
+                throw new InvalidOperationException("Expected a scalar or array of scalar comparable values.");
+            }
+
+            values.Add(text);
+        }
+
+        return values;
     }
 
     private static IEnumerable<JsonNode?> AsArrayItems(JsonNode? node)

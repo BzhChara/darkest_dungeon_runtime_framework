@@ -273,6 +273,19 @@ capability equipment.enforce_availability_filter
 capability progression.observe_plot_completion
 ```
 
+Validation manifest and data:
+
+```text
+plugins/_validation/boss_gauntlet_campaign_contract/patches.json
+plugins/_validation/boss_gauntlet_campaign_contract/boss_gauntlet.json
+```
+
+Dry-run tool:
+
+```text
+tools/TestBossGauntletContract.ps1
+```
+
 Acceptance ladder:
 
 1. The scenario has a validation manifest draft and content-derived or fixture-defined boss quest set.
@@ -285,6 +298,8 @@ Acceptance ladder:
 8. Runtime consumers enforce the fixed quest board, disabled trinket selling, wallet reward, and pre-finale hero/trinket availability.
 9. Managed original-save initialization, if introduced, is schema-verified, logged, idempotent, and does not restore later campaign failures.
 10. The finale phase can rely on original Darkest Dungeon entry restrictions where possible, does not revive dead heroes, and only adds sidecar run-completion tracking.
+
+Steps 1-5 now exist for the sidecar state path. `tools/TestBossGauntletContract.ps1` initializes the plugin state, proves repeat initialization does not reset changed run state, locks selected heroes/trinkets, consumes that selection on success and failure, pays successful rewards once per attempt identity, marks only successful quests complete, transitions to `darkest_finale` after all fixed boss quests are complete, clears pre-finale reuse restrictions, and preserves observed dead hero state. Steps 6-10 still require richer save/content facts, managed action artifacts, and runtime consumers before this becomes live game behavior.
 
 ## What Counts As Framework Progress
 

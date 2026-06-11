@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "id": "validation.fixed_resource_boss_gauntlet",
+  "name": "Validation Fixed Resource Boss Gauntlet",
+  "mode": "fixed_resource_boss_gauntlet",
+  "initialGold": 20000,
+  "victoryGold": 10000,
+  "heroCopiesPerClass": 2,
+  "heroLevel": "max",
+  "skills": "all_unlocked_and_maxed",
+  "trinketCopies": 2,
+  "trinketSaleDisabled": true,
+  "stageCoachRecruits": "suppressed",
+  "townBuildings": "all_unlocked_and_maxed",
+  "townEvent": {
+    "mode": "override",
+    "message": "Enjoy the inferno"
+  },
+  "finaleDoesNotReviveDeadHeroes": true,
+  "fixedQuestIds": [
+    "plot_kill_necromancer_3",
+    "plot_kill_prophet_3"
+  ],
+  "fixedBossQuests": [
+    {
+      "id": "plot_kill_necromancer_3",
+      "region": "crypts",
+      "boss": "necromancer",
+      "difficulty": "highest",
+      "source": "content_query"
+    },
+    {
+      "id": "plot_kill_prophet_3",
+      "region": "crypts",
+      "boss": "prophet",
+      "difficulty": "highest",
+      "source": "content_query"
+    }
+  ]
+}

@@ -1,0 +1,378 @@
+{
+  "id": "validation.boss_gauntlet_campaign_contract",
+  "name": "Validation - Boss Gauntlet Campaign Contract",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [
+    "state.sidecar",
+    "profile.detect_new_or_uninitialized",
+    "profile.mark_initialized",
+    "roster.ensure_class_instances",
+    "roster.set_progression",
+    "roster.set_skill_unlocks",
+    "stagecoach.suppress_recruits",
+    "estate.ensure_inventory_counts",
+    "wallet.set_currency_amount",
+    "wallet.modify_currency",
+    "inventory.disable_item_sale",
+    "town.unlock_all_buildings",
+    "town.set_building_levels",
+    "town_event.override_current",
+    "quest_board.replace_with_fixed_set",
+    "quest_board.filter_completed_fixed_quests",
+    "quest.observe_selection_confirmed",
+    "party.observe_selection_confirmed",
+    "equipment.observe_loadout_confirmed",
+    "quest.observe_attempt_resolved",
+    "attempt.record_once",
+    "selection.lock",
+    "selection.consume_heroes",
+    "selection.consume_trinkets",
+    "quest.mark_completed",
+    "state.transition_phase",
+    "progression.observe_plot_completion"
+  ],
+  "phase": "normal",
+  "priority": 16,
+  "virtualFileRules": [],
+  "factEventRules": [],
+  "eventRules": [
+    {
+      "id": "initialize_new_boss_gauntlet_profile",
+      "enabled": true,
+      "on": "profile.initialization_requested",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "profile.detect_new_or_uninitialized",
+        "profile.mark_initialized"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "bossGauntlet.initialized",
+            "op": "equals",
+            "value": false
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "state.mergeDefinition",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "bossGauntlet",
+            "definition": "boss_gauntlet.json",
+            "overwriteExisting": true
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "wallet.set_currency_amount",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.wallet.gold",
+            "value": "state.bossGauntlet.initialGold"
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.phase",
+            "value": "boss_gauntlet"
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "profile.mark_initialized",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.initialized",
+            "value": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "record_observed_dead_heroes",
+      "enabled": true,
+      "on": "profile.dead_hero_observed",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar"
+      ],
+      "actions": [
+        {
+          "type": "state.addUniqueRange",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.observedDeadHeroIds",
+            "fromEvent": "heroIds"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lock_prefinale_boss_selection",
+      "enabled": true,
+      "on": "quest.selection_confirmed",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "quest.observe_selection_confirmed",
+        "party.observe_selection_confirmed",
+        "equipment.observe_loadout_confirmed",
+        "selection.lock"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "bossGauntlet.phase",
+            "op": "equals",
+            "value": "boss_gauntlet"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "selection.lock",
+          "capability": "selection.lock",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "bossGauntlet.activeSelection",
+            "questId": "event.questId",
+            "heroIds": "event.selectedHeroIds",
+            "trinketIds": "event.selectedTrinketIds"
+          }
+        }
+      ]
+    },
+    {
+      "id": "resolve_successful_prefinale_boss_attempt",
+      "enabled": true,
+      "on": "quest.attempt_resolved",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "quest.observe_attempt_resolved",
+        "attempt.record_once",
+        "selection.consume_heroes",
+        "selection.consume_trinkets",
+        "wallet.modify_currency",
+        "quest.mark_completed",
+        "state.transition_phase"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "bossGauntlet.phase",
+            "op": "equals",
+            "value": "boss_gauntlet"
+          },
+          {
+            "state": "bossGauntlet.activeSelection.questId",
+            "op": "exists"
+          },
+          {
+            "event": "success",
+            "op": "equals",
+            "value": true
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "attempt.recordOnce",
+          "capability": "attempt.record_once",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "bossGauntlet.attempts",
+            "fingerprint": "event.attemptId",
+            "selectionStateKey": "bossGauntlet.activeSelection"
+          }
+        },
+        {
+          "type": "selection.consumeHeroes",
+          "capability": "selection.consume_heroes",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.consumedHeroIds",
+            "selectionStateKey": "bossGauntlet.activeSelection"
+          }
+        },
+        {
+          "type": "selection.consumeTrinkets",
+          "capability": "selection.consume_trinkets",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.consumedTrinketIds",
+            "selectionStateKey": "bossGauntlet.activeSelection"
+          }
+        },
+        {
+          "type": "wallet.addCurrencyOnEvent",
+          "capability": "wallet.modify_currency",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.wallet.gold",
+            "amount": "state.bossGauntlet.victoryGold",
+            "success": "event.success",
+            "fingerprint": "event.attemptId",
+            "fingerprintStateKey": "bossGauntlet.rewardedAttemptFingerprints"
+          }
+        },
+        {
+          "type": "quest.markCompletedIfSuccessful",
+          "capability": "quest.mark_completed",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.completedQuestIds",
+            "questId": "event.questId",
+            "success": "event.success"
+          }
+        },
+        {
+          "type": "state.transitionWhenAllCompleted",
+          "capability": "state.transition_phase",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "completedKey": "bossGauntlet.completedQuestIds",
+            "requiredKey": "bossGauntlet.fixedQuestIds",
+            "phaseKey": "bossGauntlet.phase",
+            "to": "darkest_finale",
+            "clearPaths": [
+              "bossGauntlet.consumedHeroIds",
+              "bossGauntlet.consumedTrinketIds"
+            ],
+            "clearValue": []
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.activeSelection",
+            "value": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "resolve_failed_prefinale_boss_attempt",
+      "enabled": true,
+      "on": "quest.attempt_resolved",
+      "phase": "normal",
+      "priority": 1,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "quest.observe_attempt_resolved",
+        "attempt.record_once",
+        "selection.consume_heroes",
+        "selection.consume_trinkets"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "bossGauntlet.phase",
+            "op": "equals",
+            "value": "boss_gauntlet"
+          },
+          {
+            "state": "bossGauntlet.activeSelection.questId",
+            "op": "exists"
+          },
+          {
+            "event": "success",
+            "op": "equals",
+            "value": false
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "attempt.recordOnce",
+          "capability": "attempt.record_once",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "bossGauntlet.attempts",
+            "fingerprint": "event.attemptId",
+            "selectionStateKey": "bossGauntlet.activeSelection"
+          }
+        },
+        {
+          "type": "selection.consumeHeroes",
+          "capability": "selection.consume_heroes",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.consumedHeroIds",
+            "selectionStateKey": "bossGauntlet.activeSelection"
+          }
+        },
+        {
+          "type": "selection.consumeTrinkets",
+          "capability": "selection.consume_trinkets",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.consumedTrinketIds",
+            "selectionStateKey": "bossGauntlet.activeSelection"
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.activeSelection",
+            "value": null
+          }
+        }
+      ]
+    }
+  ],
+  "stateSchema": {
+    "bossGauntlet": {
+      "type": "object",
+      "default": {
+        "initialized": false,
+        "phase": "uninitialized",
+        "wallet": {
+          "gold": 0
+        },
+        "fixedQuestIds": [],
+        "completedQuestIds": [],
+        "consumedHeroIds": [],
+        "consumedTrinketIds": [],
+        "rewardedAttemptFingerprints": [],
+        "observedDeadHeroIds": [],
+        "activeSelection": null,
+        "attempts": []
+      }
+    }
+  }
+}
