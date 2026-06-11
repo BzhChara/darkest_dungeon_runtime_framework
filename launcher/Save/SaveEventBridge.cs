@@ -234,10 +234,11 @@ internal static class SaveEventBridge
         {
             JsonNode? value = null;
             var resolved = false;
+            var optional = TryGetBoolProperty(element, "optional", out var optionalValue) && optionalValue;
 
             if (TryGetStringProperty(element, "fromFact", out var fromFact))
             {
-                value = RequirePath(facts, fromFact, "fact", sourceRule, key);
+                value = ResolvePayloadPath(facts, fromFact, "fact", sourceRule, key, optional);
                 resolved = true;
             }
             else if (TryGetStringProperty(element, "fromState", out var fromState))
@@ -247,13 +248,13 @@ internal static class SaveEventBridge
                     throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' requires state path '{fromState}', but plugin state is unavailable.");
                 }
 
-                value = RequirePath(state, fromState, "state", sourceRule, key);
+                value = ResolvePayloadPath(state, fromState, "state", sourceRule, key, optional);
                 resolved = true;
             }
             else if (TryGetStringProperty(element, "fromBridge", out var fromBridge) ||
                 TryGetStringProperty(element, "fromEvent", out fromBridge))
             {
-                value = RequirePath(bridgeContext, fromBridge, "bridge", sourceRule, key);
+                value = ResolvePayloadPath(bridgeContext, fromBridge, "bridge", sourceRule, key, optional);
                 resolved = true;
             }
             else if (element.TryGetProperty("value", out var literal))
@@ -269,6 +270,27 @@ internal static class SaveEventBridge
         }
 
         return JsonNode.Parse(element.GetRawText());
+    }
+
+    private static JsonNode? ResolvePayloadPath(
+        JsonObject root,
+        string path,
+        string addressSpace,
+        FactEventRuleSource sourceRule,
+        string key,
+        bool optional)
+    {
+        if (TryGetPath(root, path, out var value))
+        {
+            return CloneNode(value);
+        }
+
+        if (optional)
+        {
+            return null;
+        }
+
+        return RequirePath(root, path, addressSpace, sourceRule, key);
     }
 
     private static JsonNode? ApplyPayloadProjection(

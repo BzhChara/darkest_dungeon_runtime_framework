@@ -168,6 +168,40 @@ $executed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -
 Assert-True ($executed.Count -eq 1) "Save event bridge should execute one matching selection event."
 Assert-True ($executed[0].eventId -eq "challenge.stage_selection_confirmed") "Save event bridge should emit challenge.stage_selection_confirmed."
 
+$failedReportPath = Write-JsonPayload "save_state_report_necromancer_failed.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "save_event_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        progression = [pscustomobject]@{
+            lastRaidQuestId = $questHash
+            lastRaidQuest = [pscustomobject]@{
+                value = $questHash
+                isResolved = $true
+                isAmbiguous = $false
+                names = @($questId)
+            }
+            lastRaidSuccess = $false
+            lastRaidWasPlotQuest = $true
+        }
+        campaignLog = [pscustomobject]@{
+            partyRaidRecordCount = 2
+        }
+    }
+})
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--infer-save-events", "--save-state-report", $failedReportPath))
+
+$state = Read-ChallengeState
+Assert-True ($null -ne $state.lockedStageSelection) "Save event bridge failure should keep inferred locked selection."
+Assert-True ((Convert-ToArray $state.stageAttempts).Count -eq 1) "Save event bridge failure should record one failed attempt."
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--infer-save-events", "--save-state-report", $failedReportPath))
+
+$state = Read-ChallengeState
+Assert-True ((Convert-ToArray $state.stageAttempts).Count -eq 1) "Duplicate save bridge failure should not record a duplicate failed attempt."
+
 $saveReportPath = Write-JsonPayload "save_state_report_necromancer_completed.json" ([pscustomobject]@{
     version = 1
     sessionId = "save_event_bridge_test"

@@ -153,12 +153,15 @@ Fact event fields:
 
 Payload source objects can also apply simple projections before the event is emitted. Current projections are deliberately generic:
 
+- `optional`: when `true`, a missing `fromFact`, `fromState`, `fromBridge`, or `fromEvent` path resolves to `null` instead of failing payload construction. Use this only for supplementary observation fields; predicates should still require the facts that are needed to safely emit the event.
 - `where`: filters an array source with a predicate tree over each item. Leaf predicates use `path` for the item-relative path and support literal `value`, `valueFromFact`, `valueFromState`, `valueFromBridge`, and `valueFromEvent`.
 - `whereIn`: filters an array source by comparing an item `path` with values from `values`, `valuesFromFact`, `valuesFromState`, `valuesFromBridge`, or `valuesFromEvent`.
 - `selectMany`: reads a child path from every array item and flattens array children.
 - `selectManyMissing`: controls missing child paths for `selectMany`; default is `error`, while `skip` treats missing or null child paths as an empty contribution for that item.
 - `map` / `coerce`: supports `string` and `stringArray`.
 - `distinct`: removes duplicate array items after earlier projections.
+
+Attempt-recording actions are idempotent only when the emitted payload carries a stable attempt identity. `challenge.recordFailedAttempt` currently accepts `attemptFingerprint`, `observedAttemptId`, or `observedPartyRaidRecordCount` and stores the derived fingerprint on `stageAttempts[]`. This prevents repeated save watcher passes from recording the same observed raid result multiple times while still allowing genuinely new attempts to be recorded when the identity changes.
 
 If a fact event rule emits an event successfully, later fact event rules in the same bridge pass reload that plugin's sidecar state before evaluating predicates. This allows a post-task save report to infer `selection_confirmed` from structured campaign log facts, then infer `stage_completed` from progression facts without waiting for another watcher pass.
 

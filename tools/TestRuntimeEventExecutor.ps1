@@ -220,16 +220,25 @@ Assert-True ($state.lockedStageSelection.stageId -eq "stage_1_necromancer") "Sel
 Assert-True ((Convert-ToArray $state.lockedStageSelection.heroIds).Count -eq 4) "Selection lock hero count was not recorded."
 Assert-True ((Convert-ToArray $state.usedHeroIds).Count -eq 0) "Selection confirmation should not mark heroes used."
 
-$stagePayloadPath = Write-JsonPayload "stage_result.json" ([pscustomobject]@{
+$stageFailedPayloadPath = Write-JsonPayload "stage_failed_result.json" ([pscustomobject]@{
     stageId = "stage_1_necromancer"
+    sourceQuestId = "plot_kill_necromancer_1"
+    observedQuestHash = -1493133786
+    observedSuccess = $false
+    observedPartyRaidRecordCount = 1
 })
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_failed", "--event-payload-file", $stagePayloadPath))
+Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_failed", "--event-payload-file", $stageFailedPayloadPath))
 $state = Read-ChallengeState
 Assert-True ($state.lockedStageSelection.stageId -eq "stage_1_necromancer") "Failure should keep locked selection."
 Assert-True ((Convert-ToArray $state.stageAttempts).Count -eq 1) "Failure should record one attempt."
 Assert-True ((Convert-ToArray $state.stageAttempts)[0].result -eq "failed") "Failure attempt result was not recorded."
+Assert-True (-not [string]::IsNullOrWhiteSpace((Convert-ToArray $state.stageAttempts)[0].attemptFingerprint)) "Failure attempt should record an idempotency fingerprint when event identity is available."
 Assert-True ((Convert-ToArray $state.usedHeroIds).Count -eq 0) "Failure should not mark heroes used."
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_failed", "--event-payload-file", $stageFailedPayloadPath))
+$state = Read-ChallengeState
+Assert-True ((Convert-ToArray $state.stageAttempts).Count -eq 1) "Duplicate failure event with the same attempt identity should not record a second attempt."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_started"))
 $runtimeEventReport = Read-RuntimeEventReport
@@ -241,7 +250,11 @@ $blockedHero = Get-PlanItem -Plan $heroPlanAction.plan -Id "16"
 Assert-True (-not [bool]$blockedHero.allowed) "Retry hero plan should block heroes outside the locked selection."
 Assert-True ((Convert-ToArray $blockedHero.reasons) -contains "current_stage_selection_locked") "Retry blocked hero should explain the locked-selection reason."
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_completed", "--event-payload-file", $stagePayloadPath))
+$stageCompletedPayloadPath = Write-JsonPayload "stage_completed_result.json" ([pscustomobject]@{
+    stageId = "stage_1_necromancer"
+})
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_completed", "--event-payload-file", $stageCompletedPayloadPath))
 $state = Read-ChallengeState
 Assert-True ([int]$state.currentStageIndex -eq 1) "Completion should advance currentStageIndex to 1."
 Assert-True ((Convert-ToArray $state.completedStageIds) -contains "stage_1_necromancer") "Completion should record completed stage id."

@@ -306,6 +306,10 @@
         "observedSuccess": {
           "fromFact": "progression.lastRaidSuccess"
         },
+        "observedPartyRaidRecordCount": {
+          "fromFact": "campaignLog.partyRaidRecordCount",
+          "optional": true
+        },
         "saveStateReportPath": {
           "fromBridge": "saveStateReportPath"
         }

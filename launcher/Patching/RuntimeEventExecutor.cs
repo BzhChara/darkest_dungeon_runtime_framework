@@ -667,6 +667,16 @@ internal static class RuntimeEventExecutor
             selection = RequirePath(document.State, selectionStateKey, "state", action, "selectionStateKey");
         }
 
+        var attempts = GetOrCreateArray(document.State, stateKey);
+        var attemptFingerprint = BuildStageAttemptFingerprint(stageId, payload, result);
+        if (!string.IsNullOrWhiteSpace(attemptFingerprint) &&
+            attempts.Any(attempt => attempt is JsonObject attemptObject &&
+                TryReadString(attemptObject["attemptFingerprint"], out var existingFingerprint) &&
+                existingFingerprint.Equals(attemptFingerprint, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
         var attempt = new JsonObject
         {
             ["stageId"] = CloneNode(stageId),
@@ -675,7 +685,97 @@ internal static class RuntimeEventExecutor
             ["recordedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
         };
 
-        GetOrCreateArray(document.State, stateKey).Add(attempt);
+        if (!string.IsNullOrWhiteSpace(attemptFingerprint))
+        {
+            attempt["attemptFingerprint"] = attemptFingerprint;
+        }
+
+        attempts.Add(attempt);
+        return true;
+    }
+
+    private static string? BuildStageAttemptFingerprint(JsonNode? stageId, JsonObject payload, string result)
+    {
+        if (TryGetPath(payload, "attemptFingerprint", out var explicitFingerprint) &&
+            TryReadString(explicitFingerprint, out var explicitText) &&
+            !string.IsNullOrWhiteSpace(explicitText))
+        {
+            return $"explicit:{explicitText}";
+        }
+
+        var hasAttemptIdentity = TryGetPath(payload, "observedAttemptId", out var observedAttemptId) &&
+            TryReadString(observedAttemptId, out var attemptIdText) &&
+            !string.IsNullOrWhiteSpace(attemptIdText);
+        var hasRaidRecordCount = TryGetPath(payload, "observedPartyRaidRecordCount", out var raidRecordCount) &&
+            TryReadString(raidRecordCount, out var raidRecordCountText) &&
+            !string.IsNullOrWhiteSpace(raidRecordCountText);
+
+        if (!hasAttemptIdentity && !hasRaidRecordCount)
+        {
+            return null;
+        }
+
+        var parts = new List<string>
+        {
+            "stageAttempt",
+            $"stage={ReadFingerprintValue(stageId)}",
+            $"result={result}",
+            $"attempt={ReadFingerprintValue(hasAttemptIdentity ? observedAttemptId : null)}",
+            $"partyRaidRecordCount={ReadFingerprintValue(hasRaidRecordCount ? raidRecordCount : null)}",
+            $"sourceQuestId={ReadPayloadFingerprintValue(payload, "sourceQuestId")}",
+            $"observedQuestHash={ReadPayloadFingerprintValue(payload, "observedQuestHash")}",
+            $"observedSuccess={ReadPayloadFingerprintValue(payload, "observedSuccess")}"
+        };
+
+        return string.Join("|", parts);
+    }
+
+    private static string ReadPayloadFingerprintValue(JsonObject payload, string path)
+    {
+        return TryGetPath(payload, path, out var value) ? ReadFingerprintValue(value) : string.Empty;
+    }
+
+    private static string ReadFingerprintValue(JsonNode? value)
+    {
+        return value?.ToJsonString(JsonOptions) ?? "null";
+    }
+
+    private static bool TryReadString(JsonNode? node, out string value)
+    {
+        value = string.Empty;
+        if (node is null)
+        {
+            return false;
+        }
+
+        if (node is JsonValue jsonValue)
+        {
+            if (jsonValue.TryGetValue<string>(out var stringValue))
+            {
+                value = stringValue;
+                return true;
+            }
+
+            if (jsonValue.TryGetValue<int>(out var intValue))
+            {
+                value = intValue.ToString(CultureInfo.InvariantCulture);
+                return true;
+            }
+
+            if (jsonValue.TryGetValue<long>(out var longValue))
+            {
+                value = longValue.ToString(CultureInfo.InvariantCulture);
+                return true;
+            }
+
+            if (jsonValue.TryGetValue<bool>(out var boolValue))
+            {
+                value = boolValue ? "true" : "false";
+                return true;
+            }
+        }
+
+        value = node.ToJsonString(JsonOptions);
         return true;
     }
 
