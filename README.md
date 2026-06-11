@@ -185,18 +185,19 @@ logs/save_states/<watchSessionId>_realtime_<n>.json
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --infer-save-events --save-state-report ./logs/save_states/<sessionId>.json --no-inject
 ```
 
-真实游戏观察用专门配置运行，默认不注入 DLL、不写原版 `profile_*`，只启动 watcher 并在游戏退出后让 save event bridge 读取本次生成的 save state report：
+真实游戏观察用专门配置运行，不写原版 `profile_*`，会先准备 challenge sidecar state、物化当前 stage 的 managed action overlay，再启动游戏并注入 RuntimeHook，同时开启 save watcher 和 save event bridge：
 
 ```powershell
-.\tools\StartChallengeSaveBridgeObserve.ps1
+.\tools\StartLiveChallengeObserve.ps1
 ```
 
-该脚本会为本次观察创建新的 sidecar state 目录，先初始化 `validation.challenge_run_contract` 并发出 `challenge.run_started`，再启动游戏。退出游戏后查看：
+兼容入口 `.\tools\StartChallengeSaveBridgeObserve.ps1` 仍然可用，它会转调新的 live observe 脚本。该脚本会为本次观察创建新的 sidecar state 目录，先初始化 `validation.challenge_run_contract`，发出 `challenge.run_started` 和 `challenge.stage_selection_started`，再启动游戏。进入 `profile_3` 后选择当前 stage 对应的 boss 关；存档变化会实时触发 save event bridge。退出游戏后查看：
 
 ```text
 logs/save_sessions/<sessionId>.json
 logs/save_states/<sessionId>.json
 logs/save_event_bridge_report.json
+state/live_challenge_observe/<sessionId>/validation.challenge_run_contract.json
 ```
 
 `factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。payload 可以声明通用数组投影，例如从 `facts.heroes` 里筛出当前 raid 队伍成员，再展开这些英雄的 `trinketIds`，或用 `where` 从 `campaignLog.partyRaidRecords` 里筛出匹配关卡的完成记录。验证插件现在用这些规则从 active raid facts 或任务后的 campaign log facts 发出 `challenge.stage_selection_confirmed`，并从 last raid quest/result facts 发出 `challenge.stage_completed` 或 `challenge.stage_failed`。同一次 bridge pass 中，前一个事件写入 sidecar state 后，后续规则会重新读取 state，因此任务后存档可以先补推选人确认，再推进完成事件。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤不在这个桥接器里硬编码；它们由普通 `eventRules` 声明，并先物化为 managed action artifact，再由 overlay/hook 层按能力逐步消费。
