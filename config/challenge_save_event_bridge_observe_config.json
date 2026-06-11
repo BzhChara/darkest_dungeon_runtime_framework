@@ -1,0 +1,44 @@
+{
+  "gameExecutablePath": "E:/Steam/steamapps/common/DarkestDungeon/_windows/win64/Darkest.exe",
+  "gameWorkingDirectory": "E:/Steam/steamapps/common/DarkestDungeon",
+  "runtimeDllPath": "./runtime/bin/x64/Release/RuntimeHook.dll",
+  "logDirectory": "./logs",
+  "modStateDirectory": "./state/challenge_save_event_bridge_observe",
+  "allowNonAtomicStateWrites": false,
+  "enableInjection": false,
+  "killGameOnInjectionFailure": false,
+  "startSuspendedForInjection": false,
+  "fileIoObserveOnly": true,
+  "fileIoLogExtensions": [
+    ".darkest",
+    ".json",
+    ".txt"
+  ],
+  "fileIoMaxLogEntries": 300,
+  "fileIoDeduplicate": true,
+  "eventProbeEnabled": false,
+  "eventProbeLogFileOpen": false,
+  "eventProbeLogFileWrite": false,
+  "eventProbeLogSaveFiles": true,
+  "eventProbeLogDataFiles": false,
+  "eventProbeLogAssetFiles": false,
+  "eventProbeMaxLogEntries": 300,
+  "eventProbeMaxSaveLogEntries": 1000,
+  "eventProbeIgnorePathFragments": [
+    "Steam/logs/",
+    "gameoverlay_renderer.txt"
+  ],
+  "saveWatchEnabled": true,
+  "saveWatchDirectories": [],
+  "saveWatchAfterExitSeconds": 10,
+  "saveEventBridgeEnabled": true,
+  "pluginDirectories": [
+    "./plugins/_validation"
+  ],
+  "pluginPatchManifestName": "patches.json",
+  "virtualFileEnabled": true,
+  "virtualFileTarget": "",
+  "virtualFileFind": "",
+  "virtualFileReplace": "",
+  "virtualFileRules": []
+}

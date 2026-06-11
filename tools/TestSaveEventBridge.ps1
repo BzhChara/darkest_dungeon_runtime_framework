@@ -210,6 +210,24 @@ Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "No-match save event b
 $notMatched = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "predicate-not-matched" })
 Assert-True ($notMatched.Count -eq 3) "No-match save event bridge pass should leave all fact-event rules unmatched."
 
+$uninitializedStateRoot = Join-Path $stateRoot "uninitialized_challenge_state"
+New-Item -ItemType Directory -Force -Path $uninitializedStateRoot | Out-Null
+
+Invoke-Loader -LoaderArgs @(
+    "--config", (Resolve-ProjectPath $ConfigPath),
+    "--no-inject",
+    "--allow-non-atomic-state-writes",
+    "--mod-state-id", "validation.challenge_run_contract",
+    "--mod-state-dir", $uninitializedStateRoot,
+    "--infer-save-events",
+    "--save-state-report", $saveReportPath
+)
+
+$bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
+Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "Uninitialized challenge state should not infer save bridge events."
+$bridgeErrors = @(Convert-ToArray $bridgeReport.issues | Where-Object { $_.severity -eq "error" })
+Assert-True ($bridgeErrors.Count -eq 0) "Uninitialized challenge state should not produce save bridge errors."
+
 $badStateRoot = Join-Path $stateRoot "bad_fact_event_predicate"
 New-Item -ItemType Directory -Force -Path $badStateRoot | Out-Null
 
@@ -227,5 +245,24 @@ $predicateFailed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.s
 Assert-True ($predicateFailed.Count -eq 1) "Bad fact-event predicate should be reported as predicate-failed."
 $predicateIssues = @(Convert-ToArray $bridgeReport.issues | Where-Object { $_.code -eq "predicate-evaluation-failed" -and $_.severity -eq "error" })
 Assert-True ($predicateIssues.Count -eq 1) "Bad fact-event predicate should produce one error issue."
+
+$badPayloadRoot = Join-Path $stateRoot "bad_payload_projection"
+New-Item -ItemType Directory -Force -Path $badPayloadRoot | Out-Null
+
+Invoke-LoaderExpectExit -ExpectedExitCode 3 -LoaderArgs @(
+    "--config", (Resolve-ProjectPath "config\save_event_bridge_bad_payload_projection_config.json"),
+    "--no-inject",
+    "--allow-non-atomic-state-writes",
+    "--mod-state-dir", $badPayloadRoot,
+    "--infer-save-events",
+    "--save-state-report", $saveReportPath
+)
+
+$bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
+$payloadFailed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "payload-failed" })
+Assert-True ($payloadFailed.Count -eq 5) "Bad payload projection rules should be reported as payload-failed."
+$payloadIssues = @(Convert-ToArray $bridgeReport.issues | Where-Object { $_.code -eq "payload-build-failed" -and $_.severity -eq "error" })
+Assert-True ($payloadIssues.Count -eq 5) "Bad payload projection rules should produce payload-build-failed issues."
+Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "Bad payload projection rules should not emit events."
 
 Write-Host "PASS: save event bridge inferred and executed challenge selection/completion."

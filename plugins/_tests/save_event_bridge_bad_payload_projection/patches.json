@@ -1,0 +1,102 @@
+{
+  "id": "validation.bad_payload_projection",
+  "name": "Validation - Bad Payload Projection",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [
+    "save.observe_write"
+  ],
+  "factEventRules": [
+    {
+      "id": "map_must_be_string",
+      "enabled": true,
+      "emit": "validation.bad_payload_event",
+      "when": {
+        "fact": "progression.lastRaidSuccess",
+        "op": "equals",
+        "value": true
+      },
+      "payload": {
+        "broken": {
+          "fromFact": "progression.lastRaidSuccess",
+          "map": 123
+        }
+      }
+    },
+    {
+      "id": "distinct_must_be_boolean",
+      "enabled": true,
+      "emit": "validation.bad_payload_event",
+      "when": {
+        "fact": "progression.lastRaidSuccess",
+        "op": "equals",
+        "value": true
+      },
+      "payload": {
+        "broken": {
+          "fromFact": "progression.lastRaidQuest.names",
+          "distinct": "yes"
+        }
+      }
+    },
+    {
+      "id": "where_in_requires_path",
+      "enabled": true,
+      "emit": "validation.bad_payload_event",
+      "when": {
+        "fact": "progression.lastRaidSuccess",
+        "op": "equals",
+        "value": true
+      },
+      "payload": {
+        "broken": {
+          "fromFact": "progression.lastRaidQuest.names",
+          "whereIn": {
+            "values": [
+              "plot_kill_necromancer_1"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "where_in_requires_array_source",
+      "enabled": true,
+      "emit": "validation.bad_payload_event",
+      "when": {
+        "fact": "progression.lastRaidSuccess",
+        "op": "equals",
+        "value": true
+      },
+      "payload": {
+        "broken": {
+          "fromFact": "progression.lastRaidSuccess",
+          "whereIn": {
+            "path": "id",
+            "values": [
+              "true"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "select_many_requires_array_source",
+      "enabled": true,
+      "emit": "validation.bad_payload_event",
+      "when": {
+        "fact": "progression.lastRaidSuccess",
+        "op": "equals",
+        "value": true
+      },
+      "payload": {
+        "broken": {
+          "fromFact": "progression.lastRaidSuccess",
+          "selectMany": "trinketIds"
+        }
+      }
+    }
+  ],
+  "eventRules": [],
+  "stateSchema": {}
+}

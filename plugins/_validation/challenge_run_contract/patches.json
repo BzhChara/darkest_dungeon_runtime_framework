@@ -44,6 +44,18 @@
             "op": "notExists"
           },
           {
+            "state": "challengeRun.currentStage.id",
+            "op": "exists"
+          },
+          {
+            "state": "challengeRun.currentStage.sourceQuestId",
+            "op": "exists"
+          },
+          {
+            "state": "challengeRun.partySize",
+            "op": "exists"
+          },
+          {
             "fact": "raid.instance.id",
             "op": "equals",
             "valueFromState": "challengeRun.currentStage.sourceQuestId"
@@ -103,6 +115,14 @@
             "op": "exists"
           },
           {
+            "state": "challengeRun.currentStage.id",
+            "op": "exists"
+          },
+          {
+            "state": "challengeRun.currentStage.sourceQuestId",
+            "op": "exists"
+          },
+          {
             "fact": "progression.lastRaidSuccess",
             "op": "equals",
             "value": true
@@ -154,6 +174,14 @@
           },
           {
             "state": "challengeRun.lockedStageSelection",
+            "op": "exists"
+          },
+          {
+            "state": "challengeRun.currentStage.id",
+            "op": "exists"
+          },
+          {
+            "state": "challengeRun.currentStage.sourceQuestId",
             "op": "exists"
           },
           {

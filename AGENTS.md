@@ -48,6 +48,7 @@ For documentation-only changes, `git diff --check` plus a focused read-through i
 ## Git And Generated Files
 
 - The user has initialized this repository and allows commits when a coherent step is complete.
+- Remote `origin` is `git@github.com:BzhChara/darkest_dungeon_runtime_framework.git`; after creating a coherent local commit, push the current branch to `origin` unless the user asks not to.
 - Check `git status --short` before and after work.
 - Commit source, config, docs, tests, and intentional fixtures only.
 - Do not stage ignored runtime outputs from `logs/` or `state/`.
