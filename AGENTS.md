@@ -6,6 +6,7 @@ This repository is the runtime mod framework prototype for Darkest Dungeon 1 on 
 
 - Treat this project as the working root: `E:\数据文件\SelfMod\DarkestDungeonRuntimeFramework`.
 - Do not modify the original game directory, Steam userdata saves, Workshop mods, or installed game files unless the user explicitly asks for that exact operation.
+- For live game validation, treat `E:\Steam\userdata\1097809614\262060\remote\profile_3` as the user's designated test profile unless the user says otherwise.
 - Runtime mod state belongs in framework sidecar files under `state/`, not in original `profile_*` saves.
 - Original save files are read-only by default. Any future original-save write path must be schema-verified, logged, reversible, and explicitly documented before use.
 - `logs/`, `state/`, `.research/`, build output, and generated probe files are runtime or research artifacts. Do not commit them except intentional placeholders such as `.gitkeep` or deliberate documentation fixtures.
