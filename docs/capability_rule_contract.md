@@ -5,11 +5,11 @@ This document defines the generic runtime rule model. It is intentionally not a 
 ## Current Status
 
 - `virtualFileRules` are implemented and executable.
-- `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions and selected managed action plans.
+- `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions and selected materialized managed action artifacts.
 - `factEventRules` are parsed, explained, and can be exercised through `--infer-save-events` to convert save/content/runtime facts into ordinary framework events.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
 - `--explain-rules` reports declared `eventRules` and `factEventRules`, required capabilities, action capabilities, and skip reasons.
-- The first safe action executor supports sidecar state primitives and the fixed-stage challenge state primitives. The executor also supports an initial managed plan mode for `quest.injectFixedStage`, `roster.filterAvailableHeroes`, and `equipment.filterAvailableTrinkets`; these actions report `planned` and include a `plan` object but do not mutate the game.
+- The first safe action executor supports sidecar state primitives and the fixed-stage challenge state primitives. The executor also supports an initial managed materialization mode for `quest.injectFixedStage`, `roster.filterAvailableHeroes`, and `equipment.filterAvailableTrinkets`; these actions report `materialized`, include a `plan` object, write a sidecar artifact under `modStateDirectory/_managed_actions/`, and do not mutate the game.
 - Implemented safe actions and managed plan actions validate their declared arguments strictly. Missing referenced `event.*`, `state.*`, or `challenge.*` paths, invalid explicit argument types, and missing definition files fail the action and are written to `logs/runtime_event_report.json`.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
 - `--infer-save-events` evaluates active plugin `factEventRules` against a save state report and emits matching framework events through the same `eventRules` executor.
@@ -33,7 +33,7 @@ The rule engine should evaluate rules in this order:
 3. Load sidecar state.
 4. Listen for a framework event.
 5. Evaluate matching `eventRules`.
-6. Execute actions in rule order, honoring capability and risk policy. Current implementation executes implemented safe actions and can generate observe-first plans for a small set of managed actions.
+6. Execute actions in rule order, honoring capability and risk policy. Current implementation executes implemented safe actions and can materialize observe-first artifacts for a small set of managed actions.
 7. Write diagnostics and state changes.
 
 Sidecar state writes are strict by default: the state store writes a temporary file and requires atomic replacement to succeed. Non-atomic direct-write fallback is only available through explicit opt-in configuration or the `--allow-non-atomic-state-writes` CLI flag, and that downgrade is reported as a warning.
@@ -332,6 +332,7 @@ Capability status levels:
 
 ```text
 planned      documented only or emitted as an observe-first action plan
+materialized observe-first action artifact exists in sidecar state, but game behavior is not changed yet
 observed     hook or watcher can observe the event
 passive      context can be read without changing game result
 intercepted  framework can cancel or replace original behavior
@@ -399,5 +400,6 @@ The next code slice should stay generic:
 5. Add sidecar state file read/write with no gameplay actions. Initial `--init-mod-state` / `--dump-mod-state` support is implemented.
 6. Add an observe-only event bus sourced from existing save watcher/runtime logs. Plugin-declared `factEventRules` now bridge save state reports to ordinary runtime events.
 7. Add a no-op action executor for `log.*` and `state.*`. Initial `--emit-event` support now executes implemented safe state actions against sidecar state.
+8. Materialize selected managed actions into sidecar artifacts. `quest.injectFixedStage`, `roster.filterAvailableHeroes`, and `equipment.filterAvailableTrinkets` now write `materialized` artifacts for later overlay/hook consumers without mutating original game state.
 
 Only after that should gameplay experiments be expressed as ordinary rules.

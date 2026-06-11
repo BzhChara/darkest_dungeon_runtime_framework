@@ -38,6 +38,7 @@ internal static class RuntimeEventExecutor
         var changedStatePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var executedActionCount = 0;
         var plannedActionCount = 0;
+        var materializedActionCount = 0;
         var stateWriteCount = 0;
 
         var initReport = ModStateStore.InitializeDefaults(config, patchPlan, log, pluginIdFilter);
@@ -64,10 +65,12 @@ internal static class RuntimeEventExecutor
             }
 
             var ruleStatus = "executed";
-            foreach (var action in sourceRule.Rule.Actions)
+            for (var actionIndex = 0; actionIndex < sourceRule.Rule.Actions.Length; actionIndex++)
             {
+                var action = sourceRule.Rule.Actions[actionIndex];
                 var actionReport = ExecuteAction(
                     sourceRule,
+                    actionIndex,
                     action,
                     payload,
                     stateDocuments,
@@ -80,6 +83,12 @@ internal static class RuntimeEventExecutor
                 if (actionReport.Status == "executed")
                 {
                     executedActionCount++;
+                    continue;
+                }
+
+                if (actionReport.Status == "materialized")
+                {
+                    materializedActionCount++;
                     continue;
                 }
 
@@ -129,6 +138,7 @@ internal static class RuntimeEventExecutor
             ruleReports.Count(rule => rule.Status != "predicate-skipped"),
             executedActionCount,
             plannedActionCount,
+            materializedActionCount,
             stateWriteCount,
             payload,
             ruleReports,
@@ -288,6 +298,7 @@ internal static class RuntimeEventExecutor
 
     private static RuntimeEventActionExecutionReport ExecuteAction(
         RuntimeEventRuleSource sourceRule,
+        int actionIndex,
         RuntimeRuleAction action,
         JsonObject payload,
         Dictionary<string, ModStateDocument> stateDocuments,
@@ -304,18 +315,33 @@ internal static class RuntimeEventExecutor
             {
                 var message = "plugin sidecar state is unavailable";
                 issues.Add(new RuntimeEventExecutionIssue("error", "state-unavailable", sourceRule.PluginId, sourceRule.Rule.Id, type, message));
-                return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", message, null);
+                return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", message, null, null);
             }
 
             try
             {
                 var plan = BuildManagedActionPlan(type, action, managedDocument, payload);
-                return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "planned", "managed action plan generated", plan);
+                var artifactPath = ManagedActionArtifactStore.Write(
+                    config,
+                    sourceRule,
+                    actionIndex,
+                    action,
+                    payload,
+                    plan);
+                return new RuntimeEventActionExecutionReport(
+                    type,
+                    action.Capability,
+                    action.Risk,
+                    action.Required,
+                    "materialized",
+                    "managed action artifact written",
+                    plan,
+                    artifactPath);
             }
             catch (Exception ex)
             {
-                issues.Add(new RuntimeEventExecutionIssue("error", "managed-plan-failed", sourceRule.PluginId, sourceRule.Rule.Id, type, ex.Message));
-                return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", ex.Message, null);
+                issues.Add(new RuntimeEventExecutionIssue("error", "managed-action-materialize-failed", sourceRule.PluginId, sourceRule.Rule.Id, type, ex.Message));
+                return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", ex.Message, null, null);
             }
         }
 
@@ -324,7 +350,7 @@ internal static class RuntimeEventExecutor
             var severity = action.Required ? "error" : "warning";
             var message = $"action type is not implemented by the safe event executor: {type}";
             issues.Add(new RuntimeEventExecutionIssue(severity, "unsupported-action", sourceRule.PluginId, sourceRule.Rule.Id, type, message));
-            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, action.Required ? "failed" : "skipped", message, null);
+            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, action.Required ? "failed" : "skipped", message, null, null);
         }
 
         var document = GetStateDocument(sourceRule, stateDocuments, config, patchPlan, issues);
@@ -332,7 +358,7 @@ internal static class RuntimeEventExecutor
         {
             var message = "plugin sidecar state is unavailable";
             issues.Add(new RuntimeEventExecutionIssue("error", "state-unavailable", sourceRule.PluginId, sourceRule.Rule.Id, type, message));
-            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", message, null);
+            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", message, null, null);
         }
 
         try
@@ -353,12 +379,12 @@ internal static class RuntimeEventExecutor
                 changedStatePaths.Add(document.StatePath);
             }
 
-            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "executed", changed ? "state changed" : "no state change", null);
+            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "executed", changed ? "state changed" : "no state change", null, null);
         }
         catch (Exception ex)
         {
             issues.Add(new RuntimeEventExecutionIssue("error", "action-failed", sourceRule.PluginId, sourceRule.Rule.Id, type, ex.Message));
-            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", ex.Message, null);
+            return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "failed", ex.Message, null, null);
         }
     }
 
@@ -1108,6 +1134,7 @@ internal static class RuntimeEventExecutor
         log.Info(
             $"runtime-event event={report.EventId} rules={report.RuleCount} matchedRules={report.MatchedRuleCount} " +
             $"actions={report.ExecutedActionCount} plannedActions={report.PlannedActionCount} " +
+            $"materializedActions={report.MaterializedActionCount} " +
             $"stateWrites={report.StateWriteCount} issues={report.Issues.Count}");
 
         foreach (var rule in report.Rules)
@@ -1117,9 +1144,12 @@ internal static class RuntimeEventExecutor
                 $"rule={rule.RuleIndex} id={QuoteLogValue(rule.RuleId)} reason={QuoteLogValue(rule.Reason)}");
             foreach (var action in rule.Actions)
             {
+                var artifactPath = string.IsNullOrWhiteSpace(action.ArtifactPath)
+                    ? string.Empty
+                    : $" artifactPath={QuoteLogValue(action.ArtifactPath)}";
                 log.Info(
                     $"runtime-event-action status={action.Status} type={action.Type} capability={action.Capability} " +
-                    $"risk={action.Risk} required={action.Required} message={QuoteLogValue(action.Message)}");
+                    $"risk={action.Risk} required={action.Required} message={QuoteLogValue(action.Message)}{artifactPath}");
             }
         }
 
@@ -1173,6 +1203,7 @@ internal sealed record RuntimeEventExecutionReport(
     int MatchedRuleCount,
     int ExecutedActionCount,
     int PlannedActionCount,
+    int MaterializedActionCount,
     int StateWriteCount,
     JsonObject Payload,
     IReadOnlyList<RuntimeEventRuleExecutionReport> Rules,
@@ -1200,7 +1231,8 @@ internal sealed record RuntimeEventActionExecutionReport(
     bool Required,
     string Status,
     string Message,
-    JsonObject? Plan);
+    JsonObject? Plan,
+    string? ArtifactPath);
 
 internal sealed record RuntimeEventExecutionIssue(
     string Severity,

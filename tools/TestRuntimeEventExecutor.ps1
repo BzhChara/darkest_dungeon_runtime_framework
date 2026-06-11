@@ -106,6 +106,27 @@ function Get-ActionReport {
     return $actions[0]
 }
 
+function Read-ManagedActionArtifact {
+    param(
+        [object]$Action,
+        [string]$ExpectedType
+    )
+
+    Assert-True ($Action.status -eq "materialized") "Managed action '$ExpectedType' should be materialized, not only planned."
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$Action.artifactPath)) "Managed action '$ExpectedType' should include an artifact path."
+
+    $artifactPath = [System.IO.Path]::GetFullPath([string]$Action.artifactPath)
+    $resolvedStateRoot = [System.IO.Path]::GetFullPath($stateRoot)
+    Assert-True ($artifactPath.StartsWith($resolvedStateRoot, [System.StringComparison]::OrdinalIgnoreCase)) "Managed action artifact should stay inside this test state root: $artifactPath"
+    Assert-True (Test-Path -LiteralPath $artifactPath -PathType Leaf) "Managed action artifact was not written: $artifactPath"
+
+    $artifact = Get-Content -Raw -LiteralPath $artifactPath | ConvertFrom-Json
+    Assert-True ($artifact.status -eq "materialized") "Managed action artifact status should be materialized."
+    Assert-True ($artifact.action.type -eq $ExpectedType) "Managed action artifact type mismatch."
+    Assert-True ($artifact.plan.kind -eq $ExpectedType) "Managed action artifact plan kind mismatch."
+    return $artifact
+}
+
 function Get-PlanItem {
     param(
         [object]$Plan,
@@ -166,21 +187,25 @@ Assert-True ((Convert-ToArray $state.trinketPool).Count -eq 24) "Challenge initi
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_started"))
 $runtimeEventReport = Read-RuntimeEventReport
-Assert-True ([int]$runtimeEventReport.plannedActionCount -eq 3) "Stage selection start should generate three managed action plans."
+Assert-True ([int]$runtimeEventReport.plannedActionCount -eq 0) "Stage selection start should not leave managed actions as report-only plans."
+Assert-True ([int]$runtimeEventReport.materializedActionCount -eq 3) "Stage selection start should materialize three managed action artifacts."
 
 $questPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "quest.injectFixedStage"
-Assert-True ($questPlanAction.status -eq "planned") "Quest injection should be planned, not executed or failed."
 Assert-True ($questPlanAction.plan.stage.id -eq "stage_1_necromancer") "Quest plan should target the first challenge stage."
+$questArtifact = Read-ManagedActionArtifact -Action $questPlanAction -ExpectedType "quest.injectFixedStage"
+Assert-True ($questArtifact.plan.stage.id -eq "stage_1_necromancer") "Quest artifact should target the first challenge stage."
 
 $heroPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "roster.filterAvailableHeroes"
-Assert-True ($heroPlanAction.status -eq "planned") "Hero filter should be planned, not executed or failed."
 Assert-True ([int]$heroPlanAction.plan.totalCount -eq 12) "Hero plan should include the full configured hero pool."
 Assert-True ([int]$heroPlanAction.plan.allowedCount -eq 12) "Initial hero plan should allow every configured hero."
+$heroArtifact = Read-ManagedActionArtifact -Action $heroPlanAction -ExpectedType "roster.filterAvailableHeroes"
+Assert-True ([int]$heroArtifact.plan.allowedCount -eq 12) "Hero artifact should include the initial allowed hero count."
 
 $trinketPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "equipment.filterAvailableTrinkets"
-Assert-True ($trinketPlanAction.status -eq "planned") "Trinket filter should be planned, not executed or failed."
 Assert-True ([int]$trinketPlanAction.plan.totalCount -eq 24) "Trinket plan should include the full configured trinket pool."
 Assert-True ([int]$trinketPlanAction.plan.allowedCount -eq 24) "Initial trinket plan should allow every configured trinket."
+$trinketArtifact = Read-ManagedActionArtifact -Action $trinketPlanAction -ExpectedType "equipment.filterAvailableTrinkets"
+Assert-True ([int]$trinketArtifact.plan.allowedCount -eq 24) "Trinket artifact should include the initial allowed trinket count."
 
 $selectionPayload = [pscustomobject]@{
     stageId = "stage_1_necromancer"

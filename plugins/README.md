@@ -10,7 +10,7 @@ plugins/<plugin-id>/patches.json
 
 `patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
 
-`eventRules` 可通过 `--emit-event` 执行已实现的安全动作，或为已识别的 managed 动作生成计划报告。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`；payload 支持有限的通用数组投影，例如 `where` 条件过滤、`whereIn` 成员过滤、展开、字符串化和去重。契约细节见 `docs/capability_rule_contract.md`。
+`eventRules` 可通过 `--emit-event` 执行已实现的安全动作，或为已识别的 managed 动作生成 sidecar artifact。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`；payload 支持有限的通用数组投影，例如 `where` 条件过滤、`whereIn` 成员过滤、展开、字符串化和去重。契约细节见 `docs/capability_rule_contract.md`。
 
 清单字段：
 
@@ -104,7 +104,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 
 `--init-mod-state` 会把启用插件的 `stateSchema` 默认值写到 `state/mod_state/<plugin-id>.json`。已有文件只补缺失键，不重置已有状态。`--dump-mod-state` 会读取这些 sidecar 状态并写入 `logs/mod_state_dump_report.json`。
 
-`--emit-event` 会执行匹配事件的安全规则动作，并把执行结果写入 `logs/runtime_event_report.json`。当前 sidecar state 和 challenge state 相关安全动作会真实写入 sidecar state；`quest.injectFixedStage`、`roster.filterAvailableHeroes` 和 `equipment.filterAvailableTrinkets` 会生成 `planned` 计划，不改游戏或原版存档。其他托管改游戏行为的动作仍会报告未实现。
+`--emit-event` 会执行匹配事件的安全规则动作，并把执行结果写入 `logs/runtime_event_report.json`。当前 sidecar state 和 challenge state 相关安全动作会真实写入 sidecar state；`quest.injectFixedStage`、`roster.filterAvailableHeroes` 和 `equipment.filterAvailableTrinkets` 会生成 `materialized` artifact，写入 `modStateDirectory/_managed_actions/`，不改游戏或原版存档。其他托管改游戏行为的动作仍会报告未实现。
 
 `--infer-save-events` 会读取 save state report，按启用插件的 `factEventRules` 推导事件并写入 `logs/save_event_bridge_report.json`。桥接器不写原版存档，只把事实观察转成普通框架事件。
 
