@@ -412,6 +412,7 @@ internal static class RuntimeEventExecutor
             "stagecoach.suppressRecruits" => BuildGenericManagedActionPlan(action, document, payload, "suppressRecruits", "profile.stagecoach"),
             "estate.ensureInventoryCounts" => BuildGenericManagedActionPlan(action, document, payload, "ensureInventoryCounts", "profile.estate.inventory"),
             "wallet.setCurrencyAmount" => BuildGenericManagedActionPlan(action, document, payload, "setCurrencyAmount", "profile.wallet"),
+            "wallet.setCurrencyAmounts" => BuildGenericManagedActionPlan(action, document, payload, "setCurrencyAmounts", "profile.wallet"),
             "inventory.disableItemSale" => BuildGenericManagedActionPlan(action, document, payload, "disableItemSale", "profile.inventory"),
             "town.unlockAllBuildings" => BuildGenericManagedActionPlan(action, document, payload, "unlockAllBuildings", "profile.town"),
             "town.setBuildingLevels" => BuildGenericManagedActionPlan(action, document, payload, "setBuildingLevels", "profile.town"),
@@ -1294,6 +1295,7 @@ internal static class RuntimeEventExecutor
             "stagecoach.suppressRecruits" or
             "estate.ensureInventoryCounts" or
             "wallet.setCurrencyAmount" or
+            "wallet.setCurrencyAmounts" or
             "inventory.disableItemSale" or
             "town.unlockAllBuildings" or
             "town.setBuildingLevels" or

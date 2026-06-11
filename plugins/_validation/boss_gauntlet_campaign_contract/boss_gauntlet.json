@@ -3,7 +3,14 @@
   "id": "validation.fixed_resource_boss_gauntlet",
   "name": "Validation Fixed Resource Boss Gauntlet",
   "mode": "fixed_resource_boss_gauntlet",
-  "initialGold": 20000,
+  "initialCurrencies": {
+    "gold": 20000,
+    "bust": 0,
+    "portrait": 0,
+    "deed": 0,
+    "crest": 0,
+    "shard": 0
+  },
   "victoryGold": 10000,
   "heroCopiesPerClass": 2,
   "heroLevel": "max",

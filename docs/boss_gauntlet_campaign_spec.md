@@ -9,7 +9,7 @@ The mod turns a normal Darkest Dungeon campaign into a fixed-resource boss gaunt
 1. A newly created save is automatically initialized into this challenge rule set on first entry. The initialization is idempotent: after the profile is marked initialized, entering the same save again must not rebuild the roster, restore spent trinkets, resurrect heroes, reset town state, or regenerate completed fixed quests.
 2. On initialization, the roster is normalized to exactly two max-level heroes for each available hero class. Their combat and camping skills are unlocked and fully upgraded. The stage coach no longer offers recruits.
 3. The estate owns every available trinket with a count of two for each trinket id.
-4. Gold is set to `20000` on initialization.
+4. Wallet resources are initialized from a data-driven currency map. The current target sets gold to `20000` and explicitly records heirloom resources such as busts, portraits, deeds, crests, and shards so the values can be tuned without adding new framework code.
 5. Trinkets cannot be sold. This prevents the fixed trinket pool from becoming a repeatable or front-loaded gold source.
 6. Town buildings are unlocked and fully upgraded. Town events are either suppressed or replaced with a fixed event message such as `Enjoy the inferno`.
 7. The quest board shows only the highest-difficulty boss quests for each non-Darkest region, all at the same time.
@@ -74,7 +74,7 @@ Required generic capabilities:
 | All skills unlocked and upgraded | `roster.set_skill_unlocks` |
 | No stage coach recruits | `stagecoach.suppress_recruits` |
 | Two of every trinket | `estate.ensure_inventory_counts` |
-| Fixed starting gold | `wallet.set_currency_amount` |
+| Fixed starting wallet resources | `wallet.set_currency_amounts` |
 | Gold reward after boss victory | `wallet.add_currency_on_event` |
 | Disable trinket selling | `inventory.disable_item_sale` |
 | Fully unlocked town | `town.unlock_all_buildings` |
@@ -208,7 +208,7 @@ The exact action names can change during implementation. The important constrain
 6. Add runtime consumers one by one, starting with fixed quest board enforcement and pre-finale hero/trinket availability enforcement.
 7. Only after diagnostics and tests are stable, consider original-save write capabilities for profile normalization. Those writes must be schema-verified, logged, reversible, and gated as managed or risky capabilities.
 
-Current implementation status: steps 1-3 are represented in the validation plugin and safe sidecar executor. Step 5 now has observe-first managed artifacts for profile normalization, including roster shape, progression, skills, stagecoach suppression, trinket inventory counts, starting gold, trinket-sale lockout, town state, town event override, and fixed quest board. These artifacts are plans only; no original save mutation or runtime enforcement happens until later consumers are added.
+Current implementation status: steps 1-3 are represented in the validation plugin and safe sidecar executor. Step 5 now has observe-first managed artifacts for profile normalization, including roster shape, progression, skills, stagecoach suppression, trinket inventory counts, starting wallet resources, trinket-sale lockout, town state, town event override, and fixed quest board. These artifacts are plans only; no original save mutation or runtime enforcement happens until later consumers are added.
 
 ## Open Design Points
 

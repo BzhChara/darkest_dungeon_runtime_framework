@@ -13,6 +13,7 @@
     "stagecoach.suppress_recruits",
     "estate.ensure_inventory_counts",
     "wallet.set_currency_amount",
+    "wallet.set_currency_amounts",
     "wallet.modify_currency",
     "inventory.disable_item_sale",
     "town.unlock_all_buildings",
@@ -51,7 +52,7 @@
         "roster.set_skill_unlocks",
         "stagecoach.suppress_recruits",
         "estate.ensure_inventory_counts",
-        "wallet.set_currency_amount",
+        "wallet.set_currency_amounts",
         "inventory.disable_item_sale",
         "town.unlock_all_buildings",
         "town.set_building_levels",
@@ -139,14 +140,13 @@
           }
         },
         {
-          "type": "wallet.setCurrencyAmount",
-          "capability": "wallet.set_currency_amount",
+          "type": "wallet.setCurrencyAmounts",
+          "capability": "wallet.set_currency_amounts",
           "risk": "managed",
           "required": true,
           "args": {
             "target": "profile.wallet",
-            "currency": "gold",
-            "amount": "state.bossGauntlet.initialGold"
+            "amounts": "state.bossGauntlet.initialCurrencies"
           }
         },
         {
@@ -205,12 +205,12 @@
         },
         {
           "type": "state.setValue",
-          "capability": "wallet.set_currency_amount",
+          "capability": "state.sidecar",
           "risk": "safe",
           "required": true,
           "args": {
             "key": "bossGauntlet.wallet.gold",
-            "value": "state.bossGauntlet.initialGold"
+            "value": "state.bossGauntlet.initialCurrencies.gold"
           }
         },
         {

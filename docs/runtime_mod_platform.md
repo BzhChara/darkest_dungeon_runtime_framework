@@ -310,7 +310,7 @@ roster.set_skill_unlocks
 roster.enforce_availability_filter
 equipment.enforce_availability_filter
 estate.ensure_inventory_counts
-wallet.set_currency_amount
+wallet.set_currency_amounts
 wallet.modify_currency
 inventory.disable_item_sale
 stagecoach.suppress_recruits
@@ -329,7 +329,7 @@ state.bossGauntlet.consumedTrinketIds
   "actions": [
     { "type": "roster.ensureClassInstances", "classCount": 2, "level": "max" },
     { "type": "estate.ensureInventoryCounts", "kind": "trinket", "count": 2 },
-    { "type": "wallet.setCurrencyAmount", "currency": "gold", "amount": 20000 },
+    { "type": "wallet.setCurrencyAmounts", "amounts": { "gold": 20000, "bust": 0, "portrait": 0, "deed": 0, "crest": 0, "shard": 0 } },
     { "type": "inventory.disableItemSale", "kind": "trinket" },
     { "type": "stagecoach.suppressRecruits" },
     { "type": "town.unlockAllBuildings" },

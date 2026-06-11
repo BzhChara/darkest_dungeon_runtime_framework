@@ -223,7 +223,7 @@ docs/boss_gauntlet_campaign_spec.md
 Goal:
 
 - Automatically initialize a newly created eligible save into a fixed-resource campaign on first entry. The initialized profile then saves normally and is not rebuilt on later entries.
-- Normalize the new save into two max-level heroes per class, all skills unlocked and upgraded, two of every trinket, 20000 gold, fully unlocked and upgraded town, empty stage coach, disabled trinket selling, and fixed or suppressed town events.
+- Normalize the new save into two max-level heroes per class, all skills unlocked and upgraded, two of every trinket, data-driven starting wallet resources including gold and heirlooms, fully unlocked and upgraded town, empty stage coach, disabled trinket selling, and fixed or suppressed town events.
 - Replace normal quest generation with a fixed simultaneous board of highest-difficulty non-Darkest boss quests.
 - Consume selected heroes and selected trinkets on any terminal boss attempt result, success or failure.
 - Add 10000 gold after each successful pre-finale boss quest.
@@ -260,7 +260,7 @@ capability roster.set_progression
 capability roster.set_skill_unlocks
 capability stagecoach.suppress_recruits
 capability estate.ensure_inventory_counts
-capability wallet.set_currency_amount
+capability wallet.set_currency_amounts
 capability wallet.modify_currency
 capability inventory.disable_item_sale
 capability town.unlock_all_buildings
@@ -299,7 +299,7 @@ Acceptance ladder:
 9. Managed original-save initialization, if introduced, is schema-verified, logged, idempotent, and does not restore later campaign failures.
 10. The finale phase can rely on original Darkest Dungeon entry restrictions where possible, does not revive dead heroes, and only adds sidecar run-completion tracking.
 
-Steps 1-5 now exist for the sidecar state path. `tools/TestBossGauntletContract.ps1` initializes the plugin state, proves repeat initialization does not reset changed run state, locks selected heroes/trinkets, consumes that selection on success and failure, pays successful rewards once per attempt identity, marks only successful quests complete, transitions to `darkest_finale` after all fixed boss quests are complete, clears pre-finale reuse restrictions, and preserves observed dead hero state. The profile-normalization slice of step 7 also exists as observe-first managed artifacts for roster, stagecoach, trinket inventory, wallet, trinket sale lockout, town state, town event, and fixed quest board. Steps 6, 8, 9, and 10 still require richer save/content facts, runtime consumers, and schema-verified write or hook capabilities before this becomes live game behavior.
+Steps 1-5 now exist for the sidecar state path. `tools/TestBossGauntletContract.ps1` initializes the plugin state, proves repeat initialization does not reset changed run state, locks selected heroes/trinkets, consumes that selection on success and failure, pays successful rewards once per attempt identity, marks only successful quests complete, transitions to `darkest_finale` after all fixed boss quests are complete, clears pre-finale reuse restrictions, and preserves observed dead hero state. The profile-normalization slice of step 7 also exists as observe-first managed artifacts for roster, stagecoach, trinket inventory, starting wallet resources, trinket sale lockout, town state, town event, and fixed quest board. Steps 6, 8, 9, and 10 still require richer save/content facts, runtime consumers, and schema-verified write or hook capabilities before this becomes live game behavior.
 
 ## What Counts As Framework Progress
 
@@ -318,7 +318,7 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Stop stage coach generation | `stagecoach.suppress_recruits` |
 | Initialize only new challenge saves | `profile.detect_new_or_uninitialized` plus `profile.mark_initialized` |
 | Preserve campaign attrition and unwinnable states | normal save observation; no hidden restore/recovery action |
-| Set fixed starting gold | `wallet.set_currency_amount` |
+| Set fixed starting wallet resources | `wallet.set_currency_amounts` |
 | Add gold after selected victories | `wallet.add_currency_on_event` with idempotent attempt identity |
 | Prevent selling fixed trinket resources | `inventory.disable_item_sale` or an equivalent economy intercept |
 | Normalize roster/trinkets/town | managed profile-normalization actions |

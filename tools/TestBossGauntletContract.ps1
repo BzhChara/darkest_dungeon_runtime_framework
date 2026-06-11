@@ -147,9 +147,14 @@ Assert-True ($rosterArtifact.plan.arguments.level -eq "max") "Roster normalizati
 Assert-True ($rosterArtifact.plan.arguments.positiveQuirks -eq "full_random") "Roster normalization should request full random positive quirks."
 Assert-True ($rosterArtifact.plan.arguments.negativeQuirks -eq "one_random") "Roster normalization should request one random negative quirk."
 
-$walletAction = Get-ActionReport -Report $initializationReport -Type "wallet.setCurrencyAmount"
-$walletArtifact = Read-ManagedActionArtifact -Action $walletAction -ExpectedType "wallet.setCurrencyAmount"
-Assert-True ([int]$walletArtifact.plan.arguments.amount -eq 20000) "Wallet normalization should request 20000 starting gold."
+$walletAction = Get-ActionReport -Report $initializationReport -Type "wallet.setCurrencyAmounts"
+$walletArtifact = Read-ManagedActionArtifact -Action $walletAction -ExpectedType "wallet.setCurrencyAmounts"
+Assert-True ([int]$walletArtifact.plan.arguments.amounts.gold -eq 20000) "Wallet normalization should request 20000 starting gold."
+Assert-True ([int]$walletArtifact.plan.arguments.amounts.bust -eq 0) "Wallet normalization should include an explicit bust heirloom amount."
+Assert-True ([int]$walletArtifact.plan.arguments.amounts.portrait -eq 0) "Wallet normalization should include an explicit portrait heirloom amount."
+Assert-True ([int]$walletArtifact.plan.arguments.amounts.deed -eq 0) "Wallet normalization should include an explicit deed heirloom amount."
+Assert-True ([int]$walletArtifact.plan.arguments.amounts.crest -eq 0) "Wallet normalization should include an explicit crest heirloom amount."
+Assert-True ([int]$walletArtifact.plan.arguments.amounts.shard -eq 0) "Wallet normalization should include an explicit shard amount."
 
 $questBoardAction = Get-ActionReport -Report $initializationReport -Type "questBoard.replaceWithFixedSet"
 $questBoardArtifact = Read-ManagedActionArtifact -Action $questBoardAction -ExpectedType "questBoard.replaceWithFixedSet"
