@@ -344,6 +344,10 @@ internal sealed partial class SaveDirectoryWatcher
         int HeroRosterEntryCount,
         int PartyEntryCount,
         int DungeonEntryCount,
+        int PartyRaidRecordCount,
+        int CompletedPartyRaidRecordCount,
+        SaveStateCampaignLogPartyRaidRecordFacts? LatestCompletedPartyRaidRecord,
+        IReadOnlyList<SaveStateCampaignLogPartyRaidRecordFacts> PartyRaidRecords,
         IReadOnlyList<SaveStateCampaignLogChapterFacts> Chapters);
 
     private sealed record SaveStateCampaignLogChapterFacts(
@@ -361,9 +365,47 @@ internal sealed partial class SaveDirectoryWatcher
         int? ClassHash,
         int? Level,
         int? DungeonId,
+        int? QuestHash,
+        SaveStateResolvedHashFacts? Quest,
+        int? QuestIdHash,
+        SaveStateResolvedHashFacts? QuestId,
+        int? DungeonTypeHash,
+        SaveStateResolvedHashFacts? DungeonType,
+        int? Difficulty,
+        int? Length,
+        int? Score,
+        bool? Start,
+        bool? Success,
+        bool? IsWave,
+        bool? IsHighscore,
+        bool? EndlessWave,
         int HeroCount,
+        IReadOnlyList<int> HeroGuids,
         IReadOnlyList<SaveStateCampaignLogHeroFacts> Heroes,
         IReadOnlyList<SaveStateCampaignLogScalarFacts> ExtraScalarFields);
+
+    private sealed record SaveStateCampaignLogPartyRaidRecordFacts(
+        string ChapterSlotId,
+        int? ChapterIndex,
+        string EntrySlotId,
+        int? Rtti,
+        int? QuestHash,
+        SaveStateResolvedHashFacts? Quest,
+        int? QuestIdHash,
+        SaveStateResolvedHashFacts? QuestId,
+        int? DungeonTypeHash,
+        SaveStateResolvedHashFacts? DungeonType,
+        int? Difficulty,
+        int? Length,
+        int? Score,
+        bool? Start,
+        bool? Success,
+        bool? IsWave,
+        bool? IsHighscore,
+        bool? EndlessWave,
+        int HeroCount,
+        IReadOnlyList<int> HeroGuids,
+        IReadOnlyList<SaveStateCampaignLogHeroFacts> Heroes);
 
     private sealed record SaveStateCampaignLogHeroFacts(
         string SlotId,

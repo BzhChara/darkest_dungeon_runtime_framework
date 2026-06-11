@@ -89,7 +89,9 @@ function Get-DsonHashSigned {
 }
 
 function Read-ChallengeState {
-    $path = Join-Path $stateRoot "validation.challenge_run_contract.json"
+    param([string]$Root = $stateRoot)
+
+    $path = Join-Path $Root "validation.challenge_run_contract.json"
     Assert-True (Test-Path -LiteralPath $path) "Sidecar state was not created: $path"
     $document = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
     return $document.state.challengeRun
@@ -208,7 +210,124 @@ Assert-True ([int]$stateAfterNoMatch.currentStageIndex -eq 1) "No-match save eve
 $bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
 Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "No-match save event bridge pass should not infer an event."
 $notMatched = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "predicate-not-matched" })
-Assert-True ($notMatched.Count -eq 3) "No-match save event bridge pass should leave all fact-event rules unmatched."
+Assert-True ($notMatched.Count -eq 4) "No-match save event bridge pass should leave all fact-event rules unmatched."
+
+$postTaskStateRoot = Join-Path $stateRoot "post_task_campaign_log"
+New-Item -ItemType Directory -Force -Path $postTaskStateRoot | Out-Null
+$postTaskArgs = @(
+    "--config", (Resolve-ProjectPath $ConfigPath),
+    "--no-inject",
+    "--allow-non-atomic-state-writes",
+    "--mod-state-id", "validation.challenge_run_contract",
+    "--mod-state-dir", $postTaskStateRoot
+)
+
+Invoke-Loader -LoaderArgs ($postTaskArgs + @("--init-mod-state"))
+Invoke-Loader -LoaderArgs ($postTaskArgs + @("--emit-event", "challenge.run_started"))
+
+$campaignLogCompletedReportPath = Write-JsonPayload "save_state_report_necromancer_campaign_log_completed.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "save_event_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        progression = [pscustomobject]@{
+            lastRaidQuestId = $questHash
+            lastRaidQuest = [pscustomobject]@{
+                value = $questHash
+                isResolved = $true
+                isAmbiguous = $false
+                names = @($questId)
+            }
+            lastRaidSuccess = $true
+            lastRaidWasPlotQuest = $true
+        }
+        campaignLog = [pscustomobject]@{
+            partyRaidRecordCount = 1
+            completedPartyRaidRecordCount = 1
+            latestCompletedPartyRaidRecord = [pscustomobject]@{
+                chapterSlotId = "2"
+                chapterIndex = 2
+                entrySlotId = "0"
+                questIdHash = $questHash
+                questId = [pscustomobject]@{
+                    value = $questHash
+                    isResolved = $true
+                    isAmbiguous = $false
+                    names = @($questId)
+                }
+                start = $false
+                success = $true
+                heroCount = 4
+                heroGuids = @(1, 2, 7, 8)
+                heroes = @(
+                    [pscustomobject]@{ slotId = "0"; guid = 1; name = "Reynauld" },
+                    [pscustomobject]@{ slotId = "1"; guid = 2; name = "Dismas" },
+                    [pscustomobject]@{ slotId = "2"; guid = 7; name = "Junia" },
+                    [pscustomobject]@{ slotId = "3"; guid = 8; name = "Paracelsus" }
+                )
+            }
+            partyRaidRecords = @(
+                [pscustomobject]@{
+                    chapterSlotId = "2"
+                    chapterIndex = 2
+                    entrySlotId = "0"
+                    questIdHash = $questHash
+                    questId = [pscustomobject]@{
+                        value = $questHash
+                        isResolved = $true
+                        isAmbiguous = $false
+                        names = @($questId)
+                    }
+                    start = $false
+                    success = $true
+                    heroCount = 4
+                    heroGuids = @(1, 2, 7, 8)
+                    heroes = @(
+                        [pscustomobject]@{ slotId = "0"; guid = 1; name = "Reynauld" },
+                        [pscustomobject]@{ slotId = "1"; guid = 2; name = "Dismas" },
+                        [pscustomobject]@{ slotId = "2"; guid = 7; name = "Junia" },
+                        [pscustomobject]@{ slotId = "3"; guid = 8; name = "Paracelsus" }
+                    )
+                }
+            )
+        }
+        heroes = @(
+            [pscustomobject]@{
+                id = "1"
+                trinketIds = @("berserk_mask", "immunity_mask")
+            },
+            [pscustomobject]@{
+                id = "2"
+                trinketIds = @("fortunate_armlet", "sb_4")
+            },
+            [pscustomobject]@{
+                id = "7"
+                trinketIds = @("sb_3", "sb_2")
+            },
+            [pscustomobject]@{
+                id = "8"
+                trinketIds = @("sb_1", "bleeding_pendant")
+            }
+        )
+    }
+})
+
+Invoke-Loader -LoaderArgs ($postTaskArgs + @("--infer-save-events", "--save-state-report", $campaignLogCompletedReportPath))
+
+$postTaskState = Read-ChallengeState -Root $postTaskStateRoot
+Assert-True ([int]$postTaskState.currentStageIndex -eq 1) "Post-task campaign log bridge should advance currentStageIndex to 1 in one pass."
+Assert-True ((Convert-ToArray $postTaskState.completedStageIds) -contains "stage_1_necromancer") "Post-task campaign log bridge should complete stage_1_necromancer."
+Assert-True ((Convert-ToArray $postTaskState.usedHeroIds).Count -eq 4) "Post-task campaign log bridge should consume inferred heroes."
+Assert-True ((Convert-ToArray $postTaskState.usedTrinketIds).Count -eq 8) "Post-task campaign log bridge should consume inferred trinkets."
+Assert-True ($null -eq $postTaskState.lockedStageSelection) "Post-task campaign log completion should clear inferred locked selection."
+
+$bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
+Assert-True ([int]$bridgeReport.inferredEventCount -eq 2) "Post-task campaign log bridge should infer selection and completion in one pass."
+$executed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "event-executed" })
+Assert-True ($executed.Count -eq 2) "Post-task campaign log bridge should execute two matching plugin events."
+Assert-True (($executed | Where-Object { $_.eventId -eq "challenge.stage_selection_confirmed" }).Count -eq 1) "Post-task campaign log bridge should emit challenge.stage_selection_confirmed."
+Assert-True (($executed | Where-Object { $_.eventId -eq "challenge.stage_completed" }).Count -eq 1) "Post-task campaign log bridge should emit challenge.stage_completed."
 
 $uninitializedStateRoot = Join-Path $stateRoot "uninitialized_challenge_state"
 New-Item -ItemType Directory -Force -Path $uninitializedStateRoot | Out-Null
@@ -260,9 +379,9 @@ Invoke-LoaderExpectExit -ExpectedExitCode 3 -LoaderArgs @(
 
 $bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
 $payloadFailed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "payload-failed" })
-Assert-True ($payloadFailed.Count -eq 5) "Bad payload projection rules should be reported as payload-failed."
+Assert-True ($payloadFailed.Count -eq 7) "Bad payload projection rules should be reported as payload-failed."
 $payloadIssues = @(Convert-ToArray $bridgeReport.issues | Where-Object { $_.code -eq "payload-build-failed" -and $_.severity -eq "error" })
-Assert-True ($payloadIssues.Count -eq 5) "Bad payload projection rules should produce payload-build-failed issues."
+Assert-True ($payloadIssues.Count -eq 7) "Bad payload projection rules should produce payload-build-failed issues."
 Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "Bad payload projection rules should not emit events."
 
 Write-Host "PASS: save event bridge inferred and executed challenge selection/completion."

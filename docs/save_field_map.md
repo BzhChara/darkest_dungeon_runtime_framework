@@ -377,7 +377,10 @@ Semantic now:
 - `base_root.chapters.[].[].class`
 - `base_root.chapters.[].[].level`
 - `base_root.chapters.[].[].dungeon_id`
+- party raid entry fields: `quest`, `quest_id`, `dungeon_type`, `difficulty`, `length`, `score`, `start`, `success`, `is_wave`, `is_highscore`, and `endless_wave`
 - derived entry kind: `party`, `heroRoster`, `dungeon`, or `unknown`
+- `campaignLog.partyRaidRecords[]` as structured party raid log records with resolved quest/dungeon hashes and ordered hero GUIDs
+- `campaignLog.latestCompletedPartyRaidRecord` as the latest `start=false` and `success=true` party raid record, useful when only a post-task town save is available
 - non-standard entry scalar fields are preserved as `extraScalarFields`
 
 ### `persist.campaign_mash.json`

@@ -153,10 +153,13 @@ Fact event fields:
 
 Payload source objects can also apply simple projections before the event is emitted. Current projections are deliberately generic:
 
+- `where`: filters an array source with a predicate tree over each item. Leaf predicates use `path` for the item-relative path and support literal `value`, `valueFromFact`, `valueFromState`, `valueFromBridge`, and `valueFromEvent`.
 - `whereIn`: filters an array source by comparing an item `path` with values from `values`, `valuesFromFact`, `valuesFromState`, `valuesFromBridge`, or `valuesFromEvent`.
 - `selectMany`: reads a child path from every array item and flattens array children.
 - `map` / `coerce`: supports `string` and `stringArray`.
 - `distinct`: removes duplicate array items after earlier projections.
+
+If a fact event rule emits an event successfully, later fact event rules in the same bridge pass reload that plugin's sidecar state before evaluating predicates. This allows a post-task save report to infer `selection_confirmed` from structured campaign log facts, then infer `stage_completed` from progression facts without waiting for another watcher pass.
 
 Example:
 

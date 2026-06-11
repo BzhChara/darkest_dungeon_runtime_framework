@@ -141,6 +141,10 @@ internal static class SaveEventBridge
             null,
             projectRoot,
             sourceRule.PluginId);
+        if (executionReport.Succeeded)
+        {
+            stateDocuments.Remove(sourceRule.SourcePath);
+        }
 
         return new SaveEventBridgePluginReport(
             sourceRule.PluginId,
@@ -278,6 +282,11 @@ internal static class SaveEventBridge
     {
         var result = CloneNode(value);
 
+        if (element.TryGetProperty("where", out var where))
+        {
+            result = ApplyWhereProjection(sourceRule, key, where, result, facts, bridgeContext, state);
+        }
+
         if (element.TryGetProperty("whereIn", out var whereIn))
         {
             result = ApplyWhereInProjection(sourceRule, key, whereIn, result, facts, bridgeContext, state);
@@ -304,6 +313,38 @@ internal static class SaveEventBridge
         }
 
         return result;
+    }
+
+    private static JsonNode? ApplyWhereProjection(
+        FactEventRuleSource sourceRule,
+        string key,
+        JsonElement where,
+        JsonNode? value,
+        JsonObject facts,
+        JsonObject bridgeContext,
+        JsonObject? state)
+    {
+        if (where.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' where must be an object.");
+        }
+
+        if (value is not JsonArray sourceArray)
+        {
+            throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' where requires an array source.");
+        }
+
+        var filtered = new JsonArray();
+        foreach (var item in sourceArray)
+        {
+            var result = EvaluateProjectionPredicate(where, item, facts, bridgeContext, state);
+            if (result.Matched)
+            {
+                filtered.Add(CloneNode(item));
+            }
+        }
+
+        return filtered;
     }
 
     private static JsonNode? ApplyWhereInProjection(
@@ -579,6 +620,152 @@ internal static class SaveEventBridge
         }
 
         return new RuntimePredicateResult(true, "empty predicate");
+    }
+
+    private static RuntimePredicateResult EvaluateProjectionPredicate(
+        JsonElement predicate,
+        JsonNode? item,
+        JsonObject facts,
+        JsonObject bridgeContext,
+        JsonObject? state)
+    {
+        if (predicate.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("payload where predicate must be an object.");
+        }
+
+        if (predicate.TryGetProperty("all", out var all))
+        {
+            foreach (var child in EnumerateProjectionPredicateArray(all, "all"))
+            {
+                var result = EvaluateProjectionPredicate(child, item, facts, bridgeContext, state);
+                if (!result.Matched)
+                {
+                    return new RuntimePredicateResult(false, "all failed: " + result.Reason);
+                }
+            }
+        }
+
+        if (predicate.TryGetProperty("any", out var any))
+        {
+            var results = EnumerateProjectionPredicateArray(any, "any")
+                .Select(child => EvaluateProjectionPredicate(child, item, facts, bridgeContext, state))
+                .ToArray();
+            if (results.Length > 0 && !results.Any(result => result.Matched))
+            {
+                return new RuntimePredicateResult(false, "any failed: " + string.Join("; ", results.Select(result => result.Reason)));
+            }
+        }
+
+        if (predicate.TryGetProperty("none", out var none))
+        {
+            foreach (var child in EnumerateProjectionPredicateArray(none, "none"))
+            {
+                var result = EvaluateProjectionPredicate(child, item, facts, bridgeContext, state);
+                if (result.Matched)
+                {
+                    return new RuntimePredicateResult(false, "none matched: " + result.Reason);
+                }
+            }
+        }
+
+        if (TryGetStringProperty(predicate, "path", out var path))
+        {
+            return EvaluateProjectionLeaf(predicate, item, path, facts, bridgeContext, state);
+        }
+
+        return new RuntimePredicateResult(true, "empty where predicate");
+    }
+
+    private static IEnumerable<JsonElement> EnumerateProjectionPredicateArray(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException($"payload where predicate property '{propertyName}' must be an array.");
+        }
+
+        foreach (var item in element.EnumerateArray())
+        {
+            yield return item;
+        }
+    }
+
+    private static RuntimePredicateResult EvaluateProjectionLeaf(
+        JsonElement predicate,
+        JsonNode? item,
+        string path,
+        JsonObject facts,
+        JsonObject bridgeContext,
+        JsonObject? state)
+    {
+        var exists = TryGetPath(item, path, out var actual);
+        var op = TryGetStringProperty(predicate, "op", out var rawOp)
+            ? rawOp.Trim().ToLowerInvariant()
+            : "exists";
+
+        if (op == "exists")
+        {
+            return new RuntimePredicateResult(exists, $"item.{path} exists={exists}");
+        }
+
+        if (op == "notexists")
+        {
+            return new RuntimePredicateResult(!exists, $"item.{path} exists={exists}");
+        }
+
+        if (!exists)
+        {
+            return new RuntimePredicateResult(false, $"item.{path} missing");
+        }
+
+        var expected = ResolveProjectionExpectedValue(predicate, facts, bridgeContext, state);
+        var matched = op switch
+        {
+            "equals" => JsonNode.DeepEquals(actual, expected),
+            "notequals" => !JsonNode.DeepEquals(actual, expected),
+            "greater" => CompareNumbers(actual, expected) > 0,
+            "greaterorequal" => CompareNumbers(actual, expected) >= 0,
+            "less" => CompareNumbers(actual, expected) < 0,
+            "lessorequal" => CompareNumbers(actual, expected) <= 0,
+            "contains" => ContainsValue(actual, expected),
+            "notcontains" => !ContainsValue(actual, expected),
+            "matches" => MatchesPattern(actual, expected),
+            _ => false
+        };
+
+        return new RuntimePredicateResult(matched, $"item.{path} {op} matched={matched}");
+    }
+
+    private static JsonNode? ResolveProjectionExpectedValue(
+        JsonElement predicate,
+        JsonObject facts,
+        JsonObject bridgeContext,
+        JsonObject? state)
+    {
+        if (TryGetStringProperty(predicate, "valueFromFact", out var valueFromFact))
+        {
+            return RequirePath(facts, valueFromFact, "fact", valueFromFact);
+        }
+
+        if (TryGetStringProperty(predicate, "valueFromState", out var valueFromState))
+        {
+            if (state is null)
+            {
+                throw new InvalidOperationException($"Payload where predicate requires state path '{valueFromState}', but plugin state is unavailable.");
+            }
+
+            return RequirePath(state, valueFromState, "state", valueFromState);
+        }
+
+        if (TryGetStringProperty(predicate, "valueFromBridge", out var valueFromBridge) ||
+            TryGetStringProperty(predicate, "valueFromEvent", out valueFromBridge))
+        {
+            return RequirePath(bridgeContext, valueFromBridge, "bridge", valueFromBridge);
+        }
+
+        return predicate.TryGetProperty("value", out var value)
+            ? JsonNode.Parse(value.GetRawText())
+            : null;
     }
 
     private static RuntimePredicateResult EvaluateLeaf(

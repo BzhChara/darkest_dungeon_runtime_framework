@@ -188,7 +188,7 @@ logs/save_states/<sessionId>.json
 logs/save_event_bridge_report.json
 ```
 
-`factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。payload 可以声明通用数组投影，例如从 `facts.heroes` 里筛出当前 raid 队伍成员，再展开这些英雄的 `trinketIds`。验证插件现在用这些规则从 active raid facts 发出 `challenge.stage_selection_confirmed`，并从 last raid quest/result facts 发出 `challenge.stage_completed` 或 `challenge.stage_failed`。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤不在这个桥接器里硬编码；它们由普通 `eventRules` 声明，并先通过 managed action plan 报告要做的修改。
+`factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。payload 可以声明通用数组投影，例如从 `facts.heroes` 里筛出当前 raid 队伍成员，再展开这些英雄的 `trinketIds`，或用 `where` 从 `campaignLog.partyRaidRecords` 里筛出匹配关卡的完成记录。验证插件现在用这些规则从 active raid facts 或任务后的 campaign log facts 发出 `challenge.stage_selection_confirmed`，并从 last raid quest/result facts 发出 `challenge.stage_completed` 或 `challenge.stage_failed`。同一次 bridge pass 中，前一个事件写入 sidecar state 后，后续规则会重新读取 state，因此任务后存档可以先补推选人确认，再推进完成事件。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤不在这个桥接器里硬编码；它们由普通 `eventRules` 声明，并先通过 managed action plan 报告要做的修改。
 
 ```json
 {

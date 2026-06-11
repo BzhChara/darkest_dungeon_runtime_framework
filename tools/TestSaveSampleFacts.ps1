@@ -347,6 +347,13 @@ function Test-Profile0Backup {
     $facts = $sampleFacts.Facts
     # This backup directory carries active raid/battle files even though persist.game keeps inraid=false.
     Assert-FactEqual "profile_0_backup" $facts "Campaign.InRaid" $false
+    Assert-FactEqual "profile_0_backup" $facts "CampaignLog.PartyRaidRecordCount" 86
+    Assert-FactEqual "profile_0_backup" $facts "CampaignLog.CompletedPartyRaidRecordCount" 41
+    Assert-FactContains "profile_0_backup" $facts "CampaignLog.LatestCompletedPartyRaidRecord.QuestId.Names" "plot_kill_prophet_1"
+    Assert-FactEqual "profile_0_backup" $facts "CampaignLog.LatestCompletedPartyRaidRecord.Start" $false
+    Assert-FactEqual "profile_0_backup" $facts "CampaignLog.LatestCompletedPartyRaidRecord.Success" $true
+    Assert-FactEqual "profile_0_backup" $facts "CampaignLog.LatestCompletedPartyRaidRecord.HeroCount" 4
+    Assert-FactSequence "profile_0_backup" $facts "CampaignLog.LatestCompletedPartyRaidRecord.HeroGuids" @(638, 532, 562, 586)
     Assert-FactEqual "profile_0_backup" $facts "Raid.Instance.Id" "plot_kill_prophet_1"
     Assert-FactEqual "profile_0_backup" $facts "Raid.Instance.Dungeon" "crypts"
     Assert-FactEqual "profile_0_backup" $facts "Raid.Instance.Type" "kill_boss"

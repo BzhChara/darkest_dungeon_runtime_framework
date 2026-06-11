@@ -695,7 +695,7 @@ internal sealed partial class SaveDirectoryWatcher
                 BuildJournalFacts(journal),
                 BuildNarrationFacts(narration),
                 BuildTutorialFacts(tutorial, contentHashCatalog),
-                BuildCampaignLogFacts(campaignLog),
+                BuildCampaignLogFacts(campaignLog, contentHashCatalog),
                 BuildCampaignMashFacts(campaignMash, contentHashCatalog),
                 BuildEstateFacts(estate),
                 BuildWalletFacts(estate),

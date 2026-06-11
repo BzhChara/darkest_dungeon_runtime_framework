@@ -60,6 +60,41 @@
       }
     },
     {
+      "id": "where_must_be_object",
+      "enabled": true,
+      "emit": "validation.bad_payload_event",
+      "when": {
+        "fact": "progression.lastRaidSuccess",
+        "op": "equals",
+        "value": true
+      },
+      "payload": {
+        "broken": {
+          "fromFact": "progression.lastRaidQuest.names",
+          "where": true
+        }
+      }
+    },
+    {
+      "id": "where_requires_array_source",
+      "enabled": true,
+      "emit": "validation.bad_payload_event",
+      "when": {
+        "fact": "progression.lastRaidSuccess",
+        "op": "equals",
+        "value": true
+      },
+      "payload": {
+        "broken": {
+          "fromFact": "progression.lastRaidSuccess",
+          "where": {
+            "path": "id",
+            "op": "exists"
+          }
+        }
+      }
+    },
+    {
       "id": "where_in_requires_array_source",
       "enabled": true,
       "emit": "validation.bad_payload_event",

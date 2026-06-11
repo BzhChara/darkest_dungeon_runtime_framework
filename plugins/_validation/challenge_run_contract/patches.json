@@ -94,6 +94,98 @@
       }
     },
     {
+      "id": "emit_stage_selection_confirmed_from_completed_campaign_log",
+      "enabled": true,
+      "emit": "challenge.stage_selection_confirmed",
+      "phase": "normal",
+      "priority": -5,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.observe_stage_selection_confirmed"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "challengeRun.enabled",
+            "op": "equals",
+            "value": true
+          },
+          {
+            "state": "challengeRun.lockedStageSelection",
+            "op": "notExists"
+          },
+          {
+            "state": "challengeRun.currentStage.id",
+            "op": "exists"
+          },
+          {
+            "state": "challengeRun.currentStage.sourceQuestId",
+            "op": "exists"
+          },
+          {
+            "fact": "campaignLog.latestCompletedPartyRaidRecord.questId.names",
+            "op": "contains",
+            "valueFromState": "challengeRun.currentStage.sourceQuestId"
+          },
+          {
+            "fact": "campaignLog.latestCompletedPartyRaidRecord.start",
+            "op": "equals",
+            "value": false
+          },
+          {
+            "fact": "campaignLog.latestCompletedPartyRaidRecord.success",
+            "op": "equals",
+            "value": true
+          }
+        ]
+      },
+      "payload": {
+        "stageId": {
+          "fromState": "challengeRun.currentStage.id"
+        },
+        "sourceQuestId": {
+          "fromState": "challengeRun.currentStage.sourceQuestId"
+        },
+        "selectedHeroIds": {
+          "fromFact": "campaignLog.partyRaidRecords",
+          "where": {
+            "all": [
+              {
+                "path": "questId.names",
+                "op": "contains",
+                "valueFromState": "challengeRun.currentStage.sourceQuestId"
+              },
+              {
+                "path": "start",
+                "op": "equals",
+                "value": false
+              },
+              {
+                "path": "success",
+                "op": "equals",
+                "value": true
+              }
+            ]
+          },
+          "selectMany": "heroGuids",
+          "map": "stringArray"
+        },
+        "selectedTrinketIds": {
+          "fromFact": "heroes",
+          "whereIn": {
+            "path": "id",
+            "valuesFromFact": "campaignLog.latestCompletedPartyRaidRecord.heroGuids"
+          },
+          "selectMany": "trinketIds",
+          "map": "stringArray",
+          "distinct": true
+        },
+        "saveStateReportPath": {
+          "fromBridge": "saveStateReportPath"
+        }
+      }
+    },
+    {
       "id": "emit_stage_completed_from_last_raid",
       "enabled": true,
       "emit": "challenge.stage_completed",
