@@ -283,64 +283,76 @@ save.attach_sidecar_state
 - 重复 `id`：默认 warning，内部用路径生成唯一 instance id。
 - 冲突：当前默认 warning，不阻止启动。
 
-## Example: Fixed Stage Challenge Mode
+## Example: Fixed Resource Boss Gauntlet
 
-目标：取消长期马车养成，改成独立挑战模式。一次挑战包含固定 Boss 关卡链；玩家从预设满级英雄池中每关选择四人，并自由分配饰品。失败可以重试同一关，但选择锁定；通关后英雄和饰品都不能再用于后续关卡。
+当前目标规格见：
+
+```text
+docs/boss_gauntlet_campaign_spec.md
+```
+
+目标：取消长期马车养成，改成固定资源的 Boss 讨伐战役。新建存档第一次进入时自动初始化固定满级英雄池、固定饰品池、满级城镇和固定任务板；之后游戏正常保存，不再重建或恢复损失。前置 Boss 阶段中，人物和饰品在任意终局尝试后都会被消耗，成功和失败都不回滚结算状态；如果人物死光或严重失误导致不可通关，这是预期失败状态，玩家删除存档并新建存档重新挑战。全部前置 Boss 被击败后进入极暗地牢终局，并尽量复用原版极暗地牢“通关角色不能再次进入”的限制。
 
 需要能力：
 
 ```text
-challenge.stage_selection_started
-challenge.stage_selection_confirmed
-challenge.stage_completed
-challenge.stage_failed
-challenge.lock_stage_selection
-roster.filter_available_heroes
-equipment.filter_available_trinkets
-quest.inject_fixed_stage
-state.challengeRun.usedHeroIds
-state.challengeRun.usedTrinketIds
-state.challengeRun.lockedStageSelection
+profile.entered
+profile.normalized
+quest.selection_confirmed
+quest.attempt_resolved
+profile.detect_new_or_uninitialized
+profile.mark_initialized
+quest_board.replace_with_fixed_set
+quest_board.filter_completed_fixed_quests
+roster.ensure_class_instances
+roster.set_progression
+roster.set_skill_unlocks
+roster.enforce_availability_filter
+equipment.enforce_availability_filter
+estate.ensure_inventory_counts
+stagecoach.suppress_recruits
+town.unlock_all_buildings
+town.set_building_levels
+town_event.override_current
+state.bossGauntlet.consumedHeroIds
+state.bossGauntlet.consumedTrinketIds
 ```
 
 声明式草案：
 
 ```json
 {
-  "on": "challenge.stage_selection_started",
+  "on": "profile.initialization_requested",
   "actions": [
-    { "quest.injectFixedStage": { "stage": "state.challengeRun.currentStage" } },
-    { "filterPartySelection": { "excludeStateList": "challengeRun.usedHeroIds" } },
-    { "filterTrinketSelection": { "excludeStateList": "challengeRun.usedTrinketIds" } }
+    { "type": "roster.ensureClassInstances", "classCount": 2, "level": "max" },
+    { "type": "estate.ensureInventoryCounts", "kind": "trinket", "count": 2 },
+    { "type": "stagecoach.suppressRecruits" },
+    { "type": "town.unlockAllBuildings" },
+    { "type": "town.setBuildingLevels", "level": "max" },
+    { "type": "questBoard.replaceWithFixedSet", "source": "highest_non_darkest_bosses" },
+    { "type": "profile.markInitialized", "stateKey": "bossGauntlet.initialized" }
   ]
 }
 ```
 
 ```json
 {
-  "on": "challenge.stage_selection_confirmed",
+  "on": "quest.selection_confirmed",
   "actions": [
-    { "lockStageSelection": "challengeRun.lockedStageSelection" }
+    { "type": "selection.lock", "stateKey": "bossGauntlet.activeSelection" }
   ]
 }
 ```
 
 ```json
 {
-  "on": "challenge.stage_completed",
+  "on": "quest.attempt_resolved",
   "actions": [
-    { "appendSelectedHeroesToStateList": "challengeRun.usedHeroIds" },
-    { "appendSelectedTrinketsToStateList": "challengeRun.usedTrinketIds" },
-    { "advanceStage": "challengeRun.currentStageIndex" }
-  ]
-}
-```
-
-```json
-{
-  "on": "challenge.stage_failed",
-  "actions": [
-    { "recordFailedAttempt": "challengeRun.stageAttempts" }
+    { "type": "attempt.recordOnce", "stateKey": "bossGauntlet.attempts" },
+    { "type": "selection.consumeHeroes", "stateKey": "bossGauntlet.consumedHeroIds" },
+    { "type": "selection.consumeTrinkets", "stateKey": "bossGauntlet.consumedTrinketIds" },
+    { "type": "quest.markCompletedIfSuccessful", "stateKey": "bossGauntlet.completedQuestIds" },
+    { "type": "state.transitionWhenAllCompleted", "stateKey": "bossGauntlet.phase", "to": "darkest_finale" }
   ]
 }
 ```
@@ -348,10 +360,13 @@ state.challengeRun.lockedStageSelection
 最小 PoC：
 
 1. 不直接改真实存档。
-2. 先用旁路状态记录 currentStage、lockedStageSelection、usedHeroIds、usedTrinketIds。
-3. 通过 dry-run 诊断报告输出“当前可选/不可选英雄和饰品”。
-4. 再 Hook 可选角色列表和关卡选择。
-5. 最后补 UI 提示。
+2. 先用旁路状态记录 initialized、fixedQuestIds、completedQuestIds、activeSelection、consumedHeroIds、consumedTrinketIds。
+3. 通过 dry-run 诊断报告证明初始化幂等：第一次进档构建，后续进档不重建、不复活、不补饰品。
+4. 再输出固定任务板和当前可选/不可选英雄、饰品。
+5. 再 Hook 任务板、可选角色列表、饰品列表和出征校验。
+6. 最后补 UI 提示。
+
+早期 `validation.challenge_run_contract` 仍保留“失败锁定重试”的测试语义，用来验证 state/event/managed artifact 管线。它不是当前目标玩法的最终规格。
 
 ## Example: Delayed Building Upgrades
 

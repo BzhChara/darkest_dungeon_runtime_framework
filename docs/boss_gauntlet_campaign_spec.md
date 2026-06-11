@@ -1,0 +1,205 @@
+# Boss Gauntlet Campaign Spec
+
+This document captures the current target mod as a framework validation scenario. The concrete rules are intentionally described in terms of reusable facts, events, predicates, actions, sidecar state, and managed capabilities. Runtime code should add generic primitives when this spec cannot be expressed, not hardcode this gameplay loop.
+
+## Gameplay Target
+
+The mod turns a normal Darkest Dungeon campaign into a fixed-resource boss gauntlet:
+
+1. A newly created save is automatically initialized into this challenge rule set on first entry. The initialization is idempotent: after the profile is marked initialized, entering the same save again must not rebuild the roster, restore spent trinkets, resurrect heroes, reset town state, or regenerate completed fixed quests.
+2. On initialization, the roster is normalized to exactly two max-level heroes for each available hero class. Their combat and camping skills are unlocked and fully upgraded. The stage coach no longer offers recruits.
+3. The estate owns every available trinket with a count of two for each trinket id.
+4. Town buildings are unlocked and fully upgraded. Town events are either suppressed or replaced with a fixed event message such as `Enjoy the inferno`.
+5. The quest board shows only the highest-difficulty boss quests for each non-Darkest region, all at the same time.
+6. Defeating a boss removes that fixed boss quest from the board and does not generate a replacement quest.
+7. Before the Darkest Dungeon finale unlocks, each hero and each trinket can be selected only once. This selection is consumed on any terminal attempt result, successful or failed.
+8. A failed or abandoned boss attempt is not rolled back. Original settlement state, deaths, stress, diseases, quirks, loot, and other resolved consequences remain as the game recorded them.
+9. The game continues to save normally. The original profile save remains the canonical record for deaths, roster attrition, stress, inventory changes, and town consequences after initialization.
+10. Because the stage coach is suppressed, a campaign can become unwinnable if too many heroes die or the player suffers a major strategic failure. That failure state is intentional. The player starts over by deleting the campaign and creating a new save.
+11. When every fixed boss quest is defeated, the Darkest Dungeon finale unlocks.
+12. In the finale phase, sidecar boss-gauntlet reuse restrictions are cleared. The framework should prefer the original game Darkest Dungeon participation rule: heroes who completed a Darkest Dungeon quest cannot enter another Darkest Dungeon quest.
+13. Defeating the Ancestor completes the run.
+
+If a hero dies during the boss gauntlet, "all heroes available in the finale" means the sidecar reuse restriction is cleared. It does not resurrect heroes unless a separate revival or roster-normalization rule explicitly says so.
+
+## Save Lifecycle
+
+The challenge is a normal game profile after initialization, not a separate external save format. Sidecar state tracks mod metadata and restrictions; the original profile stores the real campaign consequences.
+
+Lifecycle:
+
+```text
+new profile created
+  -> first eligible profile entry
+  -> profile_normalization runs once
+  -> initialized marker is recorded
+  -> game saves normally for the rest of the run
+  -> player deletes the profile manually to start over
+```
+
+Required properties:
+
+- Initialization must be idempotent and guarded by an initialized marker.
+- Initialization must not run on an already-started normal campaign unless the user explicitly opts that profile into conversion.
+- Normal post-initialization saving is desirable, because deaths, stress, quirks, diseases, resource loss, and settlement attrition are part of the challenge.
+- The framework must not add hidden recovery loops such as stage coach replacement heroes, automatic resurrection, automatic trinket restoration, or quest rerolls unless another explicit mod rule declares them.
+- Sidecar state should be recoverable from the original profile where possible, but the original profile should not depend on sidecar state to preserve normal game consequences.
+- If original-save writes are used for initialization, they must be schema-verified, logged, reversible before first commit where practical, and gated as managed capabilities.
+
+## Phases
+
+```text
+new_profile_detected
+  -> profile_normalization
+  -> boss_gauntlet
+  -> darkest_finale
+  -> run_completed
+```
+
+### Profile Normalization
+
+This phase prepares a save or sidecar overlay for the custom rule set.
+
+Required generic capabilities:
+
+| Need | Reusable primitive |
+| --- | --- |
+| Detect a profile that needs first-run setup | `profile.detect_new_or_uninitialized` |
+| Record setup completion | `profile.mark_initialized` |
+| Two heroes per class | `roster.ensure_class_instances` |
+| Max hero level and equipment | `roster.set_progression` |
+| All skills unlocked and upgraded | `roster.set_skill_unlocks` |
+| No stage coach recruits | `stagecoach.suppress_recruits` |
+| Two of every trinket | `estate.ensure_inventory_counts` |
+| Fully unlocked town | `town.unlock_all_buildings` |
+| Fully upgraded town | `town.set_building_levels` |
+| Fixed or suppressed event | `town_event.override_current` or `town_event.suppress_rotation` |
+| Fixed quest board | `quest_board.replace_with_fixed_set` |
+
+The first implementation should materialize these as managed action artifacts and diagnostics. The final gameplay target likely needs managed original-save initialization so the game can keep saving normally afterward. Any original-save write path must remain explicitly documented, reversible before first commit where practical, schema-verified, and guarded by an idempotent initialized marker.
+
+### Boss Gauntlet
+
+The boss-gauntlet phase owns the fixed pre-finale boss list. The list should be generated from content facts where possible:
+
+```text
+quest.type == kill_boss
+quest.region != darkest_dungeon
+quest.difficulty == highest available difficulty for that boss family
+```
+
+Concrete quest ids are acceptable inside validation fixtures, but the reusable primitive should be able to build a fixed set from content queries.
+
+State shape:
+
+```json
+{
+  "initialized": true,
+  "phase": "boss_gauntlet",
+  "fixedQuestIds": [],
+  "completedQuestIds": [],
+  "consumedHeroIds": [],
+  "consumedTrinketInstanceIds": [],
+  "consumedTrinketIds": [],
+  "activeSelection": null,
+  "attempts": []
+}
+```
+
+Selection lifecycle:
+
+```text
+quest.selection_confirmed
+  -> lock activeSelection
+quest.attempt_resolved(success=true)
+  -> record attempt
+  -> consume selected heroes and trinkets
+  -> mark quest completed
+  -> clear activeSelection
+  -> unlock darkest_finale if every fixed quest is completed
+quest.attempt_resolved(success=false)
+  -> record attempt
+  -> consume selected heroes and trinkets
+  -> keep quest available
+  -> clear activeSelection
+```
+
+This intentionally differs from the early `challenge_run_contract` validation scenario. Failure is not "retry with locked selection"; failure is "attempt consumed, consequences kept, remaining pool continues."
+
+Required generic capabilities:
+
+| Need | Reusable primitive |
+| --- | --- |
+| Preserve original save consequences | no rollback action; normal save watcher observation only |
+| Know current selected quest | `quest.observe_selection_confirmed` |
+| Know selected heroes | `party.observe_selection_confirmed` |
+| Know selected trinkets | `equipment.observe_loadout_confirmed` |
+| Observe terminal quest result | `quest.observe_attempt_resolved` |
+| Idempotent attempt recording | `attempt.record_once` or stable `attemptFingerprint` payload |
+| Consume selected heroes on any terminal result | `selection.consume_heroes` |
+| Consume selected trinkets on any terminal result | `selection.consume_trinkets` |
+| Hide completed fixed boss quests | `quest_board.filter_completed_fixed_quests` |
+| Keep failed boss quests available | `quest_board.keep_uncompleted_fixed_quests` |
+| Unlock phase after all objectives | `state.transition_when_all_completed` |
+| Enforce pre-finale hero reuse | `roster.enforce_availability_filter` |
+| Enforce pre-finale trinket reuse | `equipment.enforce_availability_filter` |
+
+### Darkest Finale
+
+The finale phase should minimize custom logic:
+
+1. Clear or ignore `consumedHeroIds`, `consumedTrinketIds`, and pre-finale availability filters.
+2. Use original Darkest Dungeon quest definitions and original post-DD hero restriction where possible.
+3. Observe finale completion through progression or campaign log facts.
+4. Mark sidecar run state as `run_completed` after the Ancestor quest resolves successfully.
+
+Required generic capabilities:
+
+| Need | Reusable primitive |
+| --- | --- |
+| Clear sidecar restrictions by phase | `state.clear_paths` or phase-scoped filters |
+| Keep original DD entry restriction | `quest.use_original_entry_rules` / no override |
+| Observe DD completion | `progression.observe_plot_completion` |
+| Complete run | `state.set_phase` |
+
+## Rule Sketch
+
+The validation plugin should eventually express the boss gauntlet without special C# branches:
+
+```json
+{
+  "on": "quest.attempt_resolved",
+  "when": {
+    "all": [
+      { "state": "bossGauntlet.phase", "op": "equals", "value": "boss_gauntlet" },
+      { "event": "questId", "op": "in", "valueFromState": "bossGauntlet.fixedQuestIds" }
+    ]
+  },
+  "actions": [
+    { "type": "attempt.recordOnce", "capability": "state.sidecar" },
+    { "type": "selection.consumeHeroes", "capability": "state.sidecar" },
+    { "type": "selection.consumeTrinkets", "capability": "state.sidecar" },
+    { "type": "quest.markCompletedIfSuccessful", "capability": "state.sidecar" },
+    { "type": "state.transitionWhenAllCompleted", "capability": "state.sidecar" }
+  ]
+}
+```
+
+The exact action names can change during implementation. The important constraint is that the actions remain reusable by other mods that need "consume a selected resource after an observed result" or "unlock a phase after a set is complete."
+
+## Implementation Ladder
+
+1. Add this spec and a validation plugin draft with no live game mutation.
+2. Add an idempotent profile initialization model: detect uninitialized eligible profiles, record initialized state, and prove repeat entry does not rebuild or restore the run.
+3. Add generic state actions needed by the rule sketch: consume selected resources, mark completed when successful, clear phase-scoped restrictions, and transition when a set is complete.
+4. Add save/content fact extractors for fixed quest discovery, stage coach recruits, town buildings, building levels, town events, hero DD participation flags, and trinket inventory if current facts are insufficient.
+5. Materialize managed artifacts for profile normalization: roster pool, trinket inventory, town maxing, town event override, and fixed quest board.
+6. Add runtime consumers one by one, starting with fixed quest board enforcement and pre-finale hero/trinket availability enforcement.
+7. Only after diagnostics and tests are stable, consider original-save write capabilities for profile normalization. Those writes must be schema-verified, logged, reversible, and gated as managed or risky capabilities.
+
+## Open Design Points
+
+- Exact boss quest set should be content-derived, but fixtures may start with explicit original quest ids.
+- Trinket consumption should prefer instance ids if the game exposes stable instances. If only trinket ids and counts are available, consuming one copy must decrement a sidecar count and later map that count to UI/equipment enforcement.
+- DLC hero classes and DLC trinkets should be included only if their content exists in the active install and is enabled by the profile or plugin configuration.
+- Finale availability should not bypass original death or missing-roster constraints unless the mod explicitly adds a revival/rebuild rule.

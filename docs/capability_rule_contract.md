@@ -373,10 +373,13 @@ When a mod idea cannot be expressed, classify the missing piece:
 | Cannot prevent original behavior | managed intercept capability |
 | Cannot make desired change | new action primitive |
 | Needs durable custom memory | sidecar state schema/action support |
+| Needs one-time setup in a normal save | idempotent profile initialization capability with an initialized marker |
 | Needs visual feedback | overlay or UI capability |
 | Needs unsupported engine behavior | risky native capability with exe-hash gating |
 
 This is the rule that keeps the framework general: new gameplay ideas should expand reusable primitives, not become hardcoded modules.
+
+Current target scenario: `docs/boss_gauntlet_campaign_spec.md`. Use it as a validation pressure test for generic primitives such as idempotent profile initialization, normal-save consequence preservation, fixed quest-board replacement, terminal-attempt observation, selection consumption, phase transitions, and phase-scoped availability filters. Do not add launcher or native-hook branches that only know this specific boss-gauntlet campaign.
 
 ## Anti-Hardcoding Audit
 
@@ -389,6 +392,7 @@ Current narrow slices to keep visible:
 | `SaveEventBridge` | Evaluates plugin-declared `factEventRules` and can emit arbitrary framework events with payloads from facts, bridge context, sidecar state, and generic payload projections | The launcher owns the generic bridge only; the concrete active-raid and last-raid challenge mappings live in `plugins/_validation` | Keep it generic. If a new mapping needs C# changes, first add a reusable predicate, payload projection, payload source, or fact extractor |
 | `RuntimeEventExecutor` challenge actions | Implements `challenge.initializeRunState`, `challenge.lockStageSelection`, `challenge.recordFailedAttempt`, and `challenge.advanceStage` directly | They are safe sidecar-state primitives used to validate stateful stage-chain behavior | Keep only if treated as reusable `challenge.*` primitives; otherwise factor repeated behavior into generic `state.*`, `event.*`, and definition-driven actions |
 | `plugins/_validation` and test scripts | Contain concrete boss quest ids, stage ids, selected hero ids, and trinket ids | They are acceptance fixtures, not user-facing framework behavior | Leave concrete data in fixtures, but do not move fixture assumptions into launcher/runtime logic |
+| Boss gauntlet target spec | Names a concrete fixed-resource campaign design | It is a pressure test for missing reusable primitives | Add `profile.*`, `quest_board.*`, `selection.*`, `town.*`, `stagecoach.*`, and phase-scoped availability primitives before attempting live behavior |
 
 Before adding a new gameplay feature, ask: can another mod with different content reuse the same primitive without changing C# or native hook code? If not, the design is still too hardcoded.
 

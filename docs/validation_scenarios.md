@@ -135,6 +135,8 @@ Goal:
 - If the player clears a stage, mark selected heroes and selected trinkets as used, then advance to the next stage.
 - Clearing all stages wins the challenge.
 
+This is an early validation scenario for sidecar state, save-event inference, managed action artifacts, and fixed-stage quest overlay. It is not the current target gameplay spec. The current target is Scenario 4, where failure consumes the selected heroes and trinkets instead of locking them for retry.
+
 Validation manifest and data:
 
 ```text
@@ -210,6 +212,74 @@ Acceptance ladder:
 
 Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Step 7 has a generic save-facts bridge: `--infer-save-events` evaluates plugin-declared `factEventRules`; the validation plugin uses those rules to map active raid party/loadout facts or structured post-task `campaignLog.partyRaidRecords` to `challenge.stage_selection_confirmed`, and last raid quest/result facts to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. A single bridge pass can now reload sidecar state between inferred events, so a post-task save report can infer selection and completion together. The launcher-side watcher can also run that bridge during game execution after debounced stable `profile_*` save changes, while keeping original saves read-only. Step 8 has an observe-first materialization path: `challenge.stage_selection_started` produces `materialized` artifacts for fixed-stage quest injection, hero filtering, and trinket filtering under `modStateDirectory/_managed_actions/`; startup and `--dry-run` compile the latest fixed-stage quest artifact into `logs/managed_action_overlay_manifest.json`, supersede older fixed-stage artifacts for the same source rule, and append one virtual file replacement for `campaign/quest/quest.plot_quests.json` that forces the selected source plot quest to early/repeatable availability. Real quest list control, roster materialization, and UI filtering still require later capabilities.
 
+## Scenario 4: Fixed Resource Boss Gauntlet Campaign
+
+Reference spec:
+
+```text
+docs/boss_gauntlet_campaign_spec.md
+```
+
+Goal:
+
+- Automatically initialize a newly created eligible save into a fixed-resource campaign on first entry. The initialized profile then saves normally and is not rebuilt on later entries.
+- Normalize the new save into two max-level heroes per class, all skills unlocked and upgraded, two of every trinket, fully unlocked and upgraded town, empty stage coach, and fixed or suppressed town events.
+- Replace normal quest generation with a fixed simultaneous board of highest-difficulty non-Darkest boss quests.
+- Consume selected heroes and selected trinkets on any terminal boss attempt result, success or failure.
+- Keep failed boss quests available, but do not restore the consumed selection or roll back original settlement consequences. If roster attrition makes the campaign unwinnable, the player deletes the save and starts a new one.
+- Remove defeated fixed boss quests without generating replacements.
+- Unlock the Darkest Dungeon finale after all fixed boss quests are defeated.
+- In the finale, clear pre-finale sidecar reuse restrictions and prefer original Darkest Dungeon participation rules.
+
+Required generic primitives:
+
+```text
+event profile.entered
+event profile.initialization_requested
+event quest.selection_confirmed
+event quest.attempt_resolved
+state.bossGauntlet.initialized
+state.bossGauntlet.phase
+state.bossGauntlet.fixedQuestIds
+state.bossGauntlet.completedQuestIds
+state.bossGauntlet.consumedHeroIds
+state.bossGauntlet.consumedTrinketIds
+state.bossGauntlet.activeSelection
+action attempt.recordOnce
+action selection.consumeHeroes
+action selection.consumeTrinkets
+action quest.markCompletedIfSuccessful
+action state.transitionWhenAllCompleted
+action state.clearPaths
+capability profile.detect_new_or_uninitialized
+capability profile.mark_initialized
+capability roster.ensure_class_instances
+capability roster.set_progression
+capability roster.set_skill_unlocks
+capability stagecoach.suppress_recruits
+capability estate.ensure_inventory_counts
+capability town.unlock_all_buildings
+capability town.set_building_levels
+capability town_event.override_current
+capability quest_board.replace_with_fixed_set
+capability quest_board.filter_completed_fixed_quests
+capability roster.enforce_availability_filter
+capability equipment.enforce_availability_filter
+capability progression.observe_plot_completion
+```
+
+Acceptance ladder:
+
+1. The scenario has a validation manifest draft and content-derived or fixture-defined boss quest set.
+2. The rule engine can simulate first-entry initialization and prove it is idempotent on later entries.
+3. The rule engine can simulate `quest.attempt_resolved` and consume selected heroes/trinkets on both success and failure.
+4. The rule engine can mark only successful boss attempts as completed and transition to `darkest_finale` when all fixed boss quests are completed.
+5. Save/content facts can report enough data for roster, trinket inventory, town state, quest board, campaign log, and Darkest Dungeon participation decisions.
+6. Managed action artifacts can describe the normalized roster, trinket inventory, town maxing, fixed quest board, and town-event override without mutating original saves.
+7. Runtime consumers enforce the fixed quest board and pre-finale hero/trinket availability.
+8. Managed original-save initialization, if introduced, is schema-verified, logged, idempotent, and does not restore later campaign failures.
+9. The finale phase can rely on original Darkest Dungeon entry restrictions where possible and only adds sidecar run-completion tracking.
+
 ## What Counts As Framework Progress
 
 Progress should be measured by reusable primitives, not by special-case code:
@@ -222,6 +292,13 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Define a fixed challenge stage chain | `challenge.define_stage_chain` plus `quest.inject_fixed_stage` |
 | Lock failed-stage retry selection | `challenge.lock_stage_selection` plus sidecar state |
 | Remember used trinkets | sidecar state list actions plus `equipment.filter_available_trinkets` |
+| Consume selection after any terminal attempt | `quest.attempt_resolved` plus reusable selection-consume actions |
+| Fixed simultaneous quest board | `quest_board.replace_with_fixed_set` and content-derived quest facts |
+| Stop stage coach generation | `stagecoach.suppress_recruits` |
+| Initialize only new challenge saves | `profile.detect_new_or_uninitialized` plus `profile.mark_initialized` |
+| Preserve campaign attrition and unwinnable states | normal save observation; no hidden restore/recovery action |
+| Normalize roster/trinkets/town | managed profile-normalization actions |
+| Reuse original DD participation rule | phase-scoped filters and original quest entry rules |
 | Queue upgrades | sidecar state object-list actions |
 | Move time forward | `campaign.week_advanced` event |
 | Stop original upgrade | `building.intercept_upgrade_request` capability |
