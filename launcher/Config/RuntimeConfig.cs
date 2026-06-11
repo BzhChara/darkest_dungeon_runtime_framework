@@ -98,6 +98,9 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("saveEventBridgeEnabled")]
     public bool SaveEventBridgeEnabled { get; set; }
 
+    [JsonPropertyName("saveEventBridgeDebounceMilliseconds")]
+    public int SaveEventBridgeDebounceMilliseconds { get; set; } = 1000;
+
     [JsonPropertyName("pluginDirectories")]
     public string[] PluginDirectories { get; set; } = ["./plugins"];
 

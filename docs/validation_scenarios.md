@@ -148,6 +148,7 @@ Dry-run tool:
 ```text
 tools/TestChallengeRunDryRun.ps1
 tools/TestSaveEventBridge.ps1
+tools/TestRealtimeSaveBridge.ps1
 ```
 
 Run:
@@ -157,6 +158,7 @@ Run:
 .\tools\TestChallengeRunDryRun.ps1 -Outcome stage_failed -SelectedHeroIds 1,2,7,8 -SelectedTrinketIds berserk_mask,immunity_mask,fortunate_armlet,sb_4,sb_3,sb_2,sb_1,bleeding_pendant
 .\tools\TestChallengeRunDryRun.ps1 -Outcome stage_completed -SelectedHeroIds 1,2,7,8 -SelectedTrinketIds berserk_mask,immunity_mask,fortunate_armlet,sb_4,sb_3,sb_2,sb_1,bleeding_pendant
 .\tools\TestSaveEventBridge.ps1
+.\tools\TestRealtimeSaveBridge.ps1
 ```
 
 Required generic primitives:
@@ -204,7 +206,7 @@ Acceptance ladder:
 8. The framework can inject or replace fixed stages through a managed quest/content primitive.
 9. The framework can materialize preset max-level heroes with randomized positive/negative quirks through verified roster/save primitives.
 
-Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Step 7 has an initial generic save-facts bridge: `--infer-save-events` evaluates plugin-declared `factEventRules`; the validation plugin uses those rules to map active raid party/loadout facts or structured post-task `campaignLog.partyRaidRecords` to `challenge.stage_selection_confirmed`, and last raid quest/result facts to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. A single bridge pass can now reload sidecar state between inferred events, so a post-task save report can infer selection and completion together. Step 8 has an observe-first plan path: `challenge.stage_selection_started` produces `planned` reports for fixed-stage quest injection, hero filtering, and trinket filtering. Real quest injection, roster materialization, and UI filtering still require later capabilities.
+Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Step 7 has a generic save-facts bridge: `--infer-save-events` evaluates plugin-declared `factEventRules`; the validation plugin uses those rules to map active raid party/loadout facts or structured post-task `campaignLog.partyRaidRecords` to `challenge.stage_selection_confirmed`, and last raid quest/result facts to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. A single bridge pass can now reload sidecar state between inferred events, so a post-task save report can infer selection and completion together. The launcher-side watcher can also run that bridge during game execution after debounced stable `profile_*` save changes, while keeping original saves read-only. Step 8 has an observe-first plan path: `challenge.stage_selection_started` produces `planned` reports for fixed-stage quest injection, hero filtering, and trinket filtering. Real quest injection, roster materialization, and UI filtering still require later capabilities.
 
 ## What Counts As Framework Progress
 

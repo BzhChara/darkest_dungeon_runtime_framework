@@ -8,6 +8,7 @@ logs/*
 !logs/.gitkeep
 state/*
 !state/.gitkeep
+config/_realtime_save_bridge_test_*.json
 .research/
 runtime/bin/
 runtime/obj/

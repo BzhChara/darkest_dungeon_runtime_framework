@@ -23,6 +23,7 @@ internal static class Program
             log.Info($"Mod state directory: {config.ModStateDirectory}");
             log.Info($"Allow non-atomic state writes: {config.AllowNonAtomicStateWrites}");
             log.Info($"Save event bridge enabled: {config.SaveEventBridgeEnabled}");
+            log.Info($"Save event bridge debounce milliseconds: {config.SaveEventBridgeDebounceMilliseconds}");
             log.Info($"Injection enabled: {config.EnableInjection && !options.NoInject}");
             log.Info($"Start suspended for injection: {config.StartSuspendedForInjection && config.EnableInjection && !options.NoInject}");
 
@@ -42,6 +43,7 @@ internal static class Program
                     !options.InitModState &&
                     !options.DumpModState &&
                     !options.InferSaveEvents &&
+                    !options.WatchSavesForMilliseconds.HasValue &&
                     string.IsNullOrWhiteSpace(options.EmitEvent))
                 {
                     return 3;
@@ -119,6 +121,21 @@ internal static class Program
                     options.ModStateId).Succeeded;
             }
 
+            if (options.WatchSavesForMilliseconds.HasValue)
+            {
+                using var diagnosticWatcher = SaveDirectoryWatcher.Start(config, patchPlan, projectRoot, log);
+                if (diagnosticWatcher is null)
+                {
+                    log.Warn("Watch-save diagnostic requested, but no save watcher was started.");
+                    return 3;
+                }
+
+                log.Info($"Watch-save diagnostic running for {options.WatchSavesForMilliseconds.Value} milliseconds.");
+                Thread.Sleep(TimeSpan.FromMilliseconds(options.WatchSavesForMilliseconds.Value));
+                log.Info("Watch-save diagnostic completed.");
+                return 0;
+            }
+
             if (options.ListPatches ||
                 options.ExplainPatches ||
                 options.ExplainRules ||
@@ -127,6 +144,7 @@ internal static class Program
                 options.InitModState ||
                 options.DumpModState ||
                 options.InferSaveEvents ||
+                options.WatchSavesForMilliseconds.HasValue ||
                 !string.IsNullOrWhiteSpace(options.EmitEvent))
             {
                 log.Info("Inspection requested. No process was started.");
@@ -276,6 +294,7 @@ internal static class Program
             !options.InitModState &&
             !options.DumpModState &&
             !options.InferSaveEvents &&
+            !options.WatchSavesForMilliseconds.HasValue &&
             string.IsNullOrWhiteSpace(options.EmitEvent);
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))
             throw new FileNotFoundException("Runtime DLL was not found. Build runtime/RuntimeHook.vcxproj first.", config.RuntimeDllPath);
@@ -289,6 +308,9 @@ internal static class Program
 
         if (config.SaveWatchAfterExitSeconds < 0)
             throw new InvalidOperationException("saveWatchAfterExitSeconds must be zero or greater.");
+
+        if (config.SaveEventBridgeDebounceMilliseconds < 0)
+            throw new InvalidOperationException("saveEventBridgeDebounceMilliseconds must be zero or greater.");
     }
 
     private static string ComputeSha256(string path)

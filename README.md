@@ -107,7 +107,8 @@ docs/architecture.md            架构说明
 ```json
 "saveWatchEnabled": true,
 "saveWatchDirectories": [],
-"saveWatchAfterExitSeconds": 10
+"saveWatchAfterExitSeconds": 10,
+"saveEventBridgeDebounceMilliseconds": 1000
 ```
 
 `saveWatchDirectories` 为空时，启动器会从 `gameWorkingDirectory` 推断 Steam 根目录，自动监控现有的 `userdata/*/262060/remote`，并额外监控 `Documents/Darkest`（如果目录存在）。开启 watcher 后，启动器会等待游戏进程退出，并在退出后继续监听 `saveWatchAfterExitSeconds` 秒，用来捕获 Steam 或外部同步进程稍后写入的 `persist.*.json`、`backup` 等存档变化。
@@ -168,6 +169,14 @@ logs/save_file_maps/<sessionId>.json
 logs/save_event_bridge_report.json
 ```
 
+当 watcher 在游戏运行中观察到 `profile_*` 下稳定 `.json` 存档变化时，也会按 `saveEventBridgeDebounceMilliseconds` 去抖后生成实时状态报告，并执行同一条桥接逻辑：
+
+```text
+logs/save_states/<watchSessionId>_realtime_<n>.json
+```
+
+实时桥接仍然只读原版存档，只写框架自己的 sidecar state。游戏退出时保留原来的最终 session report / save state report，用于完整诊断和文件地图分析。
+
 也可以手动对某个 save state report 执行一次推断：
 
 ```text
@@ -189,6 +198,12 @@ logs/save_event_bridge_report.json
 ```
 
 `factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。payload 可以声明通用数组投影，例如从 `facts.heroes` 里筛出当前 raid 队伍成员，再展开这些英雄的 `trinketIds`，或用 `where` 从 `campaignLog.partyRaidRecords` 里筛出匹配关卡的完成记录。验证插件现在用这些规则从 active raid facts 或任务后的 campaign log facts 发出 `challenge.stage_selection_confirmed`，并从 last raid quest/result facts 发出 `challenge.stage_completed` 或 `challenge.stage_failed`。同一次 bridge pass 中，前一个事件写入 sidecar state 后，后续规则会重新读取 state，因此任务后存档可以先补推选人确认，再推进完成事件。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤不在这个桥接器里硬编码；它们由普通 `eventRules` 声明，并先通过 managed action plan 报告要做的修改。
+
+watcher 的实时桥接可以用不启动游戏的诊断脚本测试：
+
+```powershell
+.\tools\TestRealtimeSaveBridge.ps1
+```
 
 ```json
 {

@@ -30,7 +30,11 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
     private readonly Dictionary<string, SaveFileSnapshot> _initialSnapshot;
     private readonly Dictionary<string, int> _eventCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PendingBridgeProfile> _pendingBridgeProfiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _sync = new();
+    private Timer? _bridgeTimer;
+    private bool _bridgeRunning;
+    private int _bridgeSequence;
     private int? _gameProcessId;
     private int? _gameExitCode;
     private int _afterExitSeconds;
@@ -138,6 +142,10 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             watcher.EnableRaisingEvents = false;
             watcher.Dispose();
         }
+
+        _bridgeTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        FlushPendingRealtimeSaveEventBridge(force: true);
+        _bridgeTimer?.Dispose();
 
         var finalSnapshot = CaptureSnapshot(_directories);
         var completedAt = DateTimeOffset.Now;
@@ -254,6 +262,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         if (ShouldSuppress(eventName, e.FullPath)) return;
         CountEvent(eventName);
         _log.Info($"event name={eventName} change={e.ChangeType} {DescribePath(e.FullPath)}");
+        ScheduleRealtimeSaveEventBridge(e.FullPath, eventName);
     }
 
     private void LogRenameEvent(RenamedEventArgs e)
@@ -261,6 +270,185 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         if (ShouldSuppress("save.sidecar_renamed", e.FullPath)) return;
         CountEvent("save.sidecar_renamed");
         _log.Info($"event name=save.sidecar_renamed oldPath={Quote(e.OldFullPath)} {DescribePath(e.FullPath)}");
+        ScheduleRealtimeSaveEventBridge(e.FullPath, "save.sidecar_renamed");
+    }
+
+    private void ScheduleRealtimeSaveEventBridge(string path, string reason)
+    {
+        if (!_config.SaveEventBridgeEnabled)
+        {
+            return;
+        }
+
+        var stablePath = StableSavePath.TryCreate(path);
+        if (stablePath is null)
+        {
+            return;
+        }
+
+        PendingBridgeProfile pending;
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            var now = DateTimeOffset.Now;
+            if (_pendingBridgeProfiles.TryGetValue(stablePath.ProfileRoot, out var existing))
+            {
+                pending = existing with
+                {
+                    LastSeenAt = now,
+                    ChangeCount = existing.ChangeCount + 1,
+                    LastReason = reason,
+                    LastRelativePath = stablePath.RelativePath
+                };
+            }
+            else
+            {
+                pending = new PendingBridgeProfile(
+                    stablePath.Profile,
+                    stablePath.ProfileRoot,
+                    now,
+                    now,
+                    1,
+                    reason,
+                    stablePath.RelativePath);
+            }
+
+            _pendingBridgeProfiles[stablePath.ProfileRoot] = pending;
+            _bridgeTimer ??= new Timer(_ => FlushPendingRealtimeSaveEventBridge(force: false));
+            _bridgeTimer.Change(
+                TimeSpan.FromMilliseconds(_config.SaveEventBridgeDebounceMilliseconds),
+                Timeout.InfiniteTimeSpan);
+        }
+
+        CountEvent("save.event_bridge_realtime_scheduled");
+        _log.Info(
+            $"event name=save.event_bridge_realtime_scheduled profile={stablePath.Profile} " +
+            $"root={Quote(stablePath.ProfileRoot)} reason={reason} path={Quote(stablePath.RelativePath)}");
+    }
+
+    private void FlushPendingRealtimeSaveEventBridge(bool force)
+    {
+        while (true)
+        {
+            PendingBridgeProfile[] pendingProfiles;
+            lock (_sync)
+            {
+                if (_bridgeRunning)
+                {
+                    if (!force)
+                    {
+                        return;
+                    }
+
+                    Monitor.Wait(_sync, TimeSpan.FromSeconds(5));
+                    continue;
+                }
+
+                if (_pendingBridgeProfiles.Count == 0)
+                {
+                    return;
+                }
+
+                _bridgeRunning = true;
+                pendingProfiles = _pendingBridgeProfiles.Values
+                    .OrderBy(profile => profile.Profile, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                _pendingBridgeProfiles.Clear();
+            }
+
+            try
+            {
+                foreach (var profile in pendingProfiles)
+                {
+                    try
+                    {
+                        ExecuteRealtimeSaveEventBridge(profile);
+                    }
+                    catch (Exception ex)
+                    {
+                        CountEvent("save.event_bridge_realtime_failed");
+                        _log.Error(
+                            $"event name=save.event_bridge_realtime_failed profile={profile.Profile} " +
+                            $"root={Quote(profile.Root)} message={Quote(ex.Message)}");
+                    }
+                }
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    _bridgeRunning = false;
+                    Monitor.PulseAll(_sync);
+                    if (!force && _pendingBridgeProfiles.Count > 0)
+                    {
+                        _bridgeTimer?.Change(
+                            TimeSpan.FromMilliseconds(_config.SaveEventBridgeDebounceMilliseconds),
+                            Timeout.InfiniteTimeSpan);
+                    }
+                }
+            }
+
+            if (!force)
+            {
+                return;
+            }
+        }
+    }
+
+    private void ExecuteRealtimeSaveEventBridge(PendingBridgeProfile profile)
+    {
+        var sequence = Interlocked.Increment(ref _bridgeSequence);
+        var generatedAt = DateTimeOffset.Now;
+        var reportSessionId = $"{_sessionId}_realtime_{sequence:D4}";
+        var activeProfile = new ActiveProfileInference(
+            profile.Profile,
+            profile.Root,
+            "event",
+            100,
+            [
+                $"realtime stable save changes={profile.ChangeCount}",
+                $"last event={profile.LastReason}",
+                $"last path={profile.LastRelativePath}"
+            ],
+            []);
+        var sessionReport = new SaveSessionReport(
+            1,
+            reportSessionId,
+            _startedAt,
+            generatedAt,
+            new SaveSessionGameInfo(_gameProcessId, _gameExitedAt, _gameExitCode),
+            new SaveSessionWatchInfo(_directories, _afterExitSeconds, _initialSnapshot.Count, _initialSnapshot.Count),
+            SnapshotEventCounts(),
+            new SaveSessionSnapshotInfo(0, 0, 0, 0, 0, 0),
+            [],
+            activeProfile);
+
+        CountEvent("save.state_report_realtime_requested");
+        _log.Info(
+            $"event name=save.state_report_realtime_requested profile={profile.Profile} " +
+            $"root={Quote(profile.Root)} changes={profile.ChangeCount} sessionId={reportSessionId}");
+
+        var stateReportPath = SaveStateExporter.TryWriteReport(
+            _sessionDirectory,
+            reportSessionId,
+            generatedAt,
+            sessionReport,
+            _gameWorkingDirectory,
+            _log,
+            writeFileMapReport: false);
+        if (string.IsNullOrWhiteSpace(stateReportPath))
+        {
+            CountEvent("save.state_report_realtime_skipped");
+            return;
+        }
+
+        CountEvent("save.state_report_realtime_written");
+        var bridgeReport = SaveEventBridge.Execute(_config, _patchPlan, _log, stateReportPath, _projectRoot, null);
+        CountEvent(bridgeReport.Succeeded ? "save.event_bridge_realtime_completed" : "save.event_bridge_realtime_failed");
     }
 
     private void CountEvent(string eventName)
@@ -692,25 +880,28 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             new(SaveSnapshotChangeKind.Deleted, path, before, null);
     }
 
-    private sealed record StableSaveChange(
-        SaveSnapshotChangeKind Kind,
+    private sealed record StableSavePath(
         string ProfileRoot,
         string Profile,
         string Area,
-        string RelativePath,
-        SaveFileSnapshot? Before,
-        SaveFileSnapshot? After)
+        string RelativePath)
     {
-        public static StableSaveChange? TryCreate(SaveSnapshotChange change)
+        public static StableSavePath? TryCreate(string path)
         {
-            var fileName = Path.GetFileName(change.Path);
+            var fileName = Path.GetFileName(path);
             if (!fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || IsTransientSaveFileName(fileName))
             {
                 return null;
             }
 
-            var file = new FileInfo(Path.GetFullPath(change.Path));
-            var profileDirectory = file.Directory;
+            var fullPath = Path.GetFullPath(path);
+            var directoryName = Path.GetDirectoryName(fullPath);
+            if (string.IsNullOrWhiteSpace(directoryName))
+            {
+                return null;
+            }
+
+            var profileDirectory = new DirectoryInfo(directoryName);
             while (profileDirectory is not null && !profileDirectory.Name.StartsWith("profile_", StringComparison.OrdinalIgnoreCase))
             {
                 profileDirectory = profileDirectory.Parent;
@@ -723,20 +914,55 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
 
             var profile = profileDirectory.Name;
             var profileRoot = profileDirectory.FullName;
-            var relativePath = Path.GetRelativePath(profileRoot, change.Path)
+            var relativePath = Path.GetRelativePath(profileRoot, fullPath)
                 .Replace(Path.DirectorySeparatorChar, '/')
                 .Replace(Path.AltDirectorySeparatorChar, '/');
             var relativeParts = relativePath
-                .Split('/')
-                .Where(part => !string.IsNullOrWhiteSpace(part))
-                .ToArray();
+                .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var area = relativeParts.Length > 1 && relativeParts[0].Equals("backup", StringComparison.OrdinalIgnoreCase)
                 ? "backup"
                 : "live";
 
-            return new StableSaveChange(change.Kind, profileRoot, profile, area, relativePath, change.Before, change.After);
+            return new StableSavePath(profileRoot, profile, area, relativePath);
         }
     }
+
+    private sealed record StableSaveChange(
+        SaveSnapshotChangeKind Kind,
+        string ProfileRoot,
+        string Profile,
+        string Area,
+        string RelativePath,
+        SaveFileSnapshot? Before,
+        SaveFileSnapshot? After)
+    {
+        public static StableSaveChange? TryCreate(SaveSnapshotChange change)
+        {
+            var path = StableSavePath.TryCreate(change.Path);
+            if (path is null)
+            {
+                return null;
+            }
+
+            return new StableSaveChange(
+                change.Kind,
+                path.ProfileRoot,
+                path.Profile,
+                path.Area,
+                path.RelativePath,
+                change.Before,
+                change.After);
+        }
+    }
+
+    private sealed record PendingBridgeProfile(
+        string Profile,
+        string Root,
+        DateTimeOffset FirstSeenAt,
+        DateTimeOffset LastSeenAt,
+        int ChangeCount,
+        string LastReason,
+        string LastRelativePath);
 
     private sealed record SaveProfileSummary(
         string Profile,

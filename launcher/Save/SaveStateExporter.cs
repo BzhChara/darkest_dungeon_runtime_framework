@@ -188,7 +188,8 @@ internal sealed partial class SaveDirectoryWatcher
             DateTimeOffset generatedAt,
             SaveSessionReport sessionReport,
             string gameWorkingDirectory,
-            LauncherLog log)
+            LauncherLog log,
+            bool writeFileMapReport = true)
         {
             if (sessionReport.ActiveProfile is null)
             {
@@ -248,7 +249,11 @@ internal sealed partial class SaveDirectoryWatcher
             var path = Path.Combine(stateDirectory, $"{sessionId}.json");
             File.WriteAllText(path, JsonSerializer.Serialize(report, SessionJsonOptions), Encoding.UTF8);
             log.Info($"event name=save.state_report_written path={Quote(path)} parseStatus={parseStatus} files={fileReports.Length} accessIssues={accessIssues.Count}");
-            TryWriteFileMapReport(logDirectory, sessionId, generatedAt, sessionReport, activeRoot, fileReports, log);
+            if (writeFileMapReport)
+            {
+                TryWriteFileMapReport(logDirectory, sessionId, generatedAt, sessionReport, activeRoot, fileReports, log);
+            }
+
             return path;
         }
 

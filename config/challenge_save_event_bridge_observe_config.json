@@ -32,6 +32,7 @@
   "saveWatchDirectories": [],
   "saveWatchAfterExitSeconds": 10,
   "saveEventBridgeEnabled": true,
+  "saveEventBridgeDebounceMilliseconds": 1000,
   "pluginDirectories": [
     "./plugins/_validation"
   ],

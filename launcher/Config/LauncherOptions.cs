@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace DDRuntimeLoader;
 
 internal sealed class LauncherOptions
@@ -18,6 +20,7 @@ internal sealed class LauncherOptions
     public bool DumpModState { get; private set; }
     public bool AllowNonAtomicStateWrites { get; private set; }
     public bool InferSaveEvents { get; private set; }
+    public int? WatchSavesForMilliseconds { get; private set; }
     public string? ModStateId { get; private set; }
     public string? ModStateDirectory { get; private set; }
     public string? EmitEvent { get; private set; }
@@ -82,6 +85,9 @@ internal sealed class LauncherOptions
                 case "--infer-save-events":
                     options.InferSaveEvents = true;
                     break;
+                case "--watch-saves-for-ms":
+                    options.WatchSavesForMilliseconds = RequirePositiveInt(args, ref i, "--watch-saves-for-ms");
+                    break;
                 case "--mod-state-id":
                     options.ModStateId = RequireValue(args, ref i, "--mod-state-id");
                     break;
@@ -115,5 +121,16 @@ internal sealed class LauncherOptions
         if (index + 1 >= args.Length) throw new ArgumentException($"Missing value for {name}.");
         index++;
         return args[index];
+    }
+
+    private static int RequirePositiveInt(string[] args, ref int index, string name)
+    {
+        var value = RequireValue(args, ref index, name);
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0)
+        {
+            throw new ArgumentException($"{name} must be a positive integer.");
+        }
+
+        return parsed;
     }
 }

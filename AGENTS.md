@@ -38,6 +38,7 @@ dotnet build launcher/DDRuntimeLoader.csproj -c Release
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
 .\tools\TestRuntimeEventExecutor.ps1
 .\tools\TestSaveEventBridge.ps1
+.\tools\TestRealtimeSaveBridge.ps1
 .\tools\TestChallengeRunDryRun.ps1 -AssertSample
 .\tools\TestSaveSampleFacts.ps1
 git -c safe.directory='E:/数据文件/SelfMod/DarkestDungeonRuntimeFramework' diff --check
