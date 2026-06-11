@@ -91,6 +91,79 @@ internal static partial class ManagedActionSaveApplier
             ]);
     }
 
+    private static void ApplyRosterSetSkillUnlocks(ApplyContext context, string artifactPath, JsonObject artifact)
+    {
+        var skillsMode = ReadString(artifact, "plan.arguments.skills");
+        if (!skillsMode.Equals("all_unlocked_and_maxed", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"Unsupported roster skill unlock mode: {skillsMode}");
+        }
+
+        var classDefinitions = LoadEnabledHeroClassDefinitions(context.GameWorkingDirectory)
+            .ToDictionary(definition => definition.Id, StringComparer.OrdinalIgnoreCase);
+        if (classDefinitions.Count == 0)
+        {
+            throw new InvalidDataException("Hero class definition catalog produced no class ids.");
+        }
+
+        var file = context.LoadDecodedJsonFile("persist.roster.json");
+        var heroes = EnsureObject(file.Root, "base_root.heroes");
+        var rosterHeroes = EnumerateRosterHeroes(heroes).ToArray();
+        var updated = 0;
+        var unchanged = 0;
+        var skippedUnknownClass = 0;
+        var updatedCombatSkillCount = 0;
+        var updatedCampingSkillCount = 0;
+
+        foreach (var hero in rosterHeroes)
+        {
+            if (!classDefinitions.TryGetValue(hero.HeroClass, out var classDefinition))
+            {
+                skippedUnknownClass++;
+                continue;
+            }
+
+            var combatSkillIds = classDefinition.CombatSkillIds;
+            var campingSkillIds = classDefinition.CampingSkillIds;
+            var skills = EnsureObject(hero.HeroRoot, "skills");
+            var currentCombatSkills = skills["selected_combat_skills"] as JsonObject;
+            var currentCampingSkills = skills["selected_camping_skills"] as JsonObject;
+            var combatChanged = !SkillSelectionMatches(currentCombatSkills, combatSkillIds);
+            var campingChanged = !SkillSelectionMatches(currentCampingSkills, campingSkillIds);
+            if (!combatChanged && !campingChanged)
+            {
+                unchanged++;
+                continue;
+            }
+
+            if (context.WriteChanges)
+            {
+                skills["selected_combat_skills"] = BuildAllSkillSelectionObject(combatSkillIds);
+                skills["selected_camping_skills"] = BuildAllSkillSelectionObject(campingSkillIds);
+            }
+
+            updated++;
+            updatedCombatSkillCount += combatSkillIds.Count;
+            updatedCampingSkillCount += campingSkillIds.Count;
+        }
+
+        if (updated > 0)
+        {
+            file.MarkChanged(updated);
+        }
+
+        AddSuccessfulAction(
+            context,
+            artifactPath,
+            artifact,
+            file.Path,
+            [
+                $"set roster skills mode={skillsMode} heroes={rosterHeroes.Length}",
+                $"updated={updated} unchanged={unchanged} skippedUnknownClass={skippedUnknownClass}",
+                $"updatedSkillSlots combat={updatedCombatSkillCount} camping={updatedCampingSkillCount}"
+            ]);
+    }
+
     private static IReadOnlyList<RosterHeroClassDefinition> ResolveHeroClassDefinitions(ApplyContext context, string source)
     {
         return source switch
@@ -583,6 +656,39 @@ internal static partial class ManagedActionSaveApplier
         }
 
         return result;
+    }
+
+    private static JsonObject BuildAllSkillSelectionObject(IReadOnlyList<string> skillIds)
+    {
+        var result = new JsonObject();
+        foreach (var skillId in skillIds)
+        {
+            result[skillId] = 0;
+        }
+
+        return result;
+    }
+
+    private static bool SkillSelectionMatches(JsonObject? current, IReadOnlyList<string> skillIds)
+    {
+        if (current is null || current.Count != skillIds.Count)
+        {
+            return false;
+        }
+
+        var expected = skillIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in current)
+        {
+            if (!expected.Contains(pair.Key) ||
+                pair.Value is not JsonValue value ||
+                !value.TryGetValue<int>(out var skillValue) ||
+                skillValue != 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static int ResolveHeroResolveXp(string level)

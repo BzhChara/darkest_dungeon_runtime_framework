@@ -263,6 +263,25 @@ function Get-HeroClassCount {
     return @((Get-HeroRoots -Roster $Roster) | Where-Object { $_.heroClass -eq $ClassId }).Count
 }
 
+function Get-FirstHeroRootByClass {
+    param(
+        [object]$Roster,
+        [string]$ClassId
+    )
+
+    return @((Get-HeroRoots -Roster $Roster) | Where-Object { $_.heroClass -eq $ClassId }) | Select-Object -First 1
+}
+
+function Get-ObjectPropertyCount {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return 0
+    }
+
+    return @($Value.PSObject.Properties).Count
+}
+
 function Convert-ToArray {
     param([object]$Value)
 
@@ -302,10 +321,10 @@ Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--managed-a
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
 Assert-True ([int]$dryRunReport.artifactCount -eq 11) "Dry-run should inspect eleven boss gauntlet initialization artifacts."
-Assert-True ([int]$dryRunReport.supportedActionCount -eq 3) "Dry-run should recognize three currently supported decoded-save actions."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 3) "Dry-run should report three dry-run actions."
+Assert-True ([int]$dryRunReport.supportedActionCount -eq 4) "Dry-run should recognize four currently supported decoded-save actions."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 4) "Dry-run should report four dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
-Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 8) "Dry-run should report the remaining profile-normalization actions as unsupported."
+Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 7) "Dry-run should report the remaining profile-normalization actions as unsupported."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
 Assert-True ([int]$dryRunReport.changedFileCount -eq 2) "Dry-run should report two would-change decoded save files."
 
@@ -315,13 +334,16 @@ Assert-True ($null -eq (Get-TrinketAmount -Estate $estate -Id "focus_ring")) "Dr
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Dry-run must not add roster heroes."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Dry-run must not add missing roster classes."
+$crusader = Get-FirstHeroRootByClass -Roster $roster -ClassId "crusader"
+Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_skills) -eq 0) "Dry-run must not fill existing hero combat skills."
+Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_camping_skills) -eq 0) "Dry-run must not fill existing hero camping skills."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
-Assert-True ([int]$writeReport.supportedActionCount -eq 3) "Write pass should recognize three currently supported decoded-save actions."
+Assert-True ([int]$writeReport.supportedActionCount -eq 4) "Write pass should recognize four currently supported decoded-save actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 3) "Write pass should apply three currently supported decoded-save actions."
+Assert-True ([int]$writeReport.appliedActionCount -eq 4) "Write pass should apply four currently supported decoded-save actions."
 Assert-True ([int]$writeReport.changedFileCount -eq 2) "Write pass should change two decoded save files."
 Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 2) "Write pass should mark two files as written."
 
@@ -339,14 +361,18 @@ Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 2) "Wr
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "highwayman") -eq 2) "Write pass should ensure two highwaymen."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 2) "Write pass should ensure two arbalests."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "vestal") -eq 2) "Write pass should ensure two vestals."
-$arbalest = @((Get-HeroRoots -Roster $roster) | Where-Object { $_.heroClass -eq "arbalest" }) | Select-Object -First 1
+$crusader = Get-FirstHeroRootByClass -Roster $roster -ClassId "crusader"
+$arbalest = Get-FirstHeroRootByClass -Roster $roster -ClassId "arbalest"
 Assert-True ([int]$arbalest.resolveXp -eq 46) "Generated max-level heroes should use max resolve XP."
 Assert-True ([int]$arbalest.weapon_rank -eq 4) "Generated max-level heroes should use max weapon rank."
 Assert-True ([int]$arbalest.armour_rank -eq 4) "Generated max-level heroes should use max armour rank."
 Assert-True (@($arbalest.quirks.PSObject.Properties).Count -eq 6) "Generated heroes should have five positive quirks and one negative quirk."
-Assert-True (@($arbalest.skills.selected_combat_skills.PSObject.Properties).Count -gt 0) "Generated heroes should receive selected combat skills from content definitions."
+Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_skills) -gt 4) "Skill unlock action should fill all known crusader combat skills."
+Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_camping_skills) -gt 4) "Skill unlock action should fill all known crusader camping skills."
+Assert-True ((Get-ObjectPropertyCount -Value $arbalest.skills.selected_combat_skills) -gt 4) "Generated heroes should receive all known combat skills from content definitions."
+Assert-True ((Get-ObjectPropertyCount -Value $arbalest.skills.selected_camping_skills) -gt 4) "Generated heroes should receive all known camping skills from content definitions."
 $rosterText = Get-Content -Raw -LiteralPath (Join-Path $saveRoot "persist.roster.json")
 Assert-True ($rosterText -match '"current_hp": 47\.0') "Generated DSON-decoded roster should preserve float token shape for current_hp."
 Assert-True ($rosterText -match '"m_Stress": 0\.0') "Generated DSON-decoded roster should preserve float token shape for m_Stress."
 
-Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster write assertions passed."
+Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster/skill write assertions passed."

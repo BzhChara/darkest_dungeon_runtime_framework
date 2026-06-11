@@ -102,6 +102,9 @@ internal static partial class ManagedActionSaveApplier
                 case "roster.ensureClassInstances":
                     ApplyRosterEnsureClassInstances(context, artifactPath, artifact);
                     break;
+                case "roster.setSkillUnlocks":
+                    ApplyRosterSetSkillUnlocks(context, artifactPath, artifact);
+                    break;
                 default:
                     AddUnsupportedAction(context, artifactPath, artifact, actionType);
                     break;
