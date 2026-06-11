@@ -32,7 +32,6 @@ internal static partial class ManagedActionSaveApplier
         var baseRoot = EnsureObject(file.Root, "base_root");
         var heroes = EnsureObject(file.Root, "base_root.heroes");
         var existingHeroes = EnumerateRosterHeroes(heroes).ToArray();
-        var fallbackTemplate = existingHeroes.FirstOrDefault()?.Entry;
         var maxHeroId = Math.Max(GetMaxNumericKey(heroes), ReadOptionalInt(baseRoot, "nextGuid") is { } nextGuid ? nextGuid - 1 : -1);
         var nextHeroId = maxHeroId + 1;
         var added = 0;
@@ -50,12 +49,10 @@ internal static partial class ManagedActionSaveApplier
                 continue;
             }
 
-            var template = existingForClass.FirstOrDefault()?.Entry ?? fallbackTemplate;
             for (var copyIndex = existingForClass.Length; copyIndex < copiesPerClass; copyIndex++)
             {
                 var heroId = nextHeroId++;
-                var heroEntry = BuildGeneratedRosterHeroEntry(
-                    template,
+                var heroEntry = BuildCleanGeneratedRosterHeroEntry(
                     classDefinition,
                     heroId,
                     copyIndex,
@@ -173,8 +170,7 @@ internal static partial class ManagedActionSaveApplier
         };
     }
 
-    private static JsonObject BuildGeneratedRosterHeroEntry(
-        JsonObject? templateEntry,
+    private static JsonObject BuildCleanGeneratedRosterHeroEntry(
         RosterHeroClassDefinition classDefinition,
         int heroId,
         int copyIndex,
@@ -183,7 +179,7 @@ internal static partial class ManagedActionSaveApplier
         string negativeQuirkPolicy,
         IReadOnlyList<QuirkDefinition> quirkCatalog)
     {
-        var entry = templateEntry?.DeepClone() as JsonObject ?? new JsonObject();
+        var entry = new JsonObject();
         var heroRoot = EnsureObject(entry, "hero_file_data.raw_data.base_root");
         heroRoot["roster.status"] = 0;
         heroRoot["roster.before_on_start_town_visit_status"] = 0;

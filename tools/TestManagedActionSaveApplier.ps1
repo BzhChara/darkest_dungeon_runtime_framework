@@ -103,6 +103,7 @@ function Write-DecodedRosterFixture {
                 "actor_dot": {}
               },
               "heroClass": "crusader",
+              "template_only_marker": "must_not_copy_to_generated_heroes",
               "resolveXp": 0,
               "m_Stress": 0.0,
               "is_death_heart_attack_completed": false,
@@ -366,6 +367,7 @@ $arbalest = Get-FirstHeroRootByClass -Roster $roster -ClassId "arbalest"
 Assert-True ([int]$arbalest.resolveXp -eq 46) "Generated max-level heroes should use max resolve XP."
 Assert-True ([int]$arbalest.weapon_rank -eq 4) "Generated max-level heroes should use max weapon rank."
 Assert-True ([int]$arbalest.armour_rank -eq 4) "Generated max-level heroes should use max armour rank."
+Assert-True ($null -eq $arbalest.template_only_marker) "Generated heroes must be built from a clean blueprint, not copied from an existing roster template."
 Assert-True (@($arbalest.quirks.PSObject.Properties).Count -eq 6) "Generated heroes should have five positive quirks and one negative quirk."
 Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_skills) -gt 4) "Skill unlock action should fill all known crusader combat skills."
 Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_camping_skills) -gt 4) "Skill unlock action should fill all known crusader camping skills."
