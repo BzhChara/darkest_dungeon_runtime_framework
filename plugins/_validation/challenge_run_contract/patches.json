@@ -23,6 +23,65 @@
   "virtualFileRules": [],
   "factEventRules": [
     {
+      "id": "emit_stage_selection_confirmed_from_active_raid",
+      "enabled": true,
+      "emit": "challenge.stage_selection_confirmed",
+      "phase": "normal",
+      "priority": -10,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "challenge.observe_stage_selection_confirmed"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "challengeRun.enabled",
+            "op": "equals",
+            "value": true
+          },
+          {
+            "state": "challengeRun.lockedStageSelection",
+            "op": "notExists"
+          },
+          {
+            "fact": "raid.instance.id",
+            "op": "equals",
+            "valueFromState": "challengeRun.currentStage.sourceQuestId"
+          },
+          {
+            "fact": "raid.party.heroCount",
+            "op": "equals",
+            "valueFromState": "challengeRun.partySize"
+          }
+        ]
+      },
+      "payload": {
+        "stageId": {
+          "fromState": "challengeRun.currentStage.id"
+        },
+        "sourceQuestId": {
+          "fromFact": "raid.instance.id"
+        },
+        "selectedHeroIds": {
+          "fromFact": "raid.party.heroGuids",
+          "map": "stringArray"
+        },
+        "selectedTrinketIds": {
+          "fromFact": "heroes",
+          "whereIn": {
+            "path": "id",
+            "valuesFromFact": "raid.party.heroGuids"
+          },
+          "selectMany": "trinketIds",
+          "map": "stringArray",
+          "distinct": true
+        },
+        "saveStateReportPath": {
+          "fromBridge": "saveStateReportPath"
+        }
+      }
+    },
+    {
       "id": "emit_stage_completed_from_last_raid",
       "enabled": true,
       "emit": "challenge.stage_completed",

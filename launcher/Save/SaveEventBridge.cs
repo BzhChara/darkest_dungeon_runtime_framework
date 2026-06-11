@@ -228,34 +228,293 @@ internal static class SaveEventBridge
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
+            JsonNode? value = null;
+            var resolved = false;
+
             if (TryGetStringProperty(element, "fromFact", out var fromFact))
             {
-                return RequirePath(facts, fromFact, "fact", sourceRule, key);
+                value = RequirePath(facts, fromFact, "fact", sourceRule, key);
+                resolved = true;
             }
-
-            if (TryGetStringProperty(element, "fromState", out var fromState))
+            else if (TryGetStringProperty(element, "fromState", out var fromState))
             {
                 if (state is null)
                 {
                     throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' requires state path '{fromState}', but plugin state is unavailable.");
                 }
 
-                return RequirePath(state, fromState, "state", sourceRule, key);
+                value = RequirePath(state, fromState, "state", sourceRule, key);
+                resolved = true;
             }
-
-            if (TryGetStringProperty(element, "fromBridge", out var fromBridge) ||
+            else if (TryGetStringProperty(element, "fromBridge", out var fromBridge) ||
                 TryGetStringProperty(element, "fromEvent", out fromBridge))
             {
-                return RequirePath(bridgeContext, fromBridge, "bridge", sourceRule, key);
+                value = RequirePath(bridgeContext, fromBridge, "bridge", sourceRule, key);
+                resolved = true;
+            }
+            else if (element.TryGetProperty("value", out var literal))
+            {
+                value = JsonNode.Parse(literal.GetRawText());
+                resolved = true;
             }
 
-            if (element.TryGetProperty("value", out var literal))
+            if (resolved)
             {
-                return JsonNode.Parse(literal.GetRawText());
+                return ApplyPayloadProjection(sourceRule, key, element, value, facts, bridgeContext, state);
             }
         }
 
         return JsonNode.Parse(element.GetRawText());
+    }
+
+    private static JsonNode? ApplyPayloadProjection(
+        FactEventRuleSource sourceRule,
+        string key,
+        JsonElement element,
+        JsonNode? value,
+        JsonObject facts,
+        JsonObject bridgeContext,
+        JsonObject? state)
+    {
+        var result = CloneNode(value);
+
+        if (element.TryGetProperty("whereIn", out var whereIn))
+        {
+            result = ApplyWhereInProjection(sourceRule, key, whereIn, result, facts, bridgeContext, state);
+        }
+
+        if (TryGetStringProperty(element, "selectMany", out var selectManyPath))
+        {
+            result = ApplySelectManyProjection(sourceRule, key, selectManyPath, result);
+        }
+
+        if (TryGetStringProperty(element, "map", out var map))
+        {
+            result = ApplyMapProjection(sourceRule, key, map, result);
+        }
+
+        if (TryGetStringProperty(element, "coerce", out var coerce))
+        {
+            result = ApplyMapProjection(sourceRule, key, coerce, result);
+        }
+
+        if (TryGetBoolProperty(element, "distinct", out var distinct) && distinct)
+        {
+            result = ApplyDistinctProjection(sourceRule, key, result);
+        }
+
+        return result;
+    }
+
+    private static JsonNode? ApplyWhereInProjection(
+        FactEventRuleSource sourceRule,
+        string key,
+        JsonElement whereIn,
+        JsonNode? value,
+        JsonObject facts,
+        JsonObject bridgeContext,
+        JsonObject? state)
+    {
+        if (whereIn.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' whereIn must be an object.");
+        }
+
+        if (value is not JsonArray sourceArray)
+        {
+            throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' whereIn requires an array source.");
+        }
+
+        if (!TryGetStringProperty(whereIn, "path", out var path))
+        {
+            throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' whereIn requires string property 'path'.");
+        }
+
+        var allowed = ReadComparableSet(ResolveWhereInValues(sourceRule, key, whereIn, facts, bridgeContext, state));
+        var filtered = new JsonArray();
+        foreach (var item in sourceArray)
+        {
+            if (!TryGetPath(item, path, out var candidate))
+            {
+                throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' whereIn item is missing path '{path}'.");
+            }
+
+            if (ReadComparableValues(candidate).Any(allowed.Contains))
+            {
+                filtered.Add(CloneNode(item));
+            }
+        }
+
+        return filtered;
+    }
+
+    private static JsonNode? ResolveWhereInValues(
+        FactEventRuleSource sourceRule,
+        string key,
+        JsonElement whereIn,
+        JsonObject facts,
+        JsonObject bridgeContext,
+        JsonObject? state)
+    {
+        if (TryGetStringProperty(whereIn, "valuesFromFact", out var valuesFromFact))
+        {
+            return RequirePath(facts, valuesFromFact, "fact", sourceRule, key);
+        }
+
+        if (TryGetStringProperty(whereIn, "valuesFromState", out var valuesFromState))
+        {
+            if (state is null)
+            {
+                throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' whereIn requires state path '{valuesFromState}', but plugin state is unavailable.");
+            }
+
+            return RequirePath(state, valuesFromState, "state", sourceRule, key);
+        }
+
+        if (TryGetStringProperty(whereIn, "valuesFromBridge", out var valuesFromBridge) ||
+            TryGetStringProperty(whereIn, "valuesFromEvent", out valuesFromBridge))
+        {
+            return RequirePath(bridgeContext, valuesFromBridge, "bridge", sourceRule, key);
+        }
+
+        if (whereIn.TryGetProperty("values", out var values))
+        {
+            return JsonNode.Parse(values.GetRawText());
+        }
+
+        throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' whereIn requires valuesFromFact, valuesFromState, valuesFromBridge, valuesFromEvent, or values.");
+    }
+
+    private static JsonNode? ApplySelectManyProjection(
+        FactEventRuleSource sourceRule,
+        string key,
+        string path,
+        JsonNode? value)
+    {
+        if (value is not JsonArray sourceArray)
+        {
+            throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' selectMany requires an array source.");
+        }
+
+        var selected = new JsonArray();
+        foreach (var item in sourceArray)
+        {
+            if (!TryGetPath(item, path, out var child))
+            {
+                throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' selectMany item is missing path '{path}'.");
+            }
+
+            if (child is JsonArray childArray)
+            {
+                foreach (var childItem in childArray)
+                {
+                    selected.Add(CloneNode(childItem));
+                }
+            }
+            else
+            {
+                selected.Add(CloneNode(child));
+            }
+        }
+
+        return selected;
+    }
+
+    private static JsonNode? ApplyMapProjection(FactEventRuleSource sourceRule, string key, string map, JsonNode? value)
+    {
+        return map.Trim().ToLowerInvariant() switch
+        {
+            "string" => JsonValue.Create(ReadScalarAsString(value)),
+            "stringarray" => new JsonArray(ReadArrayValues(value).Select(item => JsonValue.Create(ReadScalarAsString(item))).ToArray()),
+            _ => throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' uses unsupported map/coerce '{map}'.")
+        };
+    }
+
+    private static JsonNode? ApplyDistinctProjection(FactEventRuleSource sourceRule, string key, JsonNode? value)
+    {
+        if (value is not JsonArray array)
+        {
+            throw new InvalidOperationException($"Fact event rule {sourceRule.Rule.Id} payload '{key}' distinct requires an array source.");
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new JsonArray();
+        foreach (var item in array)
+        {
+            var identity = item is JsonValue ? ReadScalarAsString(item) : item?.ToJsonString(JsonOptions) ?? "null";
+            if (seen.Add(identity))
+            {
+                result.Add(CloneNode(item));
+            }
+        }
+
+        return result;
+    }
+
+    private static IEnumerable<JsonNode?> ReadArrayValues(JsonNode? value)
+    {
+        if (value is JsonArray array)
+        {
+            foreach (var item in array)
+            {
+                yield return item;
+            }
+
+            yield break;
+        }
+
+        if (value is not null)
+        {
+            yield return value;
+        }
+    }
+
+    private static HashSet<string> ReadComparableSet(JsonNode? value)
+    {
+        return ReadComparableValues(value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> ReadComparableValues(JsonNode? value)
+    {
+        foreach (var item in ReadArrayValues(value))
+        {
+            yield return ReadScalarAsString(item);
+        }
+    }
+
+    private static string ReadScalarAsString(JsonNode? value)
+    {
+        if (value is not JsonValue jsonValue)
+        {
+            throw new InvalidOperationException("payload projection expected a scalar value.");
+        }
+
+        if (jsonValue.TryGetValue<string>(out var text))
+        {
+            return text;
+        }
+
+        if (jsonValue.TryGetValue<int>(out var intValue))
+        {
+            return intValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (jsonValue.TryGetValue<long>(out var longValue))
+        {
+            return longValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (jsonValue.TryGetValue<double>(out var doubleValue))
+        {
+            return doubleValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (jsonValue.TryGetValue<bool>(out var boolValue))
+        {
+            return boolValue ? "true" : "false";
+        }
+
+        throw new InvalidOperationException("payload projection expected a string, number, or boolean scalar.");
     }
 
     private static RuntimePredicateResult EvaluatePredicate(
@@ -416,13 +675,40 @@ internal static class SaveEventBridge
     private static bool TryGetStringProperty(JsonElement element, string propertyName, out string value)
     {
         value = string.Empty;
-        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
+        if (!element.TryGetProperty(propertyName, out var property))
         {
             return false;
         }
 
+        if (property.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidOperationException($"Property '{propertyName}' must be a string.");
+        }
+
         value = property.GetString() ?? string.Empty;
-        return !string.IsNullOrWhiteSpace(value);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException($"Property '{propertyName}' must be a non-empty string.");
+        }
+
+        return true;
+    }
+
+    private static bool TryGetBoolProperty(JsonElement element, string propertyName, out bool value)
+    {
+        value = false;
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return false;
+        }
+
+        if (property.ValueKind != JsonValueKind.True && property.ValueKind != JsonValueKind.False)
+        {
+            throw new InvalidOperationException($"Property '{propertyName}' must be a boolean.");
+        }
+
+        value = property.GetBoolean();
+        return true;
     }
 
     private static JsonNode? RequirePath(JsonNode? root, string path, string addressSpace, FactEventRuleSource sourceRule, string payloadKey)

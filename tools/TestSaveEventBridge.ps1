@@ -108,15 +108,64 @@ $baseArgs = @(
 Invoke-Loader -LoaderArgs ($baseArgs + @("--init-mod-state"))
 Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.run_started"))
 
-$selectionPayloadPath = Write-JsonPayload "selection_confirmed.json" ([pscustomobject]@{
-    stageId = "stage_1_necromancer"
-    selectedHeroIds = @("1", "2", "7", "8")
-    selectedTrinketIds = @("berserk_mask", "immunity_mask", "fortunate_armlet", "sb_4")
-})
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_confirmed", "--event-payload-file", $selectionPayloadPath))
-
 $questId = "plot_kill_necromancer_1"
 $questHash = Get-DsonHashSigned $questId
+$raidStartedReportPath = Write-JsonPayload "save_state_report_necromancer_raid_started.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "save_event_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        raid = [pscustomobject]@{
+            instance = [pscustomobject]@{
+                id = $questId
+            }
+            party = [pscustomobject]@{
+                heroCount = 4
+                heroGuids = @(1, 2, 7, 8)
+            }
+        }
+        heroes = @(
+            [pscustomobject]@{
+                id = "1"
+                trinketIds = @("berserk_mask", "immunity_mask")
+            },
+            [pscustomobject]@{
+                id = "2"
+                trinketIds = @("fortunate_armlet", "sb_4")
+            },
+            [pscustomobject]@{
+                id = "7"
+                trinketIds = @("sb_3", "sb_2")
+            },
+            [pscustomobject]@{
+                id = "8"
+                trinketIds = @("sb_1", "bleeding_pendant")
+            }
+        )
+    }
+})
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--infer-save-events", "--save-state-report", $raidStartedReportPath))
+
+$state = Read-ChallengeState
+Assert-True ($null -ne $state.lockedStageSelection) "Save event bridge should lock inferred raid selection."
+$lockedSelection = $state.lockedStageSelection
+Assert-True ($lockedSelection.stageId -eq "stage_1_necromancer") "Save event bridge should infer selected stage id."
+$lockedHeroIds = Convert-ToArray $lockedSelection.heroIds
+$lockedTrinketIds = Convert-ToArray $lockedSelection.trinketIds
+Assert-True ($lockedHeroIds.Count -eq 4) "Save event bridge should infer four selected heroes."
+Assert-True ($lockedTrinketIds.Count -eq 8) "Save event bridge should infer eight selected trinkets."
+Assert-True ($lockedHeroIds -contains "1") "Save event bridge should coerce selected hero ids to strings."
+Assert-True ($lockedTrinketIds -contains "berserk_mask") "Save event bridge should infer selected trinket ids."
+
+$bridgeReportPath = Join-Path $projectRoot.Path "logs\save_event_bridge_report.json"
+$bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
+Assert-True ([int]$bridgeReport.inferredEventCount -eq 1) "Save event bridge should infer exactly one selection event."
+$executed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "event-executed" })
+Assert-True ($executed.Count -eq 1) "Save event bridge should execute one matching selection event."
+Assert-True ($executed[0].eventId -eq "challenge.stage_selection_confirmed") "Save event bridge should emit challenge.stage_selection_confirmed."
+
 $saveReportPath = Write-JsonPayload "save_state_report_necromancer_completed.json" ([pscustomobject]@{
     version = 1
     sessionId = "save_event_bridge_test"
@@ -143,10 +192,9 @@ $state = Read-ChallengeState
 Assert-True ([int]$state.currentStageIndex -eq 1) "Save event bridge should advance currentStageIndex to 1."
 Assert-True ((Convert-ToArray $state.completedStageIds) -contains "stage_1_necromancer") "Save event bridge should record completed stage id."
 Assert-True ((Convert-ToArray $state.usedHeroIds).Count -eq 4) "Save event bridge should consume locked heroes."
-Assert-True ((Convert-ToArray $state.usedTrinketIds).Count -eq 4) "Save event bridge should consume locked trinkets."
+Assert-True ((Convert-ToArray $state.usedTrinketIds).Count -eq 8) "Save event bridge should consume locked trinkets."
 Assert-True ($null -eq $state.lockedStageSelection) "Save event bridge completion should clear locked selection."
 
-$bridgeReportPath = Join-Path $projectRoot.Path "logs\save_event_bridge_report.json"
 $bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
 Assert-True ([int]$bridgeReport.inferredEventCount -eq 1) "Save event bridge should infer exactly one event."
 $executed = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "event-executed" })
@@ -160,7 +208,7 @@ Assert-True ([int]$stateAfterNoMatch.currentStageIndex -eq 1) "No-match save eve
 $bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
 Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "No-match save event bridge pass should not infer an event."
 $notMatched = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "predicate-not-matched" })
-Assert-True ($notMatched.Count -eq 2) "No-match save event bridge pass should leave both fact-event rules unmatched."
+Assert-True ($notMatched.Count -eq 3) "No-match save event bridge pass should leave all fact-event rules unmatched."
 
 $badStateRoot = Join-Path $stateRoot "bad_fact_event_predicate"
 New-Item -ItemType Directory -Force -Path $badStateRoot | Out-Null
@@ -180,4 +228,4 @@ Assert-True ($predicateFailed.Count -eq 1) "Bad fact-event predicate should be r
 $predicateIssues = @(Convert-ToArray $bridgeReport.issues | Where-Object { $_.code -eq "predicate-evaluation-failed" -and $_.severity -eq "error" })
 Assert-True ($predicateIssues.Count -eq 1) "Bad fact-event predicate should produce one error issue."
 
-Write-Host "PASS: save event bridge inferred and executed challenge completion."
+Write-Host "PASS: save event bridge inferred and executed challenge selection/completion."

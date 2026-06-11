@@ -151,6 +151,30 @@ Fact event fields:
 - `when`: predicate tree over `fact.*`, `state.*`, and bridge context exposed as `event.*`.
 - `payload`: event payload fields. Each field can be a literal value or an object using `fromFact`, `fromState`, `fromBridge`, `fromEvent`, or `value`.
 
+Payload source objects can also apply simple projections before the event is emitted. Current projections are deliberately generic:
+
+- `whereIn`: filters an array source by comparing an item `path` with values from `values`, `valuesFromFact`, `valuesFromState`, `valuesFromBridge`, or `valuesFromEvent`.
+- `selectMany`: reads a child path from every array item and flattens array children.
+- `map` / `coerce`: supports `string` and `stringArray`.
+- `distinct`: removes duplicate array items after earlier projections.
+
+Example:
+
+```json
+{
+  "selectedTrinketIds": {
+    "fromFact": "heroes",
+    "whereIn": {
+      "path": "id",
+      "valuesFromFact": "raid.party.heroGuids"
+    },
+    "selectMany": "trinketIds",
+    "map": "stringArray",
+    "distinct": true
+  }
+}
+```
+
 ## Predicate Contract
 
 Predicates are composable and data-driven:
@@ -354,7 +378,7 @@ Current narrow slices to keep visible:
 
 | Area | Current shape | Why it is acceptable now | Generic direction |
 | --- | --- | --- | --- |
-| `SaveEventBridge` | Evaluates plugin-declared `factEventRules` and can emit arbitrary framework events with payloads from facts, bridge context, and sidecar state | The launcher owns the generic bridge only; the concrete last-raid challenge mapping lives in `plugins/_validation` | Keep it generic. If a new mapping needs C# changes, first add a reusable predicate, payload source, or fact extractor |
+| `SaveEventBridge` | Evaluates plugin-declared `factEventRules` and can emit arbitrary framework events with payloads from facts, bridge context, sidecar state, and generic payload projections | The launcher owns the generic bridge only; the concrete active-raid and last-raid challenge mappings live in `plugins/_validation` | Keep it generic. If a new mapping needs C# changes, first add a reusable predicate, payload projection, payload source, or fact extractor |
 | `RuntimeEventExecutor` challenge actions | Implements `challenge.initializeRunState`, `challenge.lockStageSelection`, `challenge.recordFailedAttempt`, and `challenge.advanceStage` directly | They are safe sidecar-state primitives used to validate stateful stage-chain behavior | Keep only if treated as reusable `challenge.*` primitives; otherwise factor repeated behavior into generic `state.*`, `event.*`, and definition-driven actions |
 | `plugins/_validation` and test scripts | Contain concrete boss quest ids, stage ids, selected hero ids, and trinket ids | They are acceptance fixtures, not user-facing framework behavior | Leave concrete data in fixtures, but do not move fixture assumptions into launcher/runtime logic |
 
