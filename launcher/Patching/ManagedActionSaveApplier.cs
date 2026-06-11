@@ -27,7 +27,7 @@ internal static class ManagedActionSaveApplier
             throw new DirectoryNotFoundException($"Managed action save directory was not found: {resolvedSaveDirectory}");
         }
 
-        var context = new ApplyContext(resolvedSaveDirectory, writeChanges);
+        var context = new ApplyContext(config.GameWorkingDirectory, resolvedSaveDirectory, writeChanges);
         if (Directory.Exists(artifactDirectory))
         {
             foreach (var artifactPath in Directory.EnumerateFiles(artifactDirectory, "*.json")
@@ -96,6 +96,9 @@ internal static class ManagedActionSaveApplier
                 case "wallet.setCurrencyAmount":
                     ApplyWalletSetCurrencyAmount(context, artifactPath, artifact);
                     break;
+                case "estate.ensureInventoryCounts":
+                    ApplyEstateEnsureInventoryCounts(context, artifactPath, artifact);
+                    break;
                 default:
                     AddUnsupportedAction(context, artifactPath, artifact, actionType);
                     break;
@@ -150,6 +153,190 @@ internal static class ManagedActionSaveApplier
         }
 
         AddSuccessfulAction(context, artifactPath, artifact, file.Path, [$"set wallet {currency}={amount}"]);
+    }
+
+    private static void ApplyEstateEnsureInventoryCounts(ApplyContext context, string artifactPath, JsonObject artifact)
+    {
+        var itemKind = ReadString(artifact, "plan.arguments.itemKind");
+        if (!itemKind.Equals("trinket", StringComparison.OrdinalIgnoreCase))
+        {
+            AddUnsupportedAction(context, artifactPath, artifact, ReadString(artifact, "action.type"));
+            return;
+        }
+
+        var source = ReadString(artifact, "plan.arguments.source");
+        var count = ReadInt(ReadNode(artifact, "plan.arguments.count"), "plan.arguments.count");
+        if (count < 0)
+        {
+            throw new InvalidDataException("plan.arguments.count must be zero or greater.");
+        }
+
+        var itemIds = ResolveInventorySourceIds(context, source);
+        if (itemIds.Count == 0)
+        {
+            throw new InvalidDataException($"Inventory source produced no item ids: {source}");
+        }
+
+        var file = context.LoadDecodedJsonFile("persist.estate.json");
+        var items = EnsureObject(file.Root, "base_root.trinkets.items");
+        var result = EnsureInventoryItemCounts(items, itemIds, itemKind, count, context.WriteChanges);
+        if (result.ChangedCount > 0)
+        {
+            file.MarkChanged(result.ChangedCount);
+        }
+
+        AddSuccessfulAction(
+            context,
+            artifactPath,
+            artifact,
+            file.Path,
+            [
+                $"ensure {result.SourceCount} {itemKind} ids from {source} amount={count}",
+                $"added={result.AddedCount} updated={result.UpdatedCount} unchanged={result.UnchangedCount}"
+            ]);
+    }
+
+    private static IReadOnlyList<string> ResolveInventorySourceIds(ApplyContext context, string source)
+    {
+        return source switch
+        {
+            "content.trinkets.enabled" => LoadEnabledContentTrinketIds(context.GameWorkingDirectory),
+            _ => throw new InvalidDataException($"Unsupported inventory source: {source}")
+        };
+    }
+
+    private static InventoryEnsureResult EnsureInventoryItemCounts(
+        JsonObject items,
+        IReadOnlyList<string> itemIds,
+        string itemKind,
+        int count,
+        bool writeChanges)
+    {
+        var entriesById = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+        var maxNumericKey = -1;
+        foreach (var pair in items)
+        {
+            if (int.TryParse(pair.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericKey))
+            {
+                maxNumericKey = Math.Max(maxNumericKey, numericKey);
+            }
+
+            if (pair.Value is JsonObject candidate &&
+                ReadOptionalString(candidate, "type").Equals(itemKind, StringComparison.OrdinalIgnoreCase))
+            {
+                var id = ReadOptionalString(candidate, "id");
+                if (!string.IsNullOrWhiteSpace(id) && !entriesById.ContainsKey(id))
+                {
+                    entriesById[id] = candidate;
+                }
+            }
+        }
+
+        var added = 0;
+        var updated = 0;
+        var unchanged = 0;
+        foreach (var itemId in itemIds)
+        {
+            if (entriesById.TryGetValue(itemId, out var existing))
+            {
+                var currentAmount = ReadOptionalInt(existing, "amount");
+                if (currentAmount == count)
+                {
+                    unchanged++;
+                    continue;
+                }
+
+                if (writeChanges)
+                {
+                    existing["amount"] = count;
+                }
+
+                updated++;
+                continue;
+            }
+
+            if (writeChanges)
+            {
+                maxNumericKey++;
+                items[maxNumericKey.ToString(CultureInfo.InvariantCulture)] = new JsonObject
+                {
+                    ["id"] = itemId,
+                    ["type"] = itemKind,
+                    ["amount"] = count
+                };
+            }
+
+            added++;
+        }
+
+        return new InventoryEnsureResult(itemIds.Count, added, updated, unchanged);
+    }
+
+    private static IReadOnlyList<string> LoadEnabledContentTrinketIds(string gameWorkingDirectory)
+    {
+        var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in EnumerateCampaignTrinketEntryFiles(gameWorkingDirectory))
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            });
+
+            if (!document.RootElement.TryGetProperty("entries", out var entries) ||
+                entries.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var entry in entries.EnumerateArray())
+            {
+                if (entry.ValueKind == JsonValueKind.Object &&
+                    entry.TryGetProperty("id", out var id) &&
+                    id.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(id.GetString()))
+                {
+                    ids.Add(id.GetString()!);
+                }
+            }
+        }
+
+        return ids.ToArray();
+    }
+
+    private static IEnumerable<string> EnumerateCampaignTrinketEntryFiles(string gameWorkingDirectory)
+    {
+        var baseTrinketDirectory = Path.Combine(gameWorkingDirectory, "trinkets");
+        if (Directory.Exists(baseTrinketDirectory))
+        {
+            foreach (var path in Directory.EnumerateFiles(baseTrinketDirectory, "*.entries.trinkets.json", SearchOption.TopDirectoryOnly))
+            {
+                yield return path;
+            }
+        }
+
+        var dlcDirectory = Path.Combine(gameWorkingDirectory, "dlc");
+        if (!Directory.Exists(dlcDirectory))
+        {
+            yield break;
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(dlcDirectory)
+                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            var name = Path.GetFileName(directory);
+            if (string.IsNullOrWhiteSpace(name) ||
+                !char.IsDigit(name[0]) ||
+                name.Contains("arena", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var path in Directory.EnumerateFiles(directory, "*.entries.trinkets.json", SearchOption.AllDirectories))
+            {
+                yield return path;
+            }
+        }
     }
 
     private static bool SetWalletCurrencyAmount(JsonObject wallet, string currency, int amount, bool writeChanges)
@@ -353,8 +540,9 @@ internal static class ManagedActionSaveApplier
 
     private static string Quote(string value) => '"' + value.Replace("\"", "\\\"", StringComparison.Ordinal) + '"';
 
-    private sealed class ApplyContext(string saveDirectory, bool writeChanges)
+    private sealed class ApplyContext(string gameWorkingDirectory, string saveDirectory, bool writeChanges)
     {
+        public string GameWorkingDirectory { get; } = gameWorkingDirectory;
         public string SaveDirectory { get; } = saveDirectory;
         public bool WriteChanges { get; } = writeChanges;
         public int ArtifactCount { get; set; }
@@ -391,11 +579,20 @@ internal static class ManagedActionSaveApplier
         public bool Written { get; set; }
         public int ChangeCount { get; private set; }
 
-        public void MarkChanged()
+        public void MarkChanged(int count = 1)
         {
             Changed = true;
-            ChangeCount++;
+            ChangeCount += count;
         }
+    }
+
+    private sealed record InventoryEnsureResult(
+        int SourceCount,
+        int AddedCount,
+        int UpdatedCount,
+        int UnchangedCount)
+    {
+        public int ChangedCount => AddedCount + UpdatedCount;
     }
 }
 

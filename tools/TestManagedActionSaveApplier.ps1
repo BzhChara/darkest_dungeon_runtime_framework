@@ -66,6 +66,26 @@ function Get-WalletAmount {
     return [int]$entry.amount
 }
 
+function Get-TrinketAmount {
+    param(
+        [object]$Estate,
+        [string]$Id
+    )
+
+    $items = $Estate.base_root.trinkets.items
+    if ($null -eq $items) {
+        return $null
+    }
+
+    $entries = @($items.PSObject.Properties | ForEach-Object { $_.Value })
+    $entry = @($entries | Where-Object { $_.type -eq "trinket" -and $_.id -eq $Id }) | Select-Object -First 1
+    if ($null -eq $entry) {
+        return $null
+    }
+
+    return [int]$entry.amount
+}
+
 function Convert-ToArray {
     param([object]$Value)
 
@@ -95,27 +115,29 @@ Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "profile.initialization
 $estate = Read-DecodedEstate
 $startingGold = Get-WalletAmount -Estate $estate -Currency "gold"
 Assert-True ($startingGold -ne 20000) "Fixture should start with a non-normalized gold amount so the write assertion is meaningful."
+Assert-True ($null -eq (Get-TrinketAmount -Estate $estate -Id "focus_ring")) "Fixture should start without focus_ring so the trinket write assertion is meaningful."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--managed-action-save-dir", $saveRoot))
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
 Assert-True ([int]$dryRunReport.artifactCount -eq 11) "Dry-run should inspect eleven boss gauntlet initialization artifacts."
-Assert-True ([int]$dryRunReport.supportedActionCount -eq 1) "Dry-run should recognize one currently supported decoded-save action."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 1) "Dry-run should report one dry-run action."
+Assert-True ([int]$dryRunReport.supportedActionCount -eq 2) "Dry-run should recognize two currently supported decoded-save actions."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 2) "Dry-run should report two dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
-Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 10) "Dry-run should report the remaining profile-normalization actions as unsupported."
+Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 9) "Dry-run should report the remaining profile-normalization actions as unsupported."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
 Assert-True ([int]$dryRunReport.changedFileCount -eq 1) "Dry-run should report one would-change decoded save file."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
+Assert-True ($null -eq (Get-TrinketAmount -Estate $estate -Id "focus_ring")) "Dry-run must not add trinkets to decoded save JSON."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
-Assert-True ([int]$writeReport.supportedActionCount -eq 1) "Write pass should recognize one currently supported decoded-save action."
+Assert-True ([int]$writeReport.supportedActionCount -eq 2) "Write pass should recognize two currently supported decoded-save actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 1) "Write pass should apply one currently supported decoded-save action."
+Assert-True ([int]$writeReport.appliedActionCount -eq 2) "Write pass should apply two currently supported decoded-save actions."
 Assert-True ([int]$writeReport.changedFileCount -eq 1) "Write pass should change one decoded save file."
 Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 1) "Write pass should mark one file as written."
 
@@ -126,5 +148,7 @@ Assert-True ((Get-WalletAmount -Estate $estate -Currency "portrait") -eq 0) "Wri
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "deed") -eq 0) "Write pass should set starting deeds to 0."
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "crest") -eq 0) "Write pass should set starting crests to 0."
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "shard") -eq 0) "Write pass should set starting shards to 0."
+Assert-True ((Get-TrinketAmount -Estate $estate -Id "focus_ring") -eq 2) "Write pass should add two copies of focus_ring."
+Assert-True ((Get-TrinketAmount -Estate $estate -Id "berserk_mask") -eq 2) "Write pass should add two copies of berserk_mask."
 
-Write-Host "PASS: managed action save applier dry-run and decoded wallet write assertions passed."
+Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket write assertions passed."
