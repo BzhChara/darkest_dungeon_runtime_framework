@@ -279,7 +279,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 logs/managed_action_overlay_manifest.json
 ```
 
-当前第一版 overlay compiler 只消费 `quest.injectFixedStage`，并按 `kind + target + pluginId + sourcePath + ruleId + actionIndex` 只保留最新 artifact，避免旧 stage 残留影响运行时，同时不把重复插件 id 的不同 manifest 误合并。英雄和饰品过滤 artifact 仍会保留在 sidecar 中，但暂不进入 overlay manifest。RuntimeHook 会通过 `DD_RUNTIME_MANAGED_OVERLAY_MANIFEST` 看到该 manifest 并在启动日志中记录路径、大小和 overlay 数量；这一层目前仍是诊断可见性，不会替换游戏内容。
+当前第一版 overlay compiler 只消费 `quest.injectFixedStage`，并按 `kind + target + pluginId + sourcePath + ruleId + actionIndex` 只保留最新 artifact，避免旧 stage 残留影响运行时，同时不把重复插件 id 的不同 manifest 误合并。它会把当前 fixed stage 的 `sourceQuestId` 映射到 `campaign/quest/quest.plot_quests.json`，追加一条虚拟文件规则，把该原版 plot quest 的 `dungeon_level` 设为 `0`、`is_repeatable` 设为 `true`，作为第一版可验证的 quest/content overlay consumer。英雄和饰品过滤 artifact 仍会保留在 sidecar 中，但暂不进入 overlay manifest。RuntimeHook 会通过既有虚拟文件通道消费这条规则，并通过 `DD_RUNTIME_MANAGED_OVERLAY_MANIFEST` 在启动日志中记录 manifest 路径、大小和 overlay 数量。这还不是完整任务池/UI 接管。
 
 ## 虚拟文件原型
 
