@@ -20,9 +20,12 @@ internal sealed class LauncherOptions
     public bool DumpModState { get; private set; }
     public bool AllowNonAtomicStateWrites { get; private set; }
     public bool InferSaveEvents { get; private set; }
+    public bool ApplyManagedActions { get; private set; }
+    public bool WriteManagedActions { get; private set; }
     public int? WatchSavesForMilliseconds { get; private set; }
     public string? ModStateId { get; private set; }
     public string? ModStateDirectory { get; private set; }
+    public string? ManagedActionSaveDirectory { get; private set; }
     public string? EmitEvent { get; private set; }
     public string? EventPayload { get; private set; }
     public string? EventPayloadFile { get; private set; }
@@ -85,6 +88,12 @@ internal sealed class LauncherOptions
                 case "--infer-save-events":
                     options.InferSaveEvents = true;
                     break;
+                case "--apply-managed-actions":
+                    options.ApplyManagedActions = true;
+                    break;
+                case "--write-managed-actions":
+                    options.WriteManagedActions = true;
+                    break;
                 case "--watch-saves-for-ms":
                     options.WatchSavesForMilliseconds = RequirePositiveInt(args, ref i, "--watch-saves-for-ms");
                     break;
@@ -93,6 +102,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--mod-state-dir":
                     options.ModStateDirectory = RequireValue(args, ref i, "--mod-state-dir");
+                    break;
+                case "--managed-action-save-dir":
+                    options.ManagedActionSaveDirectory = RequireValue(args, ref i, "--managed-action-save-dir");
                     break;
                 case "--emit-event":
                     options.EmitEvent = RequireValue(args, ref i, "--emit-event");

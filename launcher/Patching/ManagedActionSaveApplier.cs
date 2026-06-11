@@ -1,0 +1,439 @@
+using System.Text.Json.Nodes;
+
+namespace DDRuntimeLoader;
+
+internal static class ManagedActionSaveApplier
+{
+    private const int ReportVersion = 1;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    public static ManagedActionApplyReport Apply(
+        RuntimeConfig config,
+        LauncherLog log,
+        string projectRoot,
+        string saveDirectory,
+        bool writeChanges)
+    {
+        var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
+        var resolvedSaveDirectory = ResolveProjectLocalDirectory(projectRoot, saveDirectory, "--managed-action-save-dir");
+        if (!Directory.Exists(resolvedSaveDirectory))
+        {
+            throw new DirectoryNotFoundException($"Managed action save directory was not found: {resolvedSaveDirectory}");
+        }
+
+        var context = new ApplyContext(resolvedSaveDirectory, writeChanges);
+        if (Directory.Exists(artifactDirectory))
+        {
+            foreach (var artifactPath in Directory.EnumerateFiles(artifactDirectory, "*.json")
+                         .OrderBy(path => File.GetLastWriteTimeUtc(path))
+                         .ThenBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                context.ArtifactCount++;
+                ApplyArtifact(context, artifactPath, log);
+            }
+        }
+
+        WriteChangedFiles(context);
+
+        var changedFiles = context.Files.Values
+            .Where(file => file.Changed)
+            .Select(file => new ManagedActionApplyFileReport(file.Path, file.ChangeCount, file.Written))
+            .OrderBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var report = new ManagedActionApplyReport(
+            ReportVersion,
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            artifactDirectory,
+            resolvedSaveDirectory,
+            !writeChanges,
+            context.ArtifactCount,
+            context.Actions.Count(action => action.Status is "applied" or "dry-run"),
+            context.Actions.Count(action => action.Status == "dry-run"),
+            context.Actions.Count(action => action.Status == "applied"),
+            context.Actions.Count(action => action.Status == "unsupported"),
+            context.Actions.Count(action => action.Status == "failed"),
+            changedFiles.Length,
+            context.Actions,
+            changedFiles,
+            context.Issues);
+
+        LogAndWriteReport(config, log, report);
+        return report;
+    }
+
+    private static void ApplyArtifact(ApplyContext context, string artifactPath, LauncherLog log)
+    {
+        try
+        {
+            var artifact = JsonNode.Parse(File.ReadAllText(artifactPath, Encoding.UTF8)) as JsonObject
+                ?? throw new InvalidDataException("artifact root must be a JSON object");
+            var status = ReadString(artifact, "status");
+            var actionType = ReadString(artifact, "action.type");
+            if (!status.Equals("materialized", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Actions.Add(new ManagedActionApplyActionReport(
+                    artifactPath,
+                    actionType,
+                    "skipped",
+                    null,
+                    [],
+                    [$"artifact status is {status}"]));
+                return;
+            }
+
+            switch (actionType)
+            {
+                case "wallet.setCurrencyAmounts":
+                    ApplyWalletSetCurrencyAmounts(context, artifactPath, artifact);
+                    break;
+                case "wallet.setCurrencyAmount":
+                    ApplyWalletSetCurrencyAmount(context, artifactPath, artifact);
+                    break;
+                default:
+                    AddUnsupportedAction(context, artifactPath, artifact, actionType);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Issues.Add(new ManagedActionApplyIssue("error", "managed-action-apply-failed", artifactPath, ex.Message));
+            context.Actions.Add(new ManagedActionApplyActionReport(
+                artifactPath,
+                string.Empty,
+                "failed",
+                null,
+                [],
+                [ex.Message]));
+            log.Error($"managed-action-apply issue code=managed-action-apply-failed path={Quote(artifactPath)} message={Quote(ex.Message)}");
+        }
+    }
+
+    private static void ApplyWalletSetCurrencyAmounts(ApplyContext context, string artifactPath, JsonObject artifact)
+    {
+        var amounts = RequireObject(artifact, "plan.arguments.amounts");
+        var file = context.LoadDecodedJsonFile("persist.estate.json");
+        var wallet = EnsureObject(file.Root, "base_root.wallet");
+        var operations = new List<string>();
+
+        foreach (var pair in amounts.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var amount = ReadInt(pair.Value, $"plan.arguments.amounts.{pair.Key}");
+            var changed = SetWalletCurrencyAmount(wallet, pair.Key, amount, context.WriteChanges);
+            if (changed)
+            {
+                file.MarkChanged();
+            }
+
+            operations.Add($"set wallet {pair.Key}={amount}");
+        }
+
+        AddSuccessfulAction(context, artifactPath, artifact, file.Path, operations);
+    }
+
+    private static void ApplyWalletSetCurrencyAmount(ApplyContext context, string artifactPath, JsonObject artifact)
+    {
+        var currency = ReadString(artifact, "plan.arguments.currency");
+        var amount = ReadInt(ReadNode(artifact, "plan.arguments.amount"), "plan.arguments.amount");
+        var file = context.LoadDecodedJsonFile("persist.estate.json");
+        var wallet = EnsureObject(file.Root, "base_root.wallet");
+        var changed = SetWalletCurrencyAmount(wallet, currency, amount, context.WriteChanges);
+        if (changed)
+        {
+            file.MarkChanged();
+        }
+
+        AddSuccessfulAction(context, artifactPath, artifact, file.Path, [$"set wallet {currency}={amount}"]);
+    }
+
+    private static bool SetWalletCurrencyAmount(JsonObject wallet, string currency, int amount, bool writeChanges)
+    {
+        JsonObject? entry = null;
+        var maxNumericKey = -1;
+        foreach (var pair in wallet)
+        {
+            if (int.TryParse(pair.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericKey))
+            {
+                maxNumericKey = Math.Max(maxNumericKey, numericKey);
+            }
+
+            if (pair.Value is JsonObject candidate &&
+                ReadOptionalString(candidate, "type").Equals(currency, StringComparison.OrdinalIgnoreCase))
+            {
+                entry = candidate;
+            }
+        }
+
+        if (entry is not null)
+        {
+            var currentAmount = ReadOptionalInt(entry, "amount");
+            if (currentAmount == amount)
+            {
+                return false;
+            }
+
+            if (writeChanges)
+            {
+                entry["amount"] = amount;
+            }
+
+            return true;
+        }
+
+        if (writeChanges)
+        {
+            wallet[(maxNumericKey + 1).ToString(CultureInfo.InvariantCulture)] = new JsonObject
+            {
+                ["amount"] = amount,
+                ["type"] = currency
+            };
+        }
+
+        return true;
+    }
+
+    private static void AddUnsupportedAction(
+        ApplyContext context,
+        string artifactPath,
+        JsonObject artifact,
+        string actionType)
+    {
+        var targetFile = actionType switch
+        {
+            "roster.ensureClassInstances" or "roster.setProgression" or "roster.setSkillUnlocks" => "persist.roster.json",
+            "stagecoach.suppressRecruits" or "town.unlockAllBuildings" or "town.setBuildingLevels" => "persist.town.json",
+            "estate.ensureInventoryCounts" or "inventory.disableItemSale" => "persist.estate.json",
+            "townEvent.overrideCurrent" => "persist.town_event.json",
+            "questBoard.replaceWithFixedSet" => "persist.quest.json",
+            _ => null
+        };
+
+        var message = $"managed action applier does not implement {actionType} yet";
+        context.Issues.Add(new ManagedActionApplyIssue("warning", "managed-action-applier-not-implemented", artifactPath, message));
+        context.Actions.Add(new ManagedActionApplyActionReport(
+            artifactPath,
+            actionType,
+            "unsupported",
+            targetFile is null ? null : Path.Combine(context.SaveDirectory, targetFile),
+            [ReadString(artifact, "plan.effect")],
+            [message]));
+    }
+
+    private static void AddSuccessfulAction(
+        ApplyContext context,
+        string artifactPath,
+        JsonObject artifact,
+        string targetFile,
+        IReadOnlyList<string> operations)
+    {
+        context.Actions.Add(new ManagedActionApplyActionReport(
+            artifactPath,
+            ReadString(artifact, "action.type"),
+            context.WriteChanges ? "applied" : "dry-run",
+            targetFile,
+            operations,
+            []));
+    }
+
+    private static void WriteChangedFiles(ApplyContext context)
+    {
+        if (!context.WriteChanges)
+        {
+            return;
+        }
+
+        foreach (var file in context.Files.Values.Where(file => file.Changed))
+        {
+            File.WriteAllText(file.Path, file.Root.ToJsonString(JsonOptions), Encoding.UTF8);
+            file.Written = true;
+        }
+    }
+
+    private static JsonObject EnsureObject(JsonObject root, string path)
+    {
+        var current = root;
+        foreach (var part in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (current[part] is JsonObject existing)
+            {
+                current = existing;
+                continue;
+            }
+
+            var created = new JsonObject();
+            current[part] = created;
+            current = created;
+        }
+
+        return current;
+    }
+
+    private static JsonObject RequireObject(JsonObject root, string path)
+    {
+        return ReadNode(root, path) as JsonObject
+            ?? throw new InvalidDataException($"{path} must be a JSON object.");
+    }
+
+    private static JsonNode? ReadNode(JsonObject root, string path)
+    {
+        JsonNode? current = root;
+        foreach (var part in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            current = current is JsonObject obj ? obj[part] : null;
+            if (current is null)
+            {
+                throw new InvalidDataException($"{path} is missing.");
+            }
+        }
+
+        return current;
+    }
+
+    private static string ReadString(JsonObject root, string path)
+    {
+        return ReadNode(root, path)?.GetValue<string>()
+            ?? throw new InvalidDataException($"{path} must be a string.");
+    }
+
+    private static string ReadOptionalString(JsonObject root, string key)
+    {
+        return root[key]?.GetValue<string>() ?? string.Empty;
+    }
+
+    private static int ReadInt(JsonNode? node, string path)
+    {
+        if (node is null)
+        {
+            throw new InvalidDataException($"{path} is missing.");
+        }
+
+        if (node is JsonValue value && value.TryGetValue<int>(out var result))
+        {
+            return result;
+        }
+
+        throw new InvalidDataException($"{path} must be an integer.");
+    }
+
+    private static int? ReadOptionalInt(JsonObject root, string key)
+    {
+        return root[key] is JsonValue value && value.TryGetValue<int>(out var result)
+            ? result
+            : null;
+    }
+
+    private static string ResolveProjectLocalDirectory(string projectRoot, string path, string optionName)
+    {
+        var fullPath = Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(projectRoot, path));
+        var root = Path.GetFullPath(projectRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"{optionName} must stay inside project root for decoded-save managed action application: {fullPath}");
+        }
+
+        return fullPath;
+    }
+
+    private static void LogAndWriteReport(RuntimeConfig config, LauncherLog log, ManagedActionApplyReport report)
+    {
+        var reportPath = Path.Combine(config.LogDirectory, "managed_action_apply_report.json");
+        File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions), Encoding.UTF8);
+        log.Info(
+            $"managed-action-apply report path={Quote(reportPath)} artifacts={report.ArtifactCount} " +
+            $"dryRun={report.DryRun} supported={report.SupportedActionCount} dryRunActions={report.DryRunActionCount} " +
+            $"applied={report.AppliedActionCount} unsupported={report.UnsupportedActionCount} " +
+            $"failed={report.FailedActionCount} changedFiles={report.ChangedFileCount} issues={report.Issues.Count}");
+    }
+
+    private static string Quote(string value) => '"' + value.Replace("\"", "\\\"", StringComparison.Ordinal) + '"';
+
+    private sealed class ApplyContext(string saveDirectory, bool writeChanges)
+    {
+        public string SaveDirectory { get; } = saveDirectory;
+        public bool WriteChanges { get; } = writeChanges;
+        public int ArtifactCount { get; set; }
+        public Dictionary<string, DecodedJsonFile> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<ManagedActionApplyActionReport> Actions { get; } = [];
+        public List<ManagedActionApplyIssue> Issues { get; } = [];
+
+        public DecodedJsonFile LoadDecodedJsonFile(string fileName)
+        {
+            var path = Path.Combine(SaveDirectory, fileName);
+            if (Files.TryGetValue(path, out var cached))
+            {
+                return cached;
+            }
+
+            if (!File.Exists(path))
+            {
+                throw new FileNotFoundException($"Decoded save file was not found: {path}", path);
+            }
+
+            var root = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8)) as JsonObject
+                ?? throw new InvalidDataException($"Decoded save file root must be a JSON object: {path}");
+            var file = new DecodedJsonFile(path, root);
+            Files[path] = file;
+            return file;
+        }
+    }
+
+    private sealed class DecodedJsonFile(string path, JsonObject root)
+    {
+        public string Path { get; } = path;
+        public JsonObject Root { get; } = root;
+        public bool Changed { get; private set; }
+        public bool Written { get; set; }
+        public int ChangeCount { get; private set; }
+
+        public void MarkChanged()
+        {
+            Changed = true;
+            ChangeCount++;
+        }
+    }
+}
+
+internal sealed record ManagedActionApplyReport(
+    int Version,
+    string GeneratedAtUtc,
+    string ArtifactDirectory,
+    string SaveDirectory,
+    bool DryRun,
+    int ArtifactCount,
+    int SupportedActionCount,
+    int DryRunActionCount,
+    int AppliedActionCount,
+    int UnsupportedActionCount,
+    int FailedActionCount,
+    int ChangedFileCount,
+    IReadOnlyList<ManagedActionApplyActionReport> Actions,
+    IReadOnlyList<ManagedActionApplyFileReport> Files,
+    IReadOnlyList<ManagedActionApplyIssue> Issues)
+{
+    public bool Succeeded => FailedActionCount == 0;
+}
+
+internal sealed record ManagedActionApplyActionReport(
+    string ArtifactPath,
+    string ActionType,
+    string Status,
+    string? TargetFile,
+    IReadOnlyList<string> Operations,
+    IReadOnlyList<string> Issues);
+
+internal sealed record ManagedActionApplyFileReport(
+    string Path,
+    int ChangeCount,
+    bool Written);
+
+internal sealed record ManagedActionApplyIssue(
+    string Severity,
+    string Code,
+    string ArtifactPath,
+    string Message);

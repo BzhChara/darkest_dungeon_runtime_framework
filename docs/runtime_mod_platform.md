@@ -162,7 +162,7 @@ state/mod_state/<plugin-id>.json
 - managed：通过已知游戏 API 或已验证 Hook 改结果。
 - risky：内存补丁、深层流程替换、UI 强改。默认需要显式启用。
 
-当前第一批 managed 动作仍采用 observe-first 物化：`quest.injectFixedStage`、`roster.filterAvailableHeroes`、`equipment.filterAvailableTrinkets` 以及 boss gauntlet 的 profile-normalization 动作会写入 `modStateDirectory/_managed_actions/`。启动器已经能把 `quest.injectFixedStage` artifact 编译成 `logs/managed_action_overlay_manifest.json`，并把 manifest 路径和计数传给 RuntimeHook 做诊断；同时会为 `campaign/quest/quest.plot_quests.json` 追加一条虚拟文件替换，把当前 fixed stage 的源 plot quest 强制为早期可用、可重复。profile-normalization、任务板、英雄过滤或饰品过滤 artifact 当前仍需要后续 runtime consumer。
+当前第一批 managed 动作仍采用 observe-first 物化：`quest.injectFixedStage`、`roster.filterAvailableHeroes`、`equipment.filterAvailableTrinkets` 以及 boss gauntlet 的 profile-normalization 动作会写入 `modStateDirectory/_managed_actions/`。启动器已经能把 `quest.injectFixedStage` artifact 编译成 `logs/managed_action_overlay_manifest.json`，并把 manifest 路径和计数传给 RuntimeHook 做诊断；同时会为 `campaign/quest/quest.plot_quests.json` 追加一条虚拟文件替换，把当前 fixed stage 的源 plot quest 强制为早期可用、可重复。`--apply-managed-actions --managed-action-save-dir <dir>` 现在能读取这些 artifact 并生成 `logs/managed_action_apply_report.json`；默认是 dry-run，只有同时传 `--write-managed-actions` 才会写入，而且第一版只允许项目目录内的 decoded JSON 存档副本。当前已支持 `wallet.setCurrencyAmounts` / `wallet.setCurrencyAmount` 写入 `persist.estate.json` 钱包资源；其它 profile-normalization、任务板、英雄过滤或饰品过滤 artifact 会被识别并报告为未实现，等待后续 runtime consumer 或 schema-verified save writer。
 
 第一批动作候选：
 
@@ -231,15 +231,18 @@ save.attach_sidecar_state
 --validate-patches
 --preview-patches
 --strict-patches
+--init-mod-state
+--dump-mod-state
+--emit-event <event-id>
+--apply-managed-actions
+--managed-action-save-dir
+--write-managed-actions
 ```
 
 后续工具：
 
 ```text
 --trace-events
---init-mod-state
---dump-mod-state
---emit-event <event-id>
 --reset-mod-state <mod-id>
 --explain <target-or-event>
 ```

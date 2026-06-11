@@ -43,6 +43,7 @@ internal static class Program
                     !options.InitModState &&
                     !options.DumpModState &&
                     !options.InferSaveEvents &&
+                    !options.ApplyManagedActions &&
                     !options.WatchSavesForMilliseconds.HasValue &&
                     string.IsNullOrWhiteSpace(options.EmitEvent))
                 {
@@ -121,6 +122,21 @@ internal static class Program
                     options.ModStateId).Succeeded;
             }
 
+            if (options.ApplyManagedActions)
+            {
+                if (string.IsNullOrWhiteSpace(options.ManagedActionSaveDirectory))
+                {
+                    throw new ArgumentException("--apply-managed-actions requires --managed-action-save-dir <path>.");
+                }
+
+                modStateSucceeded &= ManagedActionSaveApplier.Apply(
+                    config,
+                    log,
+                    projectRoot,
+                    options.ManagedActionSaveDirectory,
+                    options.WriteManagedActions).Succeeded;
+            }
+
             if (options.WatchSavesForMilliseconds.HasValue)
             {
                 using var diagnosticWatcher = SaveDirectoryWatcher.Start(config, patchPlan, projectRoot, log);
@@ -144,6 +160,7 @@ internal static class Program
                 options.InitModState ||
                 options.DumpModState ||
                 options.InferSaveEvents ||
+                options.ApplyManagedActions ||
                 options.WatchSavesForMilliseconds.HasValue ||
                 !string.IsNullOrWhiteSpace(options.EmitEvent))
             {
@@ -281,6 +298,9 @@ internal static class Program
 
     private static void ValidateConfig(RuntimeConfig config, LauncherOptions options, LauncherLog log)
     {
+        if (options.WriteManagedActions && !options.ApplyManagedActions)
+            throw new InvalidOperationException("--write-managed-actions requires --apply-managed-actions.");
+
         if (!File.Exists(config.GameExecutablePath))
             throw new FileNotFoundException("Game executable was not found.", config.GameExecutablePath);
 
@@ -296,6 +316,7 @@ internal static class Program
             !options.InitModState &&
             !options.DumpModState &&
             !options.InferSaveEvents &&
+            !options.ApplyManagedActions &&
             !options.WatchSavesForMilliseconds.HasValue &&
             string.IsNullOrWhiteSpace(options.EmitEvent);
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))

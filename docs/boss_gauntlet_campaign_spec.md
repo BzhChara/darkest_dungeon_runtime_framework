@@ -205,10 +205,11 @@ The exact action names can change during implementation. The important constrain
 3. Add generic state actions needed by the rule sketch: consume selected resources, mark completed when successful, clear phase-scoped restrictions, and transition when a set is complete.
 4. Add save/content fact extractors for fixed quest discovery, stage coach recruits, town buildings, building levels, town events, hero DD participation flags, and trinket inventory if current facts are insufficient.
 5. Materialize managed artifacts for profile normalization: roster pool, trinket inventory, town maxing, town event override, and fixed quest board.
-6. Add runtime consumers one by one, starting with fixed quest board enforcement and pre-finale hero/trinket availability enforcement.
-7. Only after diagnostics and tests are stable, consider original-save write capabilities for profile normalization. Those writes must be schema-verified, logged, reversible, and gated as managed or risky capabilities.
+6. Add a decoded-save applier for supported profile-normalization actions, starting with wallet resources, so write behavior can be tested on project-local decoded save copies before original-save mutation exists.
+7. Add runtime consumers one by one, starting with fixed quest board enforcement and pre-finale hero/trinket availability enforcement.
+8. Only after diagnostics and tests are stable, consider original-save write capabilities for profile normalization. Those writes must be schema-verified, logged, reversible, and gated as managed or risky capabilities.
 
-Current implementation status: steps 1-3 are represented in the validation plugin and safe sidecar executor. Step 5 now has observe-first managed artifacts for profile normalization, including roster shape, progression, skills, stagecoach suppression, trinket inventory counts, starting wallet resources, trinket-sale lockout, town state, town event override, and fixed quest board. These artifacts are plans only; no original save mutation or runtime enforcement happens until later consumers are added.
+Current implementation status: steps 1-3 are represented in the validation plugin and safe sidecar executor. Step 5 now has observe-first managed artifacts for profile normalization, including roster shape, progression, skills, stagecoach suppression, trinket inventory counts, starting wallet resources, trinket-sale lockout, town state, town event override, and fixed quest board. Step 6 has a first decoded-save applier for starting wallet resources: it can dry-run by default and can write `wallet.setCurrencyAmounts` into a project-local decoded `persist.estate.json` copy when `--write-managed-actions` is explicit. Other profile-normalization artifacts are still plans only; no original save mutation or live runtime enforcement happens until later consumers are added.
 
 ## Open Design Points
 
