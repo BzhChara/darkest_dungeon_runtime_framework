@@ -83,6 +83,16 @@ internal static class ManagedActionOverlayCompiler
             virtualRuleSummaries.Add(virtualRule.Summary);
         }
 
+        if (virtualRules.Count > 0)
+        {
+            var previewOutput = Path.Combine(config.LogDirectory, "managed_action_overlay_preview");
+            PatchPreviewer.WritePreview(
+                config,
+                virtualRules.Select(rule => rule.Rule).ToArray(),
+                previewOutput,
+                log);
+        }
+
         var reportPath = Path.Combine(config.LogDirectory, "managed_action_overlay_manifest.json");
         var report = new JsonObject
         {

@@ -108,6 +108,20 @@ try {
     Assert-True ([int]$virtualReplacement.findChars -gt 0) "Overlay virtual replacement should contain non-empty find text."
     Assert-True ([int]$virtualReplacement.replaceChars -gt 0) "Overlay virtual replacement should contain non-empty replacement text."
 
+    $previewRoot = Join-Path $projectRoot.Path "logs\managed_action_overlay_preview"
+    $previewPath = Join-Path $previewRoot "campaign_quest_quest.plot_quests.json.preview.txt"
+    $diffPath = Join-Path $previewRoot "campaign_quest_quest.plot_quests.json.diff.txt"
+    $summaryPath = Join-Path $previewRoot "summary.txt"
+    Assert-True (Test-Path -LiteralPath $previewPath -PathType Leaf) "Managed overlay preview file was not written: $previewPath"
+    Assert-True (Test-Path -LiteralPath $diffPath -PathType Leaf) "Managed overlay diff file was not written: $diffPath"
+    Assert-True (Test-Path -LiteralPath $summaryPath -PathType Leaf) "Managed overlay preview summary was not written: $summaryPath"
+
+    $preview = Get-Content -Raw -LiteralPath $previewPath | ConvertFrom-Json
+    $previewQuest = @($preview.plot_quests | Where-Object { $_.id -eq "plot_kill_necromancer_1" })
+    Assert-True ($previewQuest.Count -eq 1) "Managed overlay preview should contain the selected plot quest exactly once."
+    Assert-True ([int]$previewQuest[0].dungeon_level -eq 0) "Managed overlay preview should force dungeon_level to 0."
+    Assert-True ([bool]$previewQuest[0].is_repeatable) "Managed overlay preview should force is_repeatable to true."
+
     Write-Host "PASS: managed action artifacts compiled into an overlay manifest."
 }
 finally {

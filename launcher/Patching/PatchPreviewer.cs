@@ -3,12 +3,15 @@ namespace DDRuntimeLoader;
 internal static class PatchPreviewer
 {
     public static void WritePreview(RuntimeConfig config, PatchPlan patchPlan, string outputDirectory, LauncherLog log)
+        => WritePreview(config, patchPlan.EffectiveVirtualFileRules, outputDirectory, log);
+
+    public static void WritePreview(RuntimeConfig config, IReadOnlyList<VirtualFileRule> rules, string outputDirectory, LauncherLog log)
     {
         Directory.CreateDirectory(outputDirectory);
         var results = new List<PatchPreviewResult>();
 
-        log.Info($"Patch preview started. output={outputDirectory} effectiveRules={patchPlan.EffectiveVirtualFileRules.Count}");
-        foreach (var rule in patchPlan.EffectiveVirtualFileRules)
+        log.Info($"Patch preview started. output={outputDirectory} effectiveRules={rules.Count}");
+        foreach (var rule in rules)
         {
             var result = PreviewRule(config, rule, log);
             results.Add(result);

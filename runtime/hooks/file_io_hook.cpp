@@ -185,6 +185,16 @@ bool EndsWithPath(const std::wstring& path, const std::wstring& suffix)
     return previous == L'\\';
 }
 
+bool IsFullyQualifiedPath(const std::wstring& path)
+{
+    if (path.size() >= 2 && path[1] == L':')
+    {
+        return true;
+    }
+
+    return !path.empty() && path[0] == L'\\';
+}
+
 std::wstring GetEnvironmentString(const wchar_t* name)
 {
     DWORD required = GetEnvironmentVariableW(name, nullptr, 0);
@@ -873,6 +883,11 @@ GetFileSizeExFn OriginalGetFileSizeEx()
     return g_originalKernelBaseGetFileSizeEx ? g_originalKernelBaseGetFileSizeEx : g_originalKernel32GetFileSizeEx;
 }
 
+SetFilePointerExFn OriginalSetFilePointerEx()
+{
+    return g_originalKernelBaseSetFilePointerEx ? g_originalKernelBaseSetFilePointerEx : g_originalKernel32SetFilePointerEx;
+}
+
 const VirtualRule* FindVirtualRule(const std::wstring& path, DWORD desiredAccess, DWORD creationDisposition)
 {
     if (!g_virtualFileEnabled || g_virtualRules.empty())
@@ -893,7 +908,8 @@ const VirtualRule* FindVirtualRule(const std::wstring& path, DWORD desiredAccess
     std::wstring normalizedPath = NormalizePath(path);
     for (const VirtualRule& rule : g_virtualRules)
     {
-        if (EndsWithPath(normalizedPath, rule.targetPath))
+        if (normalizedPath == rule.targetPath ||
+            (IsFullyQualifiedPath(normalizedPath) && EndsWithPath(normalizedPath, rule.targetPath)))
         {
             return &rule;
         }
@@ -976,6 +992,84 @@ std::size_t ReplaceAll(std::vector<std::uint8_t>& bytes, const std::string& find
     return replacements;
 }
 
+std::wstring BuildVirtualTempFilePath()
+{
+    wchar_t tempDirectory[MAX_PATH] = {};
+    std::wstring directory = GetEnvironmentString(L"DD_RUNTIME_LOG_DIR");
+    if (directory.empty() || directory.size() >= MAX_PATH - 64)
+    {
+        DWORD length = GetTempPathW(MAX_PATH, tempDirectory);
+        directory = length == 0 || length >= MAX_PATH ? L"." : std::wstring(tempDirectory, length);
+    }
+
+    if (!directory.empty() && directory.back() != L'\\' && directory.back() != L'/')
+    {
+        directory.push_back(L'\\');
+    }
+
+    wchar_t fileName[MAX_PATH] = {};
+    if (GetTempFileNameW(directory.c_str(), L"ddr", 0, fileName) == 0)
+    {
+        return {};
+    }
+
+    return fileName;
+}
+
+HANDLE CreateVirtualBackingFile(const std::vector<std::uint8_t>& bytes)
+{
+    CreateFileWFn createFile = OriginalCreateFileW();
+    WriteFileFn writeFile = OriginalWriteFile();
+    SetFilePointerExFn setFilePointerEx = OriginalSetFilePointerEx();
+    CloseHandleFn closeHandle = OriginalCloseHandle();
+    if (createFile == nullptr || writeFile == nullptr || setFilePointerEx == nullptr || closeHandle == nullptr)
+    {
+        return nullptr;
+    }
+
+    std::wstring tempPath = BuildVirtualTempFilePath();
+    if (tempPath.empty())
+    {
+        return nullptr;
+    }
+
+    HANDLE file = createFile(
+        tempPath.c_str(),
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
+        nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        DeleteFileW(tempPath.c_str());
+        return nullptr;
+    }
+
+    std::size_t offset = 0;
+    while (offset < bytes.size())
+    {
+        DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(bytes.size() - offset, 64 * 1024));
+        DWORD bytesWritten = 0;
+        if (!writeFile(file, bytes.data() + offset, chunk, &bytesWritten, nullptr) || bytesWritten != chunk)
+        {
+            closeHandle(file);
+            return nullptr;
+        }
+        offset += bytesWritten;
+    }
+
+    LARGE_INTEGER zero = {};
+    if (!setFilePointerEx(file, zero, nullptr, FILE_BEGIN))
+    {
+        closeHandle(file);
+        return nullptr;
+    }
+
+    return file;
+}
+
 HANDLE CreateVirtualFileHandle(const std::wstring& path, DWORD desiredAccess, DWORD creationDisposition)
 {
     const VirtualRule* rule = FindVirtualRule(path, desiredAccess, creationDisposition);
@@ -1004,10 +1098,10 @@ HANDLE CreateVirtualFileHandle(const std::wstring& path, DWORD desiredAccess, DW
         return INVALID_HANDLE_VALUE;
     }
 
-    HANDLE marker = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (marker == nullptr)
+    HANDLE backingFile = CreateVirtualBackingFile(bytes);
+    if (backingFile == nullptr || backingFile == INVALID_HANDLE_VALUE)
     {
-        Logger::Warn(L"virtual-file failed to allocate marker handle: " + path);
+        Logger::Warn(L"virtual-file failed to allocate backing file: " + path);
         return INVALID_HANDLE_VALUE;
     }
 
@@ -1015,11 +1109,11 @@ HANDLE CreateVirtualFileHandle(const std::wstring& path, DWORD desiredAccess, DW
     virtualFile->path = path;
     virtualFile->bytes = std::move(bytes);
     virtualFile->position = 0;
-    virtualFile->backingHandle = marker;
+    virtualFile->backingHandle = backingFile;
 
     {
         std::lock_guard<std::mutex> lock(g_virtualFilesMutex);
-        g_virtualFiles[marker] = virtualFile;
+        g_virtualFiles[backingFile] = virtualFile;
     }
 
     Logger::Info(
@@ -1027,7 +1121,7 @@ HANDLE CreateVirtualFileHandle(const std::wstring& path, DWORD desiredAccess, DW
         L" originalBytes=" + std::to_wstring(originalSize) +
         L" virtualBytes=" + std::to_wstring(virtualFile->bytes.size()) +
         L" replacements=" + std::to_wstring(replacements));
-    return marker;
+    return backingFile;
 }
 
 std::shared_ptr<VirtualFile> GetVirtualFile(HANDLE handle)
