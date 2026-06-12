@@ -120,6 +120,10 @@ internal sealed class PluginPatchManifest
                 chain.Unlock.Type ??= string.Empty;
                 chain.Unlock.QuestId ??= string.Empty;
                 chain.Unlock.Phase ??= string.Empty;
+                chain.QuestBoard ??= new QuestChainBoardRule();
+                chain.QuestBoard.Mode ??= string.Empty;
+                chain.QuestBoard.QuestIdSource ??= string.Empty;
+                chain.QuestBoard.CompletedStateKey ??= string.Empty;
                 chain.Stages ??= [];
                 foreach (var stage in chain.Stages)
                 {
@@ -393,6 +397,9 @@ internal sealed class QuestChainRule
     [JsonPropertyName("unlock")]
     public QuestChainUnlockRule Unlock { get; set; } = new();
 
+    [JsonPropertyName("questBoard")]
+    public QuestChainBoardRule QuestBoard { get; set; } = new();
+
     [JsonPropertyName("stages")]
     public QuestChainStageRule[] Stages { get; set; } = [];
 }
@@ -407,6 +414,24 @@ internal sealed class QuestChainUnlockRule
 
     [JsonPropertyName("phase")]
     public string Phase { get; set; } = string.Empty;
+}
+
+internal sealed class QuestChainBoardRule
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    [JsonPropertyName("mode")]
+    public string Mode { get; set; } = string.Empty;
+
+    [JsonPropertyName("questIdSource")]
+    public string QuestIdSource { get; set; } = string.Empty;
+
+    [JsonPropertyName("removeCompleted")]
+    public bool RemoveCompleted { get; set; }
+
+    [JsonPropertyName("completedStateKey")]
+    public string CompletedStateKey { get; set; } = string.Empty;
 }
 
 internal sealed class QuestChainStageRule

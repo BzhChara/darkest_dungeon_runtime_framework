@@ -23,6 +23,7 @@ internal static class QuestChainValidator
         ValidateUnlock(chain.Unlock, issues);
 
         var orderedStages = BuildOrderedStageFacts(chain.Stages ?? [], mapLayoutsById, mapTemplatesById, issues);
+        var questBoard = BuildQuestBoardFacts(chain.QuestBoard, orderedStages, issues);
         var report = new QuestChainValidationReport(
             "questChain",
             ruleIndex,
@@ -30,6 +31,7 @@ internal static class QuestChainValidator
             chain.Name,
             chain.Mode,
             BuildUnlockFacts(chain.Unlock),
+            questBoard,
             orderedStages.Count,
             orderedStages,
             !issues.Any(issue => issue.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)),
@@ -117,6 +119,58 @@ internal static class QuestChainValidator
             unlock.Type,
             unlock.QuestId,
             unlock.Phase);
+    }
+
+    private static QuestChainBoardFacts BuildQuestBoardFacts(
+        QuestChainBoardRule board,
+        IReadOnlyList<QuestChainStageFacts> orderedStages,
+        List<QuestChainValidationIssue> issues)
+    {
+        var mode = string.IsNullOrWhiteSpace(board.Mode) ? "replaceWithFixedSet" : board.Mode.Trim();
+        var questIdSource = string.IsNullOrWhiteSpace(board.QuestIdSource) ? "sourceQuestId" : board.QuestIdSource.Trim();
+        var questIds = Array.Empty<string>();
+
+        if (board.Enabled)
+        {
+            if (!mode.Equals("replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
+            {
+                AddError(issues, "unsupported-quest-board-mode", "questBoard.mode", $"unsupported questBoard mode: {mode}");
+            }
+
+            if (!questIdSource.Equals("sourceQuestId", StringComparison.OrdinalIgnoreCase))
+            {
+                AddError(issues, "unsupported-quest-id-source", "questBoard.questIdSource", "questBoard currently supports only sourceQuestId");
+            }
+
+            if (board.RemoveCompleted && string.IsNullOrWhiteSpace(board.CompletedStateKey))
+            {
+                AddError(issues, "missing-completed-state-key", "questBoard.completedStateKey", "completedStateKey is required when removeCompleted is true");
+            }
+
+            questIds = orderedStages
+                .Select(stage => stage.SourceQuestId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .ToArray();
+
+            var duplicateQuestIds = questIds
+                .GroupBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            foreach (var duplicateQuestId in duplicateQuestIds)
+            {
+                AddError(issues, "duplicate-quest-board-id", "questBoard.questIds", $"questBoard would contain duplicate quest id: {duplicateQuestId}");
+            }
+        }
+
+        return new QuestChainBoardFacts(
+            board.Enabled,
+            mode,
+            questIdSource,
+            board.RemoveCompleted,
+            board.CompletedStateKey,
+            questIds);
     }
 
     private static IReadOnlyList<QuestChainStageFacts> BuildOrderedStageFacts(
@@ -258,6 +312,7 @@ internal sealed record QuestChainValidationReport(
     string Name,
     string Mode,
     QuestChainUnlockFacts Unlock,
+    QuestChainBoardFacts QuestBoard,
     int StageCount,
     IReadOnlyList<QuestChainStageFacts> OrderedStages,
     bool Succeeded,
@@ -267,6 +322,14 @@ internal sealed record QuestChainUnlockFacts(
     string Type,
     string QuestId,
     string Phase);
+
+internal sealed record QuestChainBoardFacts(
+    bool Enabled,
+    string Mode,
+    string QuestIdSource,
+    bool RemoveCompleted,
+    string CompletedStateKey,
+    IReadOnlyList<string> QuestIds);
 
 internal sealed record QuestChainStageFacts(
     int Index,

@@ -8,7 +8,7 @@
 plugins/<plugin-id>/patches.json
 ```
 
-`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、关卡/章节顺序 `questChains`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。`questChains` 会校验固定顺序 stage、解锁条件和地图模板引用，并写出 sidecar 验证报告；第一版不直接改任务板或 UI。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、关卡/章节顺序 `questChains`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。`questChains` 会校验固定顺序 stage、解锁条件和地图模板引用，并写出 sidecar 验证报告；当显式设置 `questBoard.enabled=true` 时，还会生成确定路径的 `questBoard.replaceWithFixedSet` managed action artifact，供 managed-action applier 预览或显式写入 decoded save 副本。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
 
 `eventRules` 可通过 `--emit-event` 执行已实现的安全动作，或为已识别的 managed 动作生成 sidecar artifact。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`；payload 支持有限的通用数组投影，例如 `where` 条件过滤、`whereIn` 成员过滤、展开、字符串化和去重。契约细节见 `docs/capability_rule_contract.md`。
 
@@ -86,6 +86,12 @@ plugins/<plugin-id>/patches.json
         "type": "afterQuest",
         "questId": "plot_final_boss"
       },
+      "questBoard": {
+        "enabled": true,
+        "mode": "replaceWithFixedSet",
+        "questIdSource": "sourceQuestId",
+        "removeCompleted": false
+      },
       "stages": [
         {
           "id": "stage_01_layout_probe",
@@ -151,7 +157,8 @@ plugins/<plugin-id>/patches.json
 - `stages[].order` 可显式控制顺序；不写时按数组顺序。重复 order 或重复 stage id 会作为编译错误报告。
 - `stages[].sourceQuestId` 是当前可实现切片的原版 quest 模板来源。后续真正自定义 quest writer 成熟后，可以扩展为非原版来源。
 - 每个 stage 可以引用 `mapLayoutTemplateId` 或 `mapTemplateId`，但不能同时引用。引用不存在会作为编译错误报告。
-- 验证报告写入 `modStateDirectory/_quest_chains/<plugin-id>/`。报告只证明声明结构、顺序和地图引用有效；第一版不直接写任务板、存档或 UI。
+- `questBoard.enabled=true` 是显式 opt-in：当前只支持 `mode="replaceWithFixedSet"` 和 `questIdSource="sourceQuestId"`，会把按 stage 顺序得到的原版 plot quest id 写成 `questBoard.replaceWithFixedSet` managed artifact。
+- 验证报告写入 `modStateDirectory/_quest_chains/<plugin-id>/`；quest-board materialization 报告也写在同目录，managed artifact 写入 `modStateDirectory/_managed_actions/`。这些文件本身不修改原版存档或 UI。
 
 第一批能力命名：
 

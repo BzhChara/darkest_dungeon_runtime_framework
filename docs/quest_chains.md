@@ -2,16 +2,17 @@
 
 `questChains` is the generic content schema for ordered quest or chapter flows. It is intentionally not boss-specific. The same shape should describe a boss gauntlet, a post-Ancestor expansion chapter, or any fixed set of custom stages.
 
-The current implementation is a validation and reporting slice:
+The current implementation is a validation and reporting slice, with an opt-in managed quest-board artifact:
 
 ```text
 questChains
   -> validate stage order and unlock metadata
   -> validate references to mapLayoutTemplates or mapTemplates
   -> write modStateDirectory/_quest_chains/<plugin-id>/*.validation.json
+  -> when questBoard.enabled=true, write a deterministic questBoard.replaceWithFixedSet artifact
 ```
 
-It does not yet modify the quest board, campaign progression, or original saves. Runtime behavior should be added later through reusable event rules and managed actions.
+It does not directly modify the quest board, campaign progression, or original saves. The quest-board artifact is observe-first: it is written under sidecar state and can be inspected or dry-run by the managed-action applier. Original-save writes still require explicit `--write-managed-actions`.
 
 ## Manifest Shape
 
@@ -25,6 +26,12 @@ It does not yet modify the quest board, campaign progression, or original saves.
       "unlock": {
         "type": "afterQuest",
         "questId": "plot_final_boss"
+      },
+      "questBoard": {
+        "enabled": true,
+        "mode": "replaceWithFixedSet",
+        "questIdSource": "sourceQuestId",
+        "removeCompleted": false
       },
       "stages": [
         {
@@ -54,6 +61,18 @@ It does not yet modify the quest board, campaign progression, or original saves.
 - A stage may reference either `mapLayoutTemplateId` or `mapTemplateId`, not both.
 - Map references must point at templates declared in the same plugin manifest.
 - `unlock.type="afterQuest"` requires `unlock.questId`.
+- `questBoard.enabled=true` currently supports only `mode="replaceWithFixedSet"` and `questIdSource="sourceQuestId"`.
+- `questBoard.removeCompleted=true` requires `questBoard.completedStateKey`.
+- When quest-board materialization is enabled, duplicate effective quest ids are errors because the current decoded-save writer cannot represent two distinct board entries with the same source quest id.
+
+## Managed Quest-Board Artifact
+
+When `questBoard.enabled=true`, the loader writes two sidecar files:
+
+- `_quest_chains/<plugin-id>/<chain>.managed.quest_board.json`: materialization report.
+- `_managed_actions/static_<plugin-id>_<chain>_questBoard.replaceWithFixedSet.json`: deterministic managed action artifact.
+
+The artifact uses the existing `questBoard.replaceWithFixedSet` action shape, so the existing managed-action applier can dry-run it against a project-local decoded `persist.quest.json` copy. It intentionally uses `sourceQuestId` as the concrete quest id because the current writer resolves only existing plot quest definitions. `targetQuestId` remains metadata for future custom quest writers.
 
 ## Relationship To Map Layouts
 
@@ -61,7 +80,7 @@ It does not yet modify the quest board, campaign progression, or original saves.
 
 ## Current Limits
 
-- No quest board writer consumes `questChains` directly yet.
+- Quest-board output is opt-in and currently materializes only fixed-set board entries from `sourceQuestId`.
 - No custom quest object writer exists yet; `sourceQuestId` still anchors a stage to original quest content.
 - No encounter mash writer exists yet, so stage-specific monster lineups are still represented by future `encounter.*` primitives.
 - Cross-plugin map template references are not supported in the first slice; keep chain and referenced map templates in the same plugin.

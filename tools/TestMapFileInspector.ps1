@@ -477,7 +477,7 @@ function Test-PluginMapLayoutTemplateValidation {
         name = "Validation - Map Layout Template"
         version = "0.1.0"
         enabled = $true
-        capabilities = @("map.layout.template", "quest.chain.define")
+        capabilities = @("map.layout.template", "quest.chain.define", "quest_board.replace_with_fixed_set")
         virtualFileRules = @()
         mapTemplates = @()
         mapLayoutTemplates = @(
@@ -545,6 +545,12 @@ function Test-PluginMapLayoutTemplateValidation {
                     type = "afterQuest"
                     questId = "plot_final_boss"
                 }
+                questBoard = [ordered]@{
+                    enabled = $true
+                    mode = "replaceWithFixedSet"
+                    questIdSource = "sourceQuestId"
+                    removeCompleted = $false
+                }
                 stages = @(
                     [ordered]@{
                         id = "stage_01_layout_probe"
@@ -605,11 +611,15 @@ function Test-PluginMapLayoutTemplateValidation {
     $artifactPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.dm"
     $templateReportPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.template.report.json"
     $questChainReportPath = Join-Path $stateRoot "_quest_chains\validation.map_layout_template\001_post_ancestor_probe_chain.validation.json"
+    $questChainManagedReportPath = Join-Path $stateRoot "_quest_chains\validation.map_layout_template\001_post_ancestor_probe_chain.managed.quest_board.json"
+    $questChainManagedArtifactPath = Join-Path $stateRoot "_managed_actions\static_validation.map_layout_template_001_post_ancestor_probe_chain_questBoard.replaceWithFixedSet.json"
     Assert-True (Test-Path -LiteralPath $reportPath -PathType Leaf) "Plugin map layout validation report was not created: $reportPath"
     Assert-True (Test-Path -LiteralPath $specPath -PathType Leaf) "Plugin map layout compiled spec was not created: $specPath"
     Assert-True (Test-Path -LiteralPath $artifactPath -PathType Leaf) "Plugin map layout artifact was not created: $artifactPath"
     Assert-True (Test-Path -LiteralPath $templateReportPath -PathType Leaf) "Plugin map layout template report was not created: $templateReportPath"
     Assert-True (Test-Path -LiteralPath $questChainReportPath -PathType Leaf) "Plugin quest chain validation report was not created: $questChainReportPath"
+    Assert-True (Test-Path -LiteralPath $questChainManagedReportPath -PathType Leaf) "Plugin quest chain managed report was not created: $questChainManagedReportPath"
+    Assert-True (Test-Path -LiteralPath $questChainManagedArtifactPath -PathType Leaf) "Plugin quest chain managed artifact was not created: $questChainManagedArtifactPath"
 
     $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
     Assert-True ([bool]$report.succeeded) "Plugin map layout validation report did not succeed."
@@ -647,12 +657,27 @@ function Test-PluginMapLayoutTemplateValidation {
     $questChainReport = Get-Content -LiteralPath $questChainReportPath -Raw | ConvertFrom-Json
     Assert-True ([bool]$questChainReport.succeeded) "Plugin quest chain validation report did not succeed."
     Assert-True ($questChainReport.stageCount -eq 1) "Plugin quest chain stage count mismatch."
+    Assert-True ([bool]$questChainReport.questBoard.enabled) "Plugin quest chain questBoard facts should be enabled."
+    Assert-True ($questChainReport.questBoard.mode -eq "replaceWithFixedSet") "Plugin quest chain questBoard mode mismatch."
+    Assert-True ($questChainReport.questBoard.questIds[0] -eq "plot_dd_4") "Plugin quest chain questBoard quest id mismatch."
     $stage = Convert-ToArray $questChainReport.orderedStages | Select-Object -First 1
     Assert-True ($stage.id -eq "stage_01_layout_probe") "Plugin quest chain stage id mismatch."
     Assert-True ($stage.sourceQuestId -eq "plot_dd_4") "Plugin quest chain source quest mismatch."
     Assert-True ($stage.mapReference.type -eq "mapLayoutTemplate") "Plugin quest chain map reference type mismatch."
     Assert-True ($stage.mapReference.id -eq "dd4_high_level_layout_probe") "Plugin quest chain map layout reference mismatch."
     Assert-True ($stage.mapReference.tileRuleCount -eq 1) "Plugin quest chain map reference tile rule count mismatch."
+
+    $questChainManagedReport = Get-Content -LiteralPath $questChainManagedReportPath -Raw | ConvertFrom-Json
+    Assert-True ($questChainManagedReport.status -eq "materialized") "Plugin quest chain managed report should be materialized."
+    Assert-True ($questChainManagedReport.questIds[0] -eq "plot_dd_4") "Plugin quest chain managed report quest id mismatch."
+
+    $questChainManagedArtifact = Get-Content -LiteralPath $questChainManagedArtifactPath -Raw | ConvertFrom-Json
+    Assert-True ($questChainManagedArtifact.status -eq "materialized") "Plugin quest chain managed artifact should be materialized."
+    Assert-True ($questChainManagedArtifact.action.type -eq "questBoard.replaceWithFixedSet") "Plugin quest chain managed action type mismatch."
+    Assert-True ($questChainManagedArtifact.plan.arguments.questIds[0] -eq "plot_dd_4") "Plugin quest chain managed artifact quest id mismatch."
+    $artifactStage = Convert-ToArray $questChainManagedArtifact.plan.arguments.stages | Select-Object -First 1
+    Assert-True ($artifactStage.id -eq "stage_01_layout_probe") "Plugin quest chain managed artifact stage id mismatch."
+    Assert-True ($artifactStage.mapReference.id -eq "dd4_high_level_layout_probe") "Plugin quest chain managed artifact map reference mismatch."
 
     $previewPath = Join-Path $previewRoot "maps_DD_map4.dm.preview.bin"
     $diffPath = Join-Path $previewRoot "maps_DD_map4.dm.diff.txt"

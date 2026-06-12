@@ -156,6 +156,38 @@ internal sealed partial class RuntimeConfig
                 plugin.Manifest.MapLayoutTemplates,
                 plugin.Manifest.MapTemplates,
                 reportPath);
+            var managedReportPath = Path.Combine(reportDirectory, reportBaseName + ".managed.quest_board.json");
+            var managedArtifactPath = Path.Combine(
+                ModStateDirectory,
+                "_managed_actions",
+                $"static_{SafeFileName(plugin.Id)}_{reportBaseName}_questBoard.replaceWithFixedSet.json");
+
+            try
+            {
+                var managedReport = QuestChainManagedActionMaterializer.WriteQuestBoardArtifact(
+                    plugin,
+                    ruleIndex,
+                    report,
+                    managedReportPath,
+                    managedArtifactPath);
+                log.Info(
+                    $"quest-chain-managed-action source={plugin.SourceName} rule={ruleIndex} " +
+                    $"id={QuoteLogValue(chain.Id)} action=questBoard.replaceWithFixedSet " +
+                    $"status={managedReport.Status} questIds={managedReport.QuestIds.Count} " +
+                    $"artifact={QuoteLogValue(managedReport.ArtifactPath)} report={QuoteLogValue(managedReportPath)}");
+            }
+            catch (Exception ex)
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    $"questChains/{chain.Id}/questBoard",
+                    $"quest chain managed action materialization failed: {ex.Message}");
+            }
 
             log.Info(
                 $"quest-chain-rule source={plugin.SourceName} rule={ruleIndex} " +
