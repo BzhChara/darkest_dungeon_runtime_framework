@@ -56,12 +56,20 @@ internal sealed partial class RuntimeConfig
                 $"Plugin patch manifest enabled: order={plugin.LoadOrder} id={plugin.Id} " +
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
-                $"virtualRules={plugin.VirtualFileRuleCount} mapTemplates={plugin.MapTemplateRuleCount} eventRules={plugin.EventRuleCount} " +
+                $"virtualRules={plugin.VirtualFileRuleCount} mapTemplates={plugin.MapTemplateRuleCount} " +
+                $"mapLayoutTemplates={plugin.MapLayoutTemplateRuleCount} eventRules={plugin.EventRuleCount} " +
                 $"factEventRules={plugin.FactEventRuleCount} path={plugin.Path}");
             AddMapTemplateVirtualRules(
                 projectRoot,
                 sourceRules,
                 skippedRules,
+                compileIssues,
+                plugin,
+                activePluginIds,
+                activeCapabilities,
+                log);
+            AddMapLayoutTemplateValidationReports(
+                projectRoot,
                 compileIssues,
                 plugin,
                 activePluginIds,
@@ -146,6 +154,70 @@ internal sealed partial class RuntimeConfig
                     Path = manifestPath,
                     Manifest = manifest
                 };
+            }
+        }
+    }
+
+    private void AddMapLayoutTemplateValidationReports(
+        string projectRoot,
+        List<PatchCompileIssue> compileIssues,
+        PluginManifestCandidate plugin,
+        IReadOnlySet<string> activePluginIds,
+        IReadOnlySet<string> activeCapabilities,
+        LauncherLog log)
+    {
+        var manifestDirectory = Path.GetDirectoryName(plugin.Path) ?? projectRoot;
+        for (var index = 0; index < plugin.Manifest.MapLayoutTemplates.Length; index++)
+        {
+            var template = plugin.Manifest.MapLayoutTemplates[index];
+            var ruleIndex = index + 1;
+            if (string.IsNullOrWhiteSpace(template.Target))
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    string.Empty,
+                    "mapLayoutTemplates entry requires target");
+                continue;
+            }
+
+            var condition = EvaluatePatchCondition(template.When, activePluginIds, activeCapabilities);
+            if (!condition.Matched)
+            {
+                log.Info(
+                    $"map-layout-template-skipped source={plugin.SourceName} rule={ruleIndex} " +
+                    $"id={QuoteLogValue(template.Id)} target={template.Target} reason={QuoteLogValue(condition.Reason)}");
+                continue;
+            }
+
+            try
+            {
+                var sourcePath = ResolveMapLayoutTemplateSourcePath(projectRoot, manifestDirectory, template);
+                var reportDirectory = Path.Combine(ModStateDirectory, "_map_layout_templates", SafeFileName(plugin.Id));
+                var artifactBaseName = $"{ruleIndex:000}_{SafeFileName(string.IsNullOrWhiteSpace(template.Id) ? template.Target : template.Id)}";
+                var reportPath = Path.Combine(reportDirectory, artifactBaseName + ".validation.json");
+
+                SaveDirectoryWatcher.WriteMapLayoutTemplateValidationReport(sourcePath, template, reportPath, log);
+                log.Info(
+                    $"map-layout-template-validation source={plugin.SourceName} rule={ruleIndex} " +
+                    $"id={QuoteLogValue(template.Id)} target={template.Target} source={QuoteLogValue(sourcePath)} " +
+                    $"report={QuoteLogValue(reportPath)} reason={QuoteLogValue(condition.Reason)}");
+            }
+            catch (Exception ex)
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    template.Target,
+                    $"map layout template validation failed: {ex.Message}");
             }
         }
     }
@@ -239,10 +311,20 @@ internal sealed partial class RuntimeConfig
 
     private string ResolveMapTemplateSourcePath(string projectRoot, string manifestDirectory, MapTemplateRule template)
     {
-        var source = string.IsNullOrWhiteSpace(template.Source) ? template.Target : template.Source;
+        return ResolveMapSourcePath(projectRoot, manifestDirectory, template.Source, template.Target, "map template source");
+    }
+
+    private string ResolveMapLayoutTemplateSourcePath(string projectRoot, string manifestDirectory, MapLayoutTemplateRule template)
+    {
+        return ResolveMapSourcePath(projectRoot, manifestDirectory, template.Source, template.Target, "map layout template source");
+    }
+
+    private string ResolveMapSourcePath(string projectRoot, string manifestDirectory, string source, string target, string label)
+    {
+        source = string.IsNullOrWhiteSpace(source) ? target : source;
         if (Path.IsPathRooted(source))
         {
-            return ValidateMapTemplateSourcePath(projectRoot, Path.GetFullPath(source));
+            return ValidateMapSourcePath(projectRoot, Path.GetFullPath(source), label);
         }
 
         var relativeSource = source.TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
@@ -260,22 +342,22 @@ internal sealed partial class RuntimeConfig
 
         if (!IsInsideDirectory(GameWorkingDirectory, gameCandidate) && !IsInsideDirectory(projectRoot, pluginCandidate))
         {
-            throw new InvalidOperationException($"map template source must stay inside the game directory or project root: {source}");
+            throw new InvalidOperationException($"{label} must stay inside the game directory or project root: {source}");
         }
 
-        throw new FileNotFoundException($"Map template source file was not found. Tried: {gameCandidate}; {pluginCandidate}", source);
+        throw new FileNotFoundException($"{label} file was not found. Tried: {gameCandidate}; {pluginCandidate}", source);
     }
 
-    private string ValidateMapTemplateSourcePath(string projectRoot, string fullPath)
+    private string ValidateMapSourcePath(string projectRoot, string fullPath, string label)
     {
         if (!IsInsideDirectory(GameWorkingDirectory, fullPath) && !IsInsideDirectory(projectRoot, fullPath))
         {
-            throw new InvalidOperationException($"map template source must stay inside the game directory or project root: {fullPath}");
+            throw new InvalidOperationException($"{label} must stay inside the game directory or project root: {fullPath}");
         }
 
         if (!File.Exists(fullPath))
         {
-            throw new FileNotFoundException("Map template source file was not found.", fullPath);
+            throw new FileNotFoundException($"{label} file was not found.", fullPath);
         }
 
         return fullPath;
@@ -464,6 +546,7 @@ internal sealed partial class RuntimeConfig
                 candidate.Manifest.Enabled,
                 candidate.VirtualFileRuleCount,
                 candidate.MapTemplateRuleCount,
+                candidate.MapLayoutTemplateRuleCount,
                 candidate.EventRuleCount,
                 candidate.FactEventRuleCount,
                 CleanCapabilityReferences(candidate.Manifest.Capabilities).ToArray(),

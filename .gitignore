@@ -11,6 +11,7 @@ state/*
 config/_realtime_save_bridge_test_*.json
 config/_map_source_overlay_test_*.json
 config/_map_template_plugin_test_*.json
+config/_map_layout_plugin_test_*.json
 .research/
 runtime/bin/
 runtime/obj/

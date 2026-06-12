@@ -465,11 +465,135 @@ function Test-PluginMapTemplateOverlay {
     Assert-True ($previewHash -eq $artifactHash) "Plugin map template overlay preview bytes did not match the generated artifact."
 }
 
+function Test-PluginMapLayoutTemplateValidation {
+    $pluginRoot = Join-Path $testRoot "plugins\map_layout_template_validation"
+    $stateRoot = Join-Path $testRoot "plugin_map_layout_template_state"
+    $overlayConfigPath = Join-Path $projectRoot.Path "config\_map_layout_plugin_test_$sessionId.json"
+    New-Item -ItemType Directory -Force -Path $pluginRoot | Out-Null
+
+    $manifest = [ordered]@{
+        id = "validation.map_layout_template"
+        name = "Validation - Map Layout Template"
+        version = "0.1.0"
+        enabled = $true
+        capabilities = @("map.layout.template")
+        virtualFileRules = @()
+        mapTemplates = @()
+        mapLayoutTemplates = @(
+            [ordered]@{
+                id = "dd4_high_level_layout_probe"
+                target = "maps/DD_map4.dm"
+                source = "maps/DD_map4.dm"
+                layout = [ordered]@{
+                    entrance = "start"
+                    finalRoom = "boss"
+                    rooms = @(
+                        [ordered]@{
+                            id = "start"
+                            templateAreaId = "rooA"
+                            position = @(1, 2)
+                        },
+                        [ordered]@{
+                            id = "boss"
+                            templateAreaId = "rooC"
+                            position = @(20, 2)
+                        }
+                    )
+                    corridors = @(
+                        [ordered]@{
+                            id = "main_path"
+                            templateAreaId = "corA"
+                            route = @(
+                                @(2, 2),
+                                @(3, 2),
+                                @(4, 2)
+                            )
+                        }
+                    )
+                    links = @(
+                        [ordered]@{
+                            from = "start"
+                            to = "main_path"
+                            tile = 0
+                        },
+                        [ordered]@{
+                            from = "main_path"
+                            to = "boss"
+                            tile = 27
+                        }
+                    )
+                }
+                tiles = @(
+                    [ordered]@{
+                        area = "boss"
+                        tile = 0
+                        content = "battle"
+                    }
+                )
+                encounters = @()
+            }
+        )
+        eventRules = @()
+        factEventRules = @()
+        stateSchema = [ordered]@{}
+    }
+    $manifest | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $pluginRoot "patches.json") -Encoding UTF8
+
+    $config = [ordered]@{
+        gameExecutablePath = (Join-Path $GameDirectory "_windows\win64\Darkest.exe")
+        gameWorkingDirectory = $GameDirectory
+        runtimeDllPath = "./runtime/bin/x64/Release/RuntimeHook.dll"
+        logDirectory = "./logs"
+        modStateDirectory = $stateRoot
+        enableInjection = $false
+        killGameOnInjectionFailure = $false
+        startSuspendedForInjection = $false
+        fileIoObserveOnly = $true
+        fileIoLogExtensions = @(".dm")
+        fileIoMaxLogEntries = 20
+        fileIoDeduplicate = $true
+        eventProbeEnabled = $false
+        pluginDirectories = @($pluginRoot)
+        pluginPatchManifestName = "patches.json"
+        virtualFileEnabled = $true
+        virtualFileTarget = ""
+        virtualFileFind = ""
+        virtualFileReplace = ""
+        virtualFileRules = @()
+    }
+    $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $overlayConfigPath -Encoding UTF8
+
+    Invoke-Loader @(
+        "--config", $overlayConfigPath,
+        "--validate-only",
+        "--explain-patches",
+        "--no-inject"
+    )
+
+    $reportPath = Join-Path $stateRoot "_map_layout_templates\validation.map_layout_template\001_dd4_high_level_layout_probe.validation.json"
+    Assert-True (Test-Path -LiteralPath $reportPath -PathType Leaf) "Plugin map layout validation report was not created: $reportPath"
+
+    $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+    Assert-True ([bool]$report.succeeded) "Plugin map layout validation report did not succeed."
+    Assert-True (-not [bool]$report.compileReady) "Plugin map layout validation should not claim compile readiness yet."
+    Assert-True ($report.phase -eq "validateOnly") "Plugin map layout validation phase mismatch."
+    Assert-True ((Convert-ToArray $report.issues).Count -eq 0) "Plugin map layout validation reported issues."
+    Assert-True ($report.layout.nodeCount -eq 3) "Plugin map layout node count mismatch."
+    Assert-True ($report.layout.roomCount -eq 2) "Plugin map layout room count mismatch."
+    Assert-True ($report.layout.corridorCount -eq 1) "Plugin map layout corridor count mismatch."
+    Assert-True ($report.layout.linkCount -eq 2) "Plugin map layout link count mismatch."
+    Assert-True ($report.layout.tileRuleCount -eq 1) "Plugin map layout tile rule count mismatch."
+    Assert-True ($report.layout.reachableNodeCount -eq 3) "Plugin map layout reachable node count mismatch."
+    Assert-True ([bool]$report.layout.entranceCanReachFinal) "Plugin map layout final room was not reachable."
+    Assert-True ((Convert-ToArray $report.layout.unreachableNodeIds).Count -eq 0) "Plugin map layout reported unreachable nodes."
+}
+
 Test-MapReport -MapName "tutorial_crypts" -ExpectedAreas 16 -ExpectedRooms 8 -ExpectedCorridors 8 -ExpectedTiles 56 -ExpectedEntrance "rooH" -ExpectedFinal $null
 Test-MapReport -MapName "DD_map4" -ExpectedAreas 4 -ExpectedRooms 3 -ExpectedCorridors 1 -ExpectedTiles 31 -ExpectedEntrance "rooA" -ExpectedFinal "rooB"
 Test-MapFinalRoomPrototype
 Test-MapTemplatePrototype
 Test-MapVirtualSourceOverlay
 Test-PluginMapTemplateOverlay
+Test-PluginMapLayoutTemplateValidation
 
 Write-Host "Map file inspector test passed. Output: $testRoot"

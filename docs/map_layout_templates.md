@@ -1,6 +1,6 @@
 # Map Layout Template Draft
 
-This document defines the next map capability target. It is a draft contract for a high-level fixed-map layout description, not an implemented runtime feature yet.
+This document defines the high-level fixed-map layout contract. The first implementation slice is a plugin-declared validation layer, not a runtime map generator yet.
 
 The intended compile chain is:
 
@@ -25,6 +25,14 @@ The rule is the same as the rest of the framework: plugin data names the concret
 - set initial dynamic tile content values.
 
 `mapLayoutTemplates` should be a higher-level authoring layer over that path. The first implementation should compile only layouts that can be represented by the existing template's area, tile, and door slots. It should fail with diagnostics when a requested layout needs unsupported creation or deletion.
+
+Current implementation status:
+
+- plugin manifests can declare `mapLayoutTemplates`;
+- the loader validates the source `.dm` and the declared graph;
+- reports are written under `modStateDirectory/_map_layout_templates/<plugin-id>/`;
+- reports include `compileReady=false`;
+- no `.dm` artifact or virtual file overlay is generated from `mapLayoutTemplates` yet.
 
 ## Draft Manifest Shape
 
@@ -86,9 +94,9 @@ The rule is the same as the rest of the framework: plugin data names the concret
 
 Names such as `start`, `main_path`, and `ancestor_echo` are plugin-local ids. `templateAreaId` is the bridge back to the existing low-level `.dm` template until the framework can create new `.dm` areas safely.
 
-## First Implementation Slice
+## Implemented First Slice
 
-The first implementation should not try to create arbitrary `.dm` containers. It should:
+The first implementation does not try to create arbitrary `.dm` containers. It currently:
 
 1. Parse `mapLayoutTemplates` from plugin manifests.
 2. Validate the declared graph:
@@ -99,14 +107,24 @@ The first implementation should not try to create arbitrary `.dm` containers. It
    - all linked template areas exist in the source map,
    - requested tile indexes exist in the template area,
    - no two active room markers share the same `position`.
-3. Compile only supported changes into a low-level `mapTemplates` spec:
+3. Validate tile content declarations only as references:
+   - tile area node exists,
+   - tile index or `tileId` is in range,
+   - named encounter references point at declared `encounters`.
+4. Write a validation report with `compileReady=false`.
+
+## Next Compiler Slice
+
+The next slice should compile only supported changes into a low-level `mapTemplates` spec:
+
+1. Convert validated layout intent into:
    - `finalRoomId`,
    - `staticTiles[].mapPosition`,
    - `staticDoors[]`,
    - `staticTileDoors[]`,
    - selected `dynamicTiles[]`.
-4. Reuse the existing `mapTemplates` writer, report, and `sourcePath` overlay path.
-5. Fail when the requested graph needs creation/deletion of areas, tiles, door slots, or mash definitions that do not yet have writers.
+2. Reuse the existing `mapTemplates` writer, report, and `sourcePath` overlay path.
+3. Fail when the requested graph needs creation/deletion of areas, tiles, door slots, or mash definitions that do not yet have writers.
 
 ## Topology Validation
 
