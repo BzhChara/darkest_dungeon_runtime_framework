@@ -65,6 +65,12 @@ function Read-ApplyReport {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-DecodedProfileInitializationReport {
+    $path = Join-Path $projectRoot.Path "logs\decoded_profile_initialization_report.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded profile initialization report was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Read-DecodedEstate {
     $path = Join-Path $saveRoot "persist.estate.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded estate file was not copied: $path"
@@ -617,9 +623,6 @@ $baseArgs = @(
     "--mod-state-dir", $stateRoot
 )
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--init-mod-state"))
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "profile.initialization_requested"))
-
 $estate = Read-DecodedEstate
 $startingGold = Get-WalletAmount -Estate $estate -Currency "gold"
 Assert-True ($startingGold -ne 20000) "Fixture should start with a non-normalized gold amount so the write assertion is meaningful."
@@ -638,7 +641,20 @@ Assert-True ((Get-QuestIds -Quest $quest).Count -eq 1) "Fixture should start wit
 Assert-True ((Get-QuestIds -Quest $quest) -contains "plot_tutorial_crypts") "Fixture should start with tutorial quest."
 Assert-True (-not ((Get-QuestIds -Quest $quest) -contains "plot_kill_necromancer_3")) "Fixture should start without fixed boss quests."
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--managed-action-save-dir", $saveRoot))
+Invoke-Loader -LoaderArgs ($baseArgs + @("--initialize-decoded-profile", "--managed-action-save-dir", $saveRoot))
+$dryRunInitializationReport = Read-DecodedProfileInitializationReport
+Assert-True ([bool]$dryRunInitializationReport.succeeded) "Decoded profile dry-run initialization should succeed."
+Assert-True ([bool]$dryRunInitializationReport.dryRun) "Decoded profile dry-run initialization should record dryRun=true."
+Assert-True ([bool]$dryRunInitializationReport.stateSucceeded) "Decoded profile dry-run initialization should initialize sidecar state."
+Assert-True ([bool]$dryRunInitializationReport.eventSucceeded) "Decoded profile dry-run initialization should run the initialization event."
+Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 12) "Decoded profile dry-run initialization should materialize twelve actions."
+Assert-True ([bool]$dryRunInitializationReport.questBoardPreviewSucceeded) "Decoded profile dry-run initialization should preview the quest board."
+Assert-True ([int]$dryRunInitializationReport.questBoardCandidateCount -eq 2) "Decoded profile dry-run initialization should preview two fixed quests."
+Assert-True (-not [bool]$dryRunInitializationReport.applySkipped) "Decoded profile dry-run initialization should run managed action apply."
+Assert-True ([bool]$dryRunInitializationReport.applySucceeded) "Decoded profile dry-run initialization apply should succeed."
+Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 8) "Decoded profile dry-run initialization should recognize eight supported decoded-save actions."
+Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 8) "Decoded profile dry-run initialization should dry-run eight supported actions."
+Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 5) "Decoded profile dry-run initialization should report five would-change decoded save files."
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
 Assert-True ([int]$dryRunReport.artifactCount -eq 12) "Dry-run should inspect twelve boss gauntlet initialization artifacts."
@@ -669,7 +685,16 @@ Assert-True ((Get-QuestIds -Quest $quest).Count -eq 1) "Dry-run must not replace
 Assert-True ((Get-QuestIds -Quest $quest) -contains "plot_tutorial_crypts") "Dry-run must keep tutorial quest."
 Assert-True (-not ((Get-QuestIds -Quest $quest) -contains "plot_kill_necromancer_3")) "Dry-run must not add fixed boss quests."
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
+Invoke-Loader -LoaderArgs ($baseArgs + @("--initialize-decoded-profile", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
+$writeInitializationReport = Read-DecodedProfileInitializationReport
+Assert-True ([bool]$writeInitializationReport.succeeded) "Decoded profile write initialization should succeed."
+Assert-True (-not [bool]$writeInitializationReport.dryRun) "Decoded profile write initialization should record dryRun=false."
+Assert-True ([bool]$writeInitializationReport.stateSucceeded) "Decoded profile write initialization should keep sidecar state valid."
+Assert-True ([bool]$writeInitializationReport.eventSucceeded) "Decoded profile write initialization event should succeed even after initialized=true."
+Assert-True (-not [bool]$writeInitializationReport.applySkipped) "Decoded profile write initialization should run managed action apply."
+Assert-True ([bool]$writeInitializationReport.applySucceeded) "Decoded profile write initialization apply should succeed."
+Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 8) "Decoded profile write initialization should apply eight supported decoded-save actions."
+Assert-True ([int]$writeInitializationReport.applyChangedFileCount -eq 5) "Decoded profile write initialization should write five decoded save files."
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
 Assert-True ([int]$writeReport.supportedActionCount -eq 8) "Write pass should recognize eight currently supported decoded-save actions."

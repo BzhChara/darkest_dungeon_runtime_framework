@@ -234,6 +234,7 @@ save.attach_sidecar_state
 --init-mod-state
 --dump-mod-state
 --emit-event <event-id>
+--initialize-decoded-profile
 --apply-managed-actions
 --managed-action-save-dir
 --write-managed-actions

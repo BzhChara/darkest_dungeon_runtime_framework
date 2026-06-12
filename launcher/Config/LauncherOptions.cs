@@ -22,6 +22,7 @@ internal sealed class LauncherOptions
     public bool InferSaveEvents { get; private set; }
     public bool ApplyManagedActions { get; private set; }
     public bool WriteManagedActions { get; private set; }
+    public bool InitializeDecodedProfile { get; private set; }
     public bool PreviewQuestBoard { get; private set; }
     public bool InspectMapFile { get; private set; }
     public bool PrototypeMapFinalRoom { get; private set; }
@@ -104,6 +105,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--write-managed-actions":
                     options.WriteManagedActions = true;
+                    break;
+                case "--initialize-decoded-profile":
+                    options.InitializeDecodedProfile = true;
                     break;
                 case "--preview-quest-board":
                     options.PreviewQuestBoard = true;

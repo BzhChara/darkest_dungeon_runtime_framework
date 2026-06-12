@@ -47,6 +47,7 @@ internal static class Program
                     !options.DumpModState &&
                     !options.InferSaveEvents &&
                     !options.ApplyManagedActions &&
+                    !options.InitializeDecodedProfile &&
                     !options.PreviewQuestBoard &&
                     !options.InspectMapFile &&
                     !options.PrototypeMapFinalRoom &&
@@ -149,6 +150,25 @@ internal static class Program
                     options.WriteManagedActions).Succeeded;
             }
 
+            if (options.InitializeDecodedProfile)
+            {
+                if (string.IsNullOrWhiteSpace(options.ManagedActionSaveDirectory))
+                {
+                    throw new ArgumentException("--initialize-decoded-profile requires --managed-action-save-dir <path>.");
+                }
+
+                modStateSucceeded &= DecodedProfileInitializer.Run(
+                    config,
+                    patchPlan,
+                    log,
+                    projectRoot,
+                    options.ManagedActionSaveDirectory,
+                    options.WriteManagedActions,
+                    options.ModStateId,
+                    options.EventPayload,
+                    options.EventPayloadFile).Succeeded;
+            }
+
             if (options.InspectMapFile)
             {
                 if (string.IsNullOrWhiteSpace(options.MapFilePath))
@@ -218,6 +238,7 @@ internal static class Program
                 options.DumpModState ||
                 options.InferSaveEvents ||
                 options.ApplyManagedActions ||
+                options.InitializeDecodedProfile ||
                 options.PreviewQuestBoard ||
                 options.InspectMapFile ||
                 options.PrototypeMapFinalRoom ||
@@ -383,7 +404,13 @@ internal static class Program
     private static void ValidateConfig(RuntimeConfig config, LauncherOptions options, LauncherLog log)
     {
         if (options.WriteManagedActions && !options.ApplyManagedActions)
-            throw new InvalidOperationException("--write-managed-actions requires --apply-managed-actions.");
+        {
+            if (!options.InitializeDecodedProfile)
+                throw new InvalidOperationException("--write-managed-actions requires --apply-managed-actions or --initialize-decoded-profile.");
+        }
+
+        if (options.InitializeDecodedProfile && options.ApplyManagedActions)
+            throw new InvalidOperationException("--initialize-decoded-profile cannot be combined with --apply-managed-actions because it runs managed action application internally.");
 
         if (!File.Exists(config.GameExecutablePath))
             throw new FileNotFoundException("Game executable was not found.", config.GameExecutablePath);
@@ -401,6 +428,7 @@ internal static class Program
             !options.DumpModState &&
             !options.InferSaveEvents &&
             !options.ApplyManagedActions &&
+            !options.InitializeDecodedProfile &&
             !options.PreviewQuestBoard &&
             !options.InspectMapFile &&
             !options.PrototypeMapFinalRoom &&
