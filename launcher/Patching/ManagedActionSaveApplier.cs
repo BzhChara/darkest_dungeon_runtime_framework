@@ -99,6 +99,9 @@ internal static partial class ManagedActionSaveApplier
                 case "estate.ensureInventoryCounts":
                     ApplyEstateEnsureInventoryCounts(context, artifactPath, artifact);
                     break;
+                case "inventory.disableItemSale":
+                    ApplyInventoryDisableItemSale(context, artifactPath, artifact);
+                    break;
                 case "roster.ensureClassInstances":
                     ApplyRosterEnsureClassInstances(context, artifactPath, artifact);
                     break;
@@ -113,6 +116,9 @@ internal static partial class ManagedActionSaveApplier
                     break;
                 case "town.unlockAllBuildings":
                     ApplyTownUnlockAllBuildings(context, artifactPath, artifact);
+                    break;
+                case "townEvent.overrideCurrent":
+                    ApplyTownEventOverrideCurrent(context, artifactPath, artifact);
                     break;
                 case "questBoard.replaceWithFixedSet":
                     ApplyQuestBoardReplaceWithFixedSet(context, artifactPath, artifact);
@@ -480,6 +486,28 @@ internal static partial class ManagedActionSaveApplier
         return current;
     }
 
+    private static bool SetJsonPropertyIfChanged(JsonObject root, string key, JsonNode? value, bool writeChanges)
+    {
+        if (JsonNode.DeepEquals(root[key], value))
+        {
+            return false;
+        }
+
+        if (writeChanges)
+        {
+            root[key] = CloneJsonNode(value);
+        }
+
+        return true;
+    }
+
+    private static JsonNode? CloneJsonNode(JsonNode? node)
+    {
+        return node is null
+            ? null
+            : JsonNode.Parse(node.ToJsonString(JsonOptions));
+    }
+
     private static JsonObject RequireObject(JsonObject root, string path)
     {
         return ReadNode(root, path) as JsonObject
@@ -525,6 +553,21 @@ internal static partial class ManagedActionSaveApplier
         }
 
         throw new InvalidDataException($"{path} must be an integer.");
+    }
+
+    private static bool ReadBool(JsonNode? node, string path)
+    {
+        if (node is null)
+        {
+            throw new InvalidDataException($"{path} is missing.");
+        }
+
+        if (node is JsonValue value && value.TryGetValue<bool>(out var result))
+        {
+            return result;
+        }
+
+        throw new InvalidDataException($"{path} must be a boolean.");
     }
 
     private static int? ReadOptionalInt(JsonObject root, string key)
@@ -585,6 +628,23 @@ internal static partial class ManagedActionSaveApplier
 
             var root = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8)) as JsonObject
                 ?? throw new InvalidDataException($"Decoded save file root must be a JSON object: {path}");
+            var file = new DecodedJsonFile(path, root);
+            Files[path] = file;
+            return file;
+        }
+
+        public DecodedJsonFile LoadOrCreateJsonFile(string fileName, Func<JsonObject> createRoot)
+        {
+            var path = Path.Combine(SaveDirectory, fileName);
+            if (Files.TryGetValue(path, out var cached))
+            {
+                return cached;
+            }
+
+            var root = File.Exists(path)
+                ? JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8)) as JsonObject
+                    ?? throw new InvalidDataException($"JSON file root must be an object: {path}")
+                : createRoot();
             var file = new DecodedJsonFile(path, root);
             Files[path] = file;
             return file;
