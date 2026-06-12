@@ -128,6 +128,8 @@ internal sealed partial class SaveDirectoryWatcher
                         SessionJsonOptions)
                     ?? throw new InvalidOperationException($"Map template spec was empty: {specFullPath}");
                 spec.DynamicTiles ??= [];
+                spec.StaticDoors ??= [];
+                spec.StaticTileDoors ??= [];
                 return spec;
             }
             catch (JsonException ex)
@@ -176,6 +178,16 @@ internal sealed partial class SaveDirectoryWatcher
             foreach (var tile in spec.DynamicTiles)
             {
                 AddDynamicTileMutations(sourceFile, sourceMap, tile, byteLength, mutations, accessIssues);
+            }
+
+            foreach (var door in spec.StaticDoors)
+            {
+                AddStaticDoorMutations(sourceFile, sourceMap, door, byteLength, mutations, accessIssues);
+            }
+
+            foreach (var door in spec.StaticTileDoors)
+            {
+                AddStaticTileDoorMutations(sourceFile, sourceMap, door, byteLength, mutations, accessIssues);
             }
 
             return mutations;
@@ -284,6 +296,142 @@ internal sealed partial class SaveDirectoryWatcher
             }
         }
 
+        private static void AddStaticDoorMutations(
+            SaveStateFileReport sourceFile,
+            SaveStateMapFacts sourceMap,
+            MapTemplateStaticDoorSpec door,
+            int byteLength,
+            List<PlannedMapTemplateMutation> mutations,
+            List<string> accessIssues)
+        {
+            if (string.IsNullOrWhiteSpace(door.AreaId))
+            {
+                accessIssues.Add("staticDoors entry requires areaId.");
+                return;
+            }
+
+            var area = sourceMap.Areas.FirstOrDefault(item => item.AreaId.Equals(door.AreaId, StringComparison.OrdinalIgnoreCase));
+            if (area is null)
+            {
+                accessIssues.Add($"static door area was not found: {door.AreaId}");
+                return;
+            }
+
+            if (!TryNormalizeDoorSlot(door.DoorSlot, out var doorSlot, out var doorIssue))
+            {
+                accessIssues.Add($"static door for area={area.AreaId} has invalid doorSlot: {doorIssue}");
+                return;
+            }
+
+            var doorPath = $"base_root.areas.{area.AreaId}.{doorSlot}";
+            AddStaticDoorCommonMutations(
+                sourceFile,
+                sourceMap,
+                doorPath,
+                "static door",
+                area.AreaId,
+                null,
+                door.TargetAreaId,
+                door.TargetTileIndex,
+                door.TargetTileId,
+                door.DoorType,
+                door.Implied,
+                byteLength,
+                mutations,
+                accessIssues);
+        }
+
+        private static void AddStaticTileDoorMutations(
+            SaveStateFileReport sourceFile,
+            SaveStateMapFacts sourceMap,
+            MapTemplateStaticTileDoorSpec door,
+            int byteLength,
+            List<PlannedMapTemplateMutation> mutations,
+            List<string> accessIssues)
+        {
+            if (string.IsNullOrWhiteSpace(door.AreaId))
+            {
+                accessIssues.Add("staticTileDoors entry requires areaId.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(door.TileId))
+            {
+                accessIssues.Add($"staticTileDoors entry for area={door.AreaId} requires tileId.");
+                return;
+            }
+
+            var tileId = NormalizeMapTileId(door.TileId);
+            var area = sourceMap.Areas.FirstOrDefault(item => item.AreaId.Equals(door.AreaId, StringComparison.OrdinalIgnoreCase));
+            if (area is null)
+            {
+                accessIssues.Add($"static tile door area was not found: {door.AreaId}");
+                return;
+            }
+
+            var doorPath = $"base_root.areas.{area.AreaId}.tiles.{tileId}.door_to";
+            AddStaticDoorCommonMutations(
+                sourceFile,
+                sourceMap,
+                doorPath,
+                "static tile door",
+                area.AreaId,
+                tileId,
+                door.TargetAreaId,
+                door.TargetTileIndex,
+                door.TargetTileId,
+                door.DoorType,
+                door.Implied,
+                byteLength,
+                mutations,
+                accessIssues);
+        }
+
+        private static void AddStaticDoorCommonMutations(
+            SaveStateFileReport sourceFile,
+            SaveStateMapFacts sourceMap,
+            string doorPath,
+            string subject,
+            string areaId,
+            string? tileId,
+            string? targetAreaId,
+            int? targetTileIndex,
+            string? targetTileId,
+            int? doorType,
+            bool? implied,
+            int byteLength,
+            List<PlannedMapTemplateMutation> mutations,
+            List<string> accessIssues)
+        {
+            if (!string.IsNullOrWhiteSpace(targetAreaId))
+            {
+                var targetArea = sourceMap.Areas.FirstOrDefault(item => item.AreaId.Equals(targetAreaId, StringComparison.OrdinalIgnoreCase));
+                if (targetArea is null)
+                {
+                    accessIssues.Add($"{subject} target area was not found: {targetAreaId}");
+                }
+                else if (!targetArea.AreaHash.HasValue)
+                {
+                    accessIssues.Add($"{subject} target area has no hash: {targetAreaId}");
+                }
+                else
+                {
+                    AddInt32Mutation(sourceFile, $"set_{subject.Replace(' ', '_')}_area_to", $"{doorPath}.area_to", targetArea.AreaHash.Value, areaId, tileId, byteLength, mutations, accessIssues);
+                }
+            }
+
+            if (TryResolveTargetTileIndex(targetTileIndex, targetTileId, $"{subject} area={areaId} tile={tileId ?? ""}", accessIssues, out var resolvedTileIndex))
+            {
+                AddInt32Mutation(sourceFile, $"set_{subject.Replace(' ', '_')}_tile_to", $"{doorPath}.tile_to", resolvedTileIndex, areaId, tileId, byteLength, mutations, accessIssues);
+            }
+
+            AddOptionalDynamicTileIntMutation(sourceFile, doorType, $"set_{subject.Replace(' ', '_')}_type", $"{doorPath}.type", areaId, tileId ?? "", byteLength, mutations, accessIssues);
+            if (implied.HasValue)
+            {
+                AddBoolMutation(sourceFile, $"set_{subject.Replace(' ', '_')}_implied", $"{doorPath}.implied", implied.Value, areaId, tileId, byteLength, mutations, accessIssues);
+            }
+        }
+
         private static void AddOptionalDynamicTileIntMutation(
             SaveStateFileReport sourceFile,
             int? value,
@@ -314,7 +462,7 @@ internal sealed partial class SaveDirectoryWatcher
             List<PlannedMapTemplateMutation> mutations,
             List<string> accessIssues)
         {
-            var scalar = FindDsonScalar(sourceFile, scalarPath);
+            var scalar = FindMapTemplateScalar(sourceFile, scalarPath);
             if (scalar is null)
             {
                 accessIssues.Add($"{mutation} target scalar was not found: {scalarPath}");
@@ -359,7 +507,7 @@ internal sealed partial class SaveDirectoryWatcher
             List<PlannedMapTemplateMutation> mutations,
             List<string> accessIssues)
         {
-            var scalar = FindDsonScalar(sourceFile, scalarPath);
+            var scalar = FindMapTemplateScalar(sourceFile, scalarPath);
             if (scalar is null)
             {
                 accessIssues.Add($"{mutation} target scalar was not found: {scalarPath}");
@@ -433,7 +581,7 @@ internal sealed partial class SaveDirectoryWatcher
                 return;
             }
 
-            var scalar = FindDsonScalar(outputFile, mutation.Path);
+            var scalar = FindMapTemplateScalar(outputFile, mutation.Path);
             if (scalar is null)
             {
                 accessIssues.Add($"Output scalar was not found after mutation: {mutation.Path}");
@@ -451,6 +599,104 @@ internal sealed partial class SaveDirectoryWatcher
             return scalar.Offset + Encoding.UTF8.GetByteCount(scalar.Name) + 1;
         }
 
+        private static SaveStateDsonScalar? FindMapTemplateScalar(SaveStateFileReport file, string path)
+        {
+            return FindDsonScalar(file, path) ?? FindMapStaticSaveScalar(file, path);
+        }
+
+        private static SaveStateDsonScalar? FindMapStaticSaveScalar(SaveStateFileReport file, string path)
+        {
+            var staticSave = FindDsonScalar(file, "base_root.map.static_dynamic.static_save")?.EmbeddedDson;
+            return staticSave?.AllScalars.FirstOrDefault(scalar => scalar.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool TryNormalizeDoorSlot(string? doorSlot, out string normalized, out string issue)
+        {
+            normalized = string.Empty;
+            issue = string.Empty;
+            if (string.IsNullOrWhiteSpace(doorSlot))
+            {
+                issue = "missing doorSlot";
+                return false;
+            }
+
+            var value = doorSlot.Trim();
+            if (value.StartsWith("door", StringComparison.OrdinalIgnoreCase))
+            {
+                value = value[4..];
+            }
+
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index) || index is < 0 or > 7)
+            {
+                issue = doorSlot;
+                return false;
+            }
+
+            normalized = "door" + index.ToString(CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        private static bool TryResolveTargetTileIndex(
+            int? targetTileIndex,
+            string? targetTileId,
+            string subject,
+            List<string> accessIssues,
+            out int resolvedTileIndex)
+        {
+            resolvedTileIndex = 0;
+            if (!targetTileIndex.HasValue && string.IsNullOrWhiteSpace(targetTileId))
+            {
+                return false;
+            }
+
+            if (targetTileIndex.HasValue && !string.IsNullOrWhiteSpace(targetTileId))
+            {
+                if (!TryParseTileIndex(targetTileId, out var parsedTileIdIndex))
+                {
+                    accessIssues.Add($"{subject} targetTileId is invalid: {targetTileId}");
+                    return false;
+                }
+
+                if (parsedTileIdIndex != targetTileIndex.Value)
+                {
+                    accessIssues.Add($"{subject} targetTileIndex and targetTileId disagree: targetTileIndex={targetTileIndex.Value} targetTileId={targetTileId}");
+                    return false;
+                }
+            }
+
+            if (targetTileIndex.HasValue)
+            {
+                resolvedTileIndex = targetTileIndex.Value;
+                return true;
+            }
+
+            if (!TryParseTileIndex(targetTileId, out var parsedIndex))
+            {
+                accessIssues.Add($"{subject} targetTileId is invalid: {targetTileId}");
+                return false;
+            }
+
+            resolvedTileIndex = parsedIndex;
+            return true;
+        }
+
+        private static bool TryParseTileIndex(string? tileId, out int index)
+        {
+            index = 0;
+            if (string.IsNullOrWhiteSpace(tileId))
+            {
+                return false;
+            }
+
+            var value = tileId.Trim();
+            if (value.StartsWith("tile", StringComparison.OrdinalIgnoreCase))
+            {
+                value = value[4..];
+            }
+
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out index) && index >= 0;
+        }
+
         private static string NormalizeMapTileId(string tileId)
         {
             return tileId.StartsWith("tile", StringComparison.OrdinalIgnoreCase)
@@ -465,6 +711,8 @@ internal sealed partial class SaveDirectoryWatcher
             public string? EntranceAreaId { get; set; }
             public string? FinalRoomId { get; set; }
             public List<MapTemplateDynamicTileSpec> DynamicTiles { get; set; } = [];
+            public List<MapTemplateStaticDoorSpec> StaticDoors { get; set; } = [];
+            public List<MapTemplateStaticTileDoorSpec> StaticTileDoors { get; set; } = [];
         }
 
         private sealed class MapTemplateDynamicTileSpec
@@ -479,6 +727,28 @@ internal sealed partial class SaveDirectoryWatcher
             public int? CurioPropHash { get; set; }
             public int? TrapHash { get; set; }
             public bool? CritScout { get; set; }
+        }
+
+        private sealed class MapTemplateStaticDoorSpec
+        {
+            public string? AreaId { get; set; }
+            public string? DoorSlot { get; set; }
+            public string? TargetAreaId { get; set; }
+            public int? TargetTileIndex { get; set; }
+            public string? TargetTileId { get; set; }
+            public int? DoorType { get; set; }
+            public bool? Implied { get; set; }
+        }
+
+        private sealed class MapTemplateStaticTileDoorSpec
+        {
+            public string? AreaId { get; set; }
+            public string? TileId { get; set; }
+            public string? TargetAreaId { get; set; }
+            public int? TargetTileIndex { get; set; }
+            public string? TargetTileId { get; set; }
+            public int? DoorType { get; set; }
+            public bool? Implied { get; set; }
         }
 
         private sealed record PlannedMapTemplateMutation(

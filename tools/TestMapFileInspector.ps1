@@ -134,6 +134,25 @@ function Test-MapTemplatePrototype {
                 critScout = $true
             }
         )
+        staticDoors = @(
+            [ordered]@{
+                areaId = "rooB"
+                doorSlot = "door4"
+                targetTileId = "tile17"
+                doorType = 2
+                implied = $false
+            }
+        )
+        staticTileDoors = @(
+            [ordered]@{
+                areaId = "corA"
+                tileId = "tile27"
+                targetAreaId = "rooC"
+                targetTileIndex = 0
+                doorType = 2
+                implied = $true
+            }
+        )
     }
     $spec | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $specPath -Encoding UTF8
 
@@ -153,7 +172,7 @@ function Test-MapTemplatePrototype {
     Assert-True ([bool]$report.succeeded) "Template prototype report did not succeed."
     Assert-True ((Convert-ToArray $report.accessIssues).Count -eq 0) "Template prototype report had access issues."
     Assert-True ($report.specName -eq "dd4_rooC_dynamic_tile_probe") "Template prototype spec name mismatch."
-    Assert-True ((Convert-ToArray $report.mutations).Count -eq 4) "Template prototype mutation count mismatch."
+    Assert-True ((Convert-ToArray $report.mutations).Count -eq 11) "Template prototype mutation count mismatch."
     Assert-True ($report.outputMap.finalRoomId -eq "rooC") "Template prototype output final room was not updated."
     Assert-True ($report.outputMap.areaCount -eq 4) "Template prototype output area count changed."
     Assert-True ($report.outputMap.roomCount -eq 3) "Template prototype output room count changed."
@@ -167,6 +186,25 @@ function Test-MapTemplatePrototype {
     Assert-True ($tile0.content -eq 8) "Template prototype output dynamic tile content was not updated."
     Assert-True ($tile0.knowledge -eq 1) "Template prototype output dynamic tile knowledge was not updated."
     Assert-True ([bool]$tile0.critScout) "Template prototype output dynamic tile critScout was not updated."
+
+    $rooB = Convert-ToArray $report.outputMap.areas | Where-Object { $_.areaId -eq "rooB" } | Select-Object -First 1
+    Assert-True ($null -ne $rooB) "Template prototype output static area rooB was not found."
+    $door4 = Convert-ToArray $rooB.doors | Where-Object { $_.slotId -eq "door4" } | Select-Object -First 1
+    Assert-True ($null -ne $door4) "Template prototype output static door rooB.door4 was not found."
+    Assert-True ($door4.targetAreaId -eq "corA") "Template prototype output static door target area changed unexpectedly."
+    Assert-True ($door4.targetTileIndex -eq 17) "Template prototype output static door tile_to was not updated."
+    Assert-True ($door4.doorType -eq 2) "Template prototype output static door type was not updated."
+    Assert-True (-not [bool]$door4.implied) "Template prototype output static door implied was not updated."
+
+    $corA = Convert-ToArray $report.outputMap.areas | Where-Object { $_.areaId -eq "corA" } | Select-Object -First 1
+    Assert-True ($null -ne $corA) "Template prototype output static area corA was not found."
+    $corATile27 = Convert-ToArray $corA.tileSamples | Where-Object { $_.tileId -eq "tile27" } | Select-Object -First 1
+    Assert-True ($null -ne $corATile27) "Template prototype output static tile corA.tile27 was not found."
+    Assert-True ($null -ne $corATile27.doorTo) "Template prototype output static tile corA.tile27 door_to was not found."
+    Assert-True ($corATile27.doorTo.targetAreaId -eq "rooC") "Template prototype output static tile door target area was not updated."
+    Assert-True ($corATile27.doorTo.targetTileIndex -eq 0) "Template prototype output static tile door target tile was not updated."
+    Assert-True ($corATile27.doorTo.doorType -eq 2) "Template prototype output static tile door type was not updated."
+    Assert-True ([bool]$corATile27.doorTo.implied) "Template prototype output static tile door implied was not updated."
 
     $script:PrototypeMapPath = $outputMapPath
 }
