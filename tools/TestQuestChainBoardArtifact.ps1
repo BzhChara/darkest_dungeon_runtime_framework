@@ -38,6 +38,12 @@ function Read-ApplyReport {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-QuestBoardPreviewReport {
+    $path = Join-Path $projectRoot.Path "logs\quest_board_preview_report.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Quest board preview report was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Read-DecodedQuest {
     $path = Join-Path $saveRoot "persist.quest.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded quest file was not created: $path"
@@ -217,6 +223,21 @@ try {
     Assert-True ($managedArtifact.plan.arguments.questIds[0] -eq "plot_kill_necromancer_3") "First materialized quest id mismatch."
     Assert-True ($managedArtifact.plan.arguments.questIds[1] -eq "plot_kill_prophet_3") "Second materialized quest id mismatch."
 
+    Invoke-Loader -LoaderArgs @("--config", $configPath, "--preview-quest-board", "--no-inject")
+    $previewReport = Read-QuestBoardPreviewReport
+    Assert-True ([bool]$previewReport.succeeded) "Quest board preview should succeed."
+    Assert-True ([int]$previewReport.artifactCount -eq 1) "Quest board preview should inspect one managed artifact."
+    Assert-True ([int]$previewReport.questBoardArtifactCount -eq 1) "Quest board preview should find one questBoard artifact."
+    Assert-True ([int]$previewReport.wouldApplyArtifactCount -eq 1) "Quest board preview should report one applicable artifact."
+    Assert-True ([int]$previewReport.finalActiveQuestCount -eq 2) "Quest board preview should report two final active quests."
+    Assert-True ([int]$previewReport.errorCount -eq 0) "Quest board preview should not report errors."
+    Assert-True ($previewReport.finalActiveQuests[0].questId -eq "plot_kill_necromancer_3") "Quest board preview first quest id mismatch."
+    Assert-True ($previewReport.finalActiveQuests[0].stageId -eq "stage_necromancer") "Quest board preview first stage id mismatch."
+    Assert-True ($previewReport.finalActiveQuests[0].dungeon -eq "crypts") "Quest board preview should preserve content-defined necromancer dungeon."
+    Assert-True ([int]$previewReport.finalActiveQuests[0].contentDifficulty -eq 5) "Quest board preview should preserve content-defined necromancer difficulty."
+    Assert-True ($previewReport.finalActiveQuests[1].questId -eq "plot_kill_prophet_3") "Quest board preview second quest id mismatch."
+    Assert-True ($previewReport.finalActiveQuests[1].stageId -eq "stage_prophet") "Quest board preview second stage id mismatch."
+
     Invoke-Loader -LoaderArgs @("--config", $configPath, "--apply-managed-actions", "--managed-action-save-dir", $saveRoot, "--no-inject")
     $dryRunReport = Read-ApplyReport
     Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
@@ -259,7 +280,7 @@ try {
     $artifactCount = @(Get-ChildItem -LiteralPath (Join-Path $stateRoot "_managed_actions") -Filter "*.json").Count
     Assert-True ($artifactCount -eq 1) "Repeated loader runs must not accumulate duplicate quest chain managed artifacts."
 
-    Write-Host "PASS: questChains materialize a questBoard artifact that dry-runs and writes decoded persist.quest.json."
+    Write-Host "PASS: questChains materialize and preview a questBoard artifact that dry-runs and writes decoded persist.quest.json."
 }
 finally {
     Pop-Location

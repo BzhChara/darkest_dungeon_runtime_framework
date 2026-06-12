@@ -10,9 +10,10 @@ questChains
   -> validate references to mapLayoutTemplates or mapTemplates
   -> write modStateDirectory/_quest_chains/<plugin-id>/*.validation.json
   -> when questBoard.enabled=true, write a deterministic questBoard.replaceWithFixedSet artifact
+  -> optional --preview-quest-board report shows the final fixed quest board before any write/live path
 ```
 
-It does not directly modify the quest board, campaign progression, or original saves. The quest-board artifact is observe-first: it is written under sidecar state and can be inspected or dry-run by the managed-action applier. Original-save writes still require explicit `--write-managed-actions`.
+It does not directly modify the quest board, campaign progression, or original saves. The quest-board artifact is observe-first: it is written under sidecar state and can be inspected through `--preview-quest-board` or dry-run by the managed-action applier. Original-save writes still require explicit `--write-managed-actions`.
 
 ## Manifest Shape
 
@@ -74,9 +75,17 @@ When `questBoard.enabled=true`, the loader writes two sidecar files:
 
 The artifact uses the existing `questBoard.replaceWithFixedSet` action shape, so the existing managed-action applier can dry-run it against a project-local decoded `persist.quest.json` copy. It intentionally uses `sourceQuestId` as the concrete quest id because the current writer resolves only existing plot quest definitions. `targetQuestId` remains metadata for future custom quest writers.
 
+`--preview-quest-board` reads materialized `questBoard.replaceWithFixedSet` artifacts, resolves their quest ids against enabled original plot quest content, applies `removeCompleted` filtering when sidecar state is available, and writes:
+
+```text
+logs/quest_board_preview_report.json
+```
+
+The report lists the final active board entries with stage metadata, content source path, dungeon, difficulty, length, and goal ids. If multiple quest-board artifacts exist, the preview follows the decoded-save applier's replace semantics: the last valid applicable artifact becomes the final board. Failed artifacts are reported as errors instead of silently falling back.
+
 Regression coverage:
 
-- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> decoded persist.quest.json` can dry-run, write, and repeat idempotently without accumulating duplicate artifacts.
+- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> quest-board preview -> decoded persist.quest.json` can preview, dry-run, write, and repeat idempotently without accumulating duplicate artifacts.
 
 ## Relationship To Map Layouts
 

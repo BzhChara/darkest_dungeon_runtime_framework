@@ -47,6 +47,7 @@ internal static class Program
                     !options.DumpModState &&
                     !options.InferSaveEvents &&
                     !options.ApplyManagedActions &&
+                    !options.PreviewQuestBoard &&
                     !options.InspectMapFile &&
                     !options.PrototypeMapFinalRoom &&
                     !options.PrototypeMapTemplate &&
@@ -89,6 +90,11 @@ internal static class Program
             }
 
             var modStateSucceeded = true;
+            if (options.PreviewQuestBoard)
+            {
+                modStateSucceeded &= QuestBoardPreviewReporter.Write(config, log).Succeeded;
+            }
+
             if (options.InitModState)
             {
                 modStateSucceeded &= ModStateStore.InitializeDefaults(config, patchPlan, log, options.ModStateId).Succeeded;
@@ -212,6 +218,7 @@ internal static class Program
                 options.DumpModState ||
                 options.InferSaveEvents ||
                 options.ApplyManagedActions ||
+                options.PreviewQuestBoard ||
                 options.InspectMapFile ||
                 options.PrototypeMapFinalRoom ||
                 options.PrototypeMapTemplate ||
@@ -382,6 +389,7 @@ internal static class Program
             !options.DumpModState &&
             !options.InferSaveEvents &&
             !options.ApplyManagedActions &&
+            !options.PreviewQuestBoard &&
             !options.InspectMapFile &&
             !options.PrototypeMapFinalRoom &&
             !options.PrototypeMapTemplate &&
