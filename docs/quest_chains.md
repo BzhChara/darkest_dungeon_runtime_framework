@@ -74,6 +74,10 @@ When `questBoard.enabled=true`, the loader writes two sidecar files:
 
 The artifact uses the existing `questBoard.replaceWithFixedSet` action shape, so the existing managed-action applier can dry-run it against a project-local decoded `persist.quest.json` copy. It intentionally uses `sourceQuestId` as the concrete quest id because the current writer resolves only existing plot quest definitions. `targetQuestId` remains metadata for future custom quest writers.
 
+Regression coverage:
+
+- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> decoded persist.quest.json` can dry-run, write, and repeat idempotently without accumulating duplicate artifacts.
+
 ## Relationship To Map Layouts
 
 `mapLayoutTemplates` owns dungeon topology and per-tile content. `questChains` owns stage order and stage-to-map binding. The split matters: a mod can reuse the same map layout in multiple chains, or use one chain with some original maps and some generated map-layout overlays.
