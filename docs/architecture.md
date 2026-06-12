@@ -1,6 +1,6 @@
 # Architecture
 
-运行时平台的长期设计见 `docs/runtime_mod_platform.md`，通用规则契约见 `docs/capability_rule_contract.md`，验收场景见 `docs/validation_scenarios.md`。本文档记录当前骨架和短期组件边界；平台文档记录事件、状态、动作和深层 Hook 能力的方向。
+运行时平台的长期设计见 `docs/runtime_mod_platform.md`，通用规则契约见 `docs/capability_rule_contract.md`，新增能力前的通用性检查见 `docs/framework_capability_matrix.md`，验收场景见 `docs/validation_scenarios.md`。本文档记录当前骨架和短期组件边界；平台文档记录事件、状态、动作和深层 Hook 能力的方向。
 
 ## Phase 1: Injection and Logging
 
