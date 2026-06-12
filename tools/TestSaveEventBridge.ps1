@@ -243,8 +243,10 @@ $stateAfterNoMatch = Read-ChallengeState
 Assert-True ([int]$stateAfterNoMatch.currentStageIndex -eq 1) "No-match save event bridge pass should leave currentStageIndex unchanged."
 $bridgeReport = Get-Content -Raw -LiteralPath $bridgeReportPath | ConvertFrom-Json
 Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "No-match save event bridge pass should not infer an event."
-$notMatched = @(Convert-ToArray $bridgeReport.plugins | Where-Object { $_.status -eq "predicate-not-matched" })
-Assert-True ($notMatched.Count -eq 4) "No-match save event bridge pass should leave all fact-event rules unmatched."
+$notMatchedChallengeRules = @(Convert-ToArray $bridgeReport.plugins | Where-Object {
+    $_.pluginId -eq "validation.challenge_run_contract" -and $_.status -eq "predicate-not-matched"
+})
+Assert-True ($notMatchedChallengeRules.Count -eq 4) "No-match save event bridge pass should leave all challenge fact-event rules unmatched."
 
 $postTaskStateRoot = Join-Path $stateRoot "post_task_campaign_log"
 New-Item -ItemType Directory -Force -Path $postTaskStateRoot | Out-Null

@@ -63,7 +63,9 @@ function Convert-ToArray {
 }
 
 function Read-BossGauntletState {
-    $path = Join-Path $stateRoot "$pluginId.json"
+    param([string]$Root = $stateRoot)
+
+    $path = Join-Path $Root "$pluginId.json"
     Assert-True (Test-Path -LiteralPath $path) "Sidecar state was not created: $path"
     $document = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
     return $document.state.bossGauntlet
@@ -269,5 +271,218 @@ $postFinaleSelectionPayloadPath = Write-JsonPayload "selection_after_finale.json
 Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "quest.selection_confirmed", "--event-payload-file", $postFinaleSelectionPayloadPath))
 $state = Read-BossGauntletState
 Assert-True ($null -eq $state.activeSelection) "Boss-gauntlet selection lock should not run after darkest_finale unlocks."
+
+$bridgeStateRoot = Join-Path $stateRoot "save_event_bridge"
+$bridgeArgs = @(
+    "--config", (Resolve-ProjectPath $ConfigPath),
+    "--no-inject",
+    "--allow-non-atomic-state-writes",
+    "--mod-state-id", $pluginId,
+    "--mod-state-dir", $bridgeStateRoot
+)
+
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--init-mod-state"))
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--emit-event", "profile.initialization_requested"))
+
+$necroActiveRaidReportPath = Write-JsonPayload "boss_bridge_necromancer_active_raid.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "boss_gauntlet_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        raid = [pscustomobject]@{
+            instance = [pscustomobject]@{
+                id = "plot_kill_necromancer_3"
+            }
+            party = [pscustomobject]@{
+                heroCount = 4
+                heroGuids = @(101, 102, 103, 104)
+            }
+        }
+        heroes = @(
+            [pscustomobject]@{ id = "101"; trinketIds = @("trinket_necro_1", "trinket_necro_2") },
+            [pscustomobject]@{ id = "102"; trinketIds = @("trinket_necro_3", "trinket_necro_4") },
+            [pscustomobject]@{ id = "103"; trinketIds = @("trinket_necro_5", "trinket_necro_6") },
+            [pscustomobject]@{ id = "104"; trinketIds = @("trinket_necro_7", "trinket_necro_8") }
+        )
+    }
+})
+
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--infer-save-events", "--save-state-report", $necroActiveRaidReportPath))
+$bridgeState = Read-BossGauntletState -Root $bridgeStateRoot
+Assert-True ($bridgeState.activeSelection.questId -eq "plot_kill_necromancer_3") "Save bridge should lock the active fixed boss quest."
+Assert-True ((Convert-ToArray $bridgeState.activeSelection.heroIds).Count -eq 4) "Save bridge should lock four active-raid heroes."
+Assert-True ((Convert-ToArray $bridgeState.activeSelection.trinketIds).Count -eq 8) "Save bridge should lock active-raid trinkets."
+
+$necroSuccessReportPath = Write-JsonPayload "boss_bridge_necromancer_success.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "boss_gauntlet_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        progression = [pscustomobject]@{
+            lastRaidQuestId = 1001
+            lastRaidQuest = [pscustomobject]@{
+                value = 1001
+                isResolved = $true
+                isAmbiguous = $false
+                names = @("plot_kill_necromancer_3")
+            }
+            lastRaidSuccess = $true
+        }
+        campaignLog = [pscustomobject]@{
+            partyRaidRecordCount = 1
+        }
+    }
+})
+
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--infer-save-events", "--save-state-report", $necroSuccessReportPath))
+$bridgeState = Read-BossGauntletState -Root $bridgeStateRoot
+Assert-True ((Convert-ToArray $bridgeState.attempts).Count -eq 1) "Save bridge should record the successful boss attempt."
+Assert-True ((Convert-ToArray $bridgeState.completedQuestIds) -contains "plot_kill_necromancer_3") "Save bridge should mark the successful fixed boss as completed."
+Assert-True ((Convert-ToArray $bridgeState.consumedHeroIds).Count -eq 4) "Save bridge should consume selected heroes after success."
+Assert-True ((Convert-ToArray $bridgeState.consumedTrinketIds).Count -eq 8) "Save bridge should consume selected trinkets after success."
+Assert-True ([int]$bridgeState.wallet.gold -eq 30000) "Save bridge success should pay the configured victory gold once."
+Assert-True ($bridgeState.lastResolvedAttemptId -eq "1") "Save bridge should remember the resolved party raid record id."
+Assert-True ($null -eq $bridgeState.activeSelection) "Save bridge success should clear active selection."
+
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--infer-save-events", "--save-state-report", $necroSuccessReportPath))
+$bridgeState = Read-BossGauntletState -Root $bridgeStateRoot
+Assert-True ((Convert-ToArray $bridgeState.attempts).Count -eq 1) "Duplicate save bridge success should not record another attempt."
+Assert-True ([int]$bridgeState.wallet.gold -eq 30000) "Duplicate save bridge success should not pay again."
+
+$prophetActiveRaidReportPath = Write-JsonPayload "boss_bridge_prophet_active_raid.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "boss_gauntlet_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        raid = [pscustomobject]@{
+            instance = [pscustomobject]@{
+                id = "plot_kill_prophet_3"
+            }
+            party = [pscustomobject]@{
+                heroCount = 4
+                heroGuids = @(201, 202, 203, 204)
+            }
+        }
+        heroes = @(
+            [pscustomobject]@{ id = "201"; trinketIds = @("trinket_prophet_1") },
+            [pscustomobject]@{ id = "202"; trinketIds = @("trinket_prophet_2") },
+            [pscustomobject]@{ id = "203"; trinketIds = @("trinket_prophet_3") },
+            [pscustomobject]@{ id = "204"; trinketIds = @("trinket_prophet_4") }
+        )
+    }
+})
+
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--infer-save-events", "--save-state-report", $prophetActiveRaidReportPath))
+$bridgeState = Read-BossGauntletState -Root $bridgeStateRoot
+Assert-True ($bridgeState.activeSelection.questId -eq "plot_kill_prophet_3") "Save bridge should lock the second fixed boss selection."
+
+$prophetFailedReportPath = Write-JsonPayload "boss_bridge_prophet_failed.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "boss_gauntlet_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        progression = [pscustomobject]@{
+            lastRaidQuestId = 1002
+            lastRaidQuest = [pscustomobject]@{
+                value = 1002
+                isResolved = $true
+                isAmbiguous = $false
+                names = @("plot_kill_prophet_3")
+            }
+            lastRaidSuccess = $false
+        }
+        campaignLog = [pscustomobject]@{
+            partyRaidRecordCount = 2
+        }
+    }
+})
+
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--infer-save-events", "--save-state-report", $prophetFailedReportPath))
+$bridgeState = Read-BossGauntletState -Root $bridgeStateRoot
+Assert-True ((Convert-ToArray $bridgeState.attempts).Count -eq 2) "Save bridge should record the failed boss attempt."
+Assert-True ((Convert-ToArray $bridgeState.consumedHeroIds).Count -eq 8) "Save bridge failure should consume selected heroes."
+Assert-True ((Convert-ToArray $bridgeState.consumedTrinketIds).Count -eq 12) "Save bridge failure should consume selected trinkets."
+Assert-True (-not ((Convert-ToArray $bridgeState.completedQuestIds) -contains "plot_kill_prophet_3")) "Save bridge failure should not complete the boss quest."
+Assert-True ($bridgeState.lastResolvedAttemptId -eq "2") "Save bridge should remember the failed party raid record id."
+Assert-True ($null -eq $bridgeState.activeSelection) "Save bridge failure should clear active selection."
+
+$prophetStaleRetryReportPath = Write-JsonPayload "boss_bridge_prophet_retry_with_stale_result.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "boss_gauntlet_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        raid = [pscustomobject]@{
+            instance = [pscustomobject]@{
+                id = "plot_kill_prophet_3"
+            }
+            party = [pscustomobject]@{
+                heroCount = 4
+                heroGuids = @(301, 302, 303, 304)
+            }
+        }
+        progression = [pscustomobject]@{
+            lastRaidQuestId = 1002
+            lastRaidQuest = [pscustomobject]@{
+                value = 1002
+                isResolved = $true
+                isAmbiguous = $false
+                names = @("plot_kill_prophet_3")
+            }
+            lastRaidSuccess = $false
+        }
+        campaignLog = [pscustomobject]@{
+            partyRaidRecordCount = 2
+        }
+        heroes = @(
+            [pscustomobject]@{ id = "301"; trinketIds = @("trinket_retry_1") },
+            [pscustomobject]@{ id = "302"; trinketIds = @("trinket_retry_2") },
+            [pscustomobject]@{ id = "303"; trinketIds = @("trinket_retry_3") },
+            [pscustomobject]@{ id = "304"; trinketIds = @("trinket_retry_4") }
+        )
+    }
+})
+
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--infer-save-events", "--save-state-report", $prophetStaleRetryReportPath))
+$bridgeState = Read-BossGauntletState -Root $bridgeStateRoot
+Assert-True ($bridgeState.activeSelection.questId -eq "plot_kill_prophet_3") "Retry selection should stay locked when the save report still contains the previous attempt result."
+Assert-True ((Convert-ToArray $bridgeState.activeSelection.heroIds) -contains "301") "Retry selection should keep the newly selected heroes."
+Assert-True ((Convert-ToArray $bridgeState.attempts).Count -eq 2) "Stale previous result should not record a duplicate attempt for the retry selection."
+Assert-True ((Convert-ToArray $bridgeState.consumedHeroIds).Count -eq 8) "Stale previous result should not consume the retry heroes."
+
+$prophetSuccessReportPath = Write-JsonPayload "boss_bridge_prophet_success.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "boss_gauntlet_bridge_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        progression = [pscustomobject]@{
+            lastRaidQuestId = 1002
+            lastRaidQuest = [pscustomobject]@{
+                value = 1002
+                isResolved = $true
+                isAmbiguous = $false
+                names = @("plot_kill_prophet_3")
+            }
+            lastRaidSuccess = $true
+        }
+        campaignLog = [pscustomobject]@{
+            partyRaidRecordCount = 3
+        }
+    }
+})
+
+Invoke-Loader -LoaderArgs ($bridgeArgs + @("--infer-save-events", "--save-state-report", $prophetSuccessReportPath))
+$bridgeState = Read-BossGauntletState -Root $bridgeStateRoot
+Assert-True ((Convert-ToArray $bridgeState.attempts).Count -eq 3) "Save bridge should record the retry success as a new attempt."
+Assert-True ((Convert-ToArray $bridgeState.completedQuestIds) -contains "plot_kill_prophet_3") "Save bridge should complete the second boss after retry success."
+Assert-True ($bridgeState.phase -eq "darkest_finale") "Save bridge should unlock darkest_finale after all fixed bosses are completed."
+Assert-True ((Convert-ToArray $bridgeState.consumedHeroIds).Count -eq 0) "Finale unlock should clear pre-finale hero restrictions in save bridge flow."
+Assert-True ((Convert-ToArray $bridgeState.consumedTrinketIds).Count -eq 0) "Finale unlock should clear pre-finale trinket restrictions in save bridge flow."
+Assert-True ($bridgeState.lastResolvedAttemptId -eq "3") "Save bridge should update the last resolved attempt id after retry success."
 
 Write-Host "PASS: boss gauntlet contract state assertions passed."

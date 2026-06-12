@@ -37,7 +37,220 @@
   "phase": "normal",
   "priority": 16,
   "virtualFileRules": [],
-  "factEventRules": [],
+  "factEventRules": [
+    {
+      "id": "emit_boss_selection_confirmed_from_active_raid",
+      "enabled": true,
+      "emit": "quest.selection_confirmed",
+      "phase": "normal",
+      "priority": -10,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "quest.observe_selection_confirmed",
+        "party.observe_selection_confirmed",
+        "equipment.observe_loadout_confirmed"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "bossGauntlet.initialized",
+            "op": "equals",
+            "value": true
+          },
+          {
+            "state": "bossGauntlet.phase",
+            "op": "equals",
+            "value": "boss_gauntlet"
+          },
+          {
+            "state": "bossGauntlet.activeSelection.questId",
+            "op": "notExists"
+          },
+          {
+            "fact": "raid.instance.id",
+            "op": "exists"
+          },
+          {
+            "state": "bossGauntlet.fixedQuestIds",
+            "op": "contains",
+            "valueFromFact": "raid.instance.id"
+          },
+          {
+            "fact": "raid.party.heroCount",
+            "op": "greater",
+            "value": 0
+          }
+        ]
+      },
+      "payload": {
+        "questId": {
+          "fromFact": "raid.instance.id"
+        },
+        "selectedHeroIds": {
+          "fromFact": "raid.party.heroGuids",
+          "map": "stringArray"
+        },
+        "selectedTrinketIds": {
+          "fromFact": "heroes",
+          "whereIn": {
+            "path": "id",
+            "valuesFromFact": "raid.party.heroGuids"
+          },
+          "selectMany": "trinketIds",
+          "selectManyMissing": "skip",
+          "map": "stringArray",
+          "distinct": true
+        },
+        "saveStateReportPath": {
+          "fromBridge": "saveStateReportPath"
+        }
+      }
+    },
+    {
+      "id": "emit_boss_selection_confirmed_from_completed_campaign_log",
+      "enabled": true,
+      "emit": "quest.selection_confirmed",
+      "phase": "normal",
+      "priority": -5,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "quest.observe_selection_confirmed",
+        "party.observe_selection_confirmed",
+        "equipment.observe_loadout_confirmed"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "bossGauntlet.initialized",
+            "op": "equals",
+            "value": true
+          },
+          {
+            "state": "bossGauntlet.phase",
+            "op": "equals",
+            "value": "boss_gauntlet"
+          },
+          {
+            "state": "bossGauntlet.activeSelection.questId",
+            "op": "notExists"
+          },
+          {
+            "fact": "campaignLog.latestCompletedPartyRaidRecord.questId.names.0",
+            "op": "exists"
+          },
+          {
+            "state": "bossGauntlet.fixedQuestIds",
+            "op": "contains",
+            "valueFromFact": "campaignLog.latestCompletedPartyRaidRecord.questId.names.0"
+          },
+          {
+            "fact": "campaignLog.latestCompletedPartyRaidRecord.start",
+            "op": "equals",
+            "value": false
+          }
+        ]
+      },
+      "payload": {
+        "questId": {
+          "fromFact": "campaignLog.latestCompletedPartyRaidRecord.questId.names.0"
+        },
+        "selectedHeroIds": {
+          "fromFact": "campaignLog.latestCompletedPartyRaidRecord.heroGuids",
+          "map": "stringArray"
+        },
+        "selectedTrinketIds": {
+          "fromFact": "heroes",
+          "whereIn": {
+            "path": "id",
+            "valuesFromFact": "campaignLog.latestCompletedPartyRaidRecord.heroGuids"
+          },
+          "selectMany": "trinketIds",
+          "selectManyMissing": "skip",
+          "map": "stringArray",
+          "distinct": true
+        },
+        "saveStateReportPath": {
+          "fromBridge": "saveStateReportPath"
+        }
+      }
+    },
+    {
+      "id": "emit_boss_attempt_resolved_from_last_raid",
+      "enabled": true,
+      "emit": "quest.attempt_resolved",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "quest.observe_attempt_resolved"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "bossGauntlet.initialized",
+            "op": "equals",
+            "value": true
+          },
+          {
+            "state": "bossGauntlet.phase",
+            "op": "equals",
+            "value": "boss_gauntlet"
+          },
+          {
+            "state": "bossGauntlet.activeSelection.questId",
+            "op": "exists"
+          },
+          {
+            "fact": "progression.lastRaidQuest.names",
+            "op": "contains",
+            "valueFromState": "bossGauntlet.activeSelection.questId"
+          },
+          {
+            "fact": "progression.lastRaidSuccess",
+            "op": "exists"
+          },
+          {
+            "fact": "campaignLog.partyRaidRecordCount",
+            "op": "exists"
+          },
+          {
+            "any": [
+              {
+                "state": "bossGauntlet.lastResolvedAttemptId",
+                "op": "notExists"
+              },
+              {
+                "state": "bossGauntlet.lastResolvedAttemptId",
+                "op": "notEquals",
+                "valueFromFact": "campaignLog.partyRaidRecordCount"
+              }
+            ]
+          }
+        ]
+      },
+      "payload": {
+        "questId": {
+          "fromState": "bossGauntlet.activeSelection.questId"
+        },
+        "success": {
+          "fromFact": "progression.lastRaidSuccess"
+        },
+        "attemptId": {
+          "fromFact": "campaignLog.partyRaidRecordCount"
+        },
+        "observedQuestHash": {
+          "fromFact": "progression.lastRaidQuestId",
+          "optional": true
+        },
+        "observedQuestNames": {
+          "fromFact": "progression.lastRaidQuest.names"
+        },
+        "saveStateReportPath": {
+          "fromBridge": "saveStateReportPath"
+        }
+      }
+    }
+  ],
   "eventRules": [
     {
       "id": "initialize_new_boss_gauntlet_profile",
@@ -356,6 +569,16 @@
           }
         },
         {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.lastResolvedAttemptId",
+            "value": "event.attemptId"
+          }
+        },
+        {
           "type": "selection.consumeHeroes",
           "capability": "selection.consume_heroes",
           "risk": "safe",
@@ -472,6 +695,16 @@
           }
         },
         {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.lastResolvedAttemptId",
+            "value": "event.attemptId"
+          }
+        },
+        {
           "type": "selection.consumeHeroes",
           "capability": "selection.consume_heroes",
           "risk": "safe",
@@ -518,6 +751,7 @@
         "consumedHeroIds": [],
         "consumedTrinketIds": [],
         "rewardedAttemptFingerprints": [],
+        "lastResolvedAttemptId": null,
         "observedDeadHeroIds": [],
         "activeSelection": null,
         "attempts": []
