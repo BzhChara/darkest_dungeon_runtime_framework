@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace DDRuntimeLoader;
 
-internal static class ManagedActionOverlayCompiler
+internal static partial class ManagedActionOverlayCompiler
 {
     private const int ReportVersion = 1;
     private const string QuestPlotFileTarget = "campaign/quest/quest.plot_quests.json";
@@ -45,6 +45,18 @@ internal static class ManagedActionOverlayCompiler
                     if (actionType.Equals("quest.injectFixedStage", StringComparison.OrdinalIgnoreCase))
                     {
                         overlayCandidates.Add(BuildQuestInjectFixedStageOverlay(artifactPath, artifact));
+                    }
+                    else if (actionType.Equals("inventory.disableItemSale", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var overlay = BuildInventoryDisableItemSaleOverlay(artifactPath, artifact);
+                        if (ReadBool(overlay, "disabled"))
+                        {
+                            overlayCandidates.Add(overlay);
+                        }
+                        else
+                        {
+                            ignoredArtifactCount++;
+                        }
                     }
                     else
                     {
@@ -174,98 +186,102 @@ internal static class ManagedActionOverlayCompiler
         JsonArray issues,
         LauncherLog log)
     {
+        var virtualRules = new List<OverlayVirtualRule>();
         var questOverlays = overlays
             .Where(overlay =>
                 ReadString(overlay, "kind").Equals("quest.injectFixedStage", StringComparison.OrdinalIgnoreCase) &&
                 ReadString(overlay, "target").Equals("quest.currentStage", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
-        if (questOverlays.Length == 0)
+        if (questOverlays.Length > 0)
         {
-            return [];
-        }
-
-        var questPlotPath = Path.Combine(config.GameWorkingDirectory, QuestPlotFileTarget.Replace('/', Path.DirectorySeparatorChar));
-        if (!File.Exists(questPlotPath))
-        {
-            AddIssue(
-                issues,
-                log,
-                "warning",
-                "managed-overlay-quest-file-missing",
-                string.Empty,
-                $"Quest plot file was not found: {questPlotPath}");
-            return [];
-        }
-
-        string questPlotText;
-        try
-        {
-            questPlotText = File.ReadAllText(questPlotPath, Encoding.UTF8);
-        }
-        catch (Exception ex)
-        {
-            AddIssue(
-                issues,
-                log,
-                "warning",
-                "managed-overlay-quest-file-read-failed",
-                string.Empty,
-                $"Quest plot file could not be read: {ex.Message}");
-            return [];
-        }
-
-        var replacements = new List<VirtualFileReplacement>();
-        var replacementSummaries = new JsonArray();
-        var currentQuestPlotText = questPlotText;
-        foreach (var overlay in questOverlays)
-        {
-            try
-            {
-                var replacement = BuildQuestPlotReplacement(currentQuestPlotText, overlay, replacements.Count);
-                replacements.Add(replacement.Replacement);
-                replacementSummaries.Add(replacement.Summary);
-                currentQuestPlotText = ReplaceAllText(
-                    currentQuestPlotText,
-                    replacement.Replacement.Find,
-                    replacement.Replacement.Replace);
-                log.Info(
-                    $"managed-action-overlay virtual-rule sourceQuest={Quote(replacement.SourceQuestId)} " +
-                    $"stage={Quote(replacement.StageId)} target={Quote(QuestPlotFileTarget)} " +
-                    $"findChars={replacement.Replacement.Find.Length} replaceChars={replacement.Replacement.Replace.Length}");
-            }
-            catch (Exception ex)
+            var questPlotPath = Path.Combine(config.GameWorkingDirectory, QuestPlotFileTarget.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(questPlotPath))
             {
                 AddIssue(
                     issues,
                     log,
                     "warning",
-                    "managed-overlay-quest-replacement-failed",
-                    ReadString(overlay, "artifactPath"),
-                    ex.Message);
+                    "managed-overlay-quest-file-missing",
+                    string.Empty,
+                    $"Quest plot file was not found: {questPlotPath}");
+            }
+            else
+            {
+                string questPlotText;
+                try
+                {
+                    questPlotText = File.ReadAllText(questPlotPath, Encoding.UTF8);
+                }
+                catch (Exception ex)
+                {
+                    AddIssue(
+                        issues,
+                        log,
+                        "warning",
+                        "managed-overlay-quest-file-read-failed",
+                        string.Empty,
+                        $"Quest plot file could not be read: {ex.Message}");
+                    questPlotText = string.Empty;
+                }
+
+                if (!string.IsNullOrEmpty(questPlotText))
+                {
+                    var replacements = new List<VirtualFileReplacement>();
+                    var replacementSummaries = new JsonArray();
+                    var currentQuestPlotText = questPlotText;
+                    foreach (var overlay in questOverlays)
+                    {
+                        try
+                        {
+                            var replacement = BuildQuestPlotReplacement(currentQuestPlotText, overlay, replacements.Count);
+                            replacements.Add(replacement.Replacement);
+                            replacementSummaries.Add(replacement.Summary);
+                            currentQuestPlotText = ReplaceAllText(
+                                currentQuestPlotText,
+                                replacement.Replacement.Find,
+                                replacement.Replacement.Replace);
+                            log.Info(
+                                $"managed-action-overlay virtual-rule sourceQuest={Quote(replacement.SourceQuestId)} " +
+                                $"stage={Quote(replacement.StageId)} target={Quote(QuestPlotFileTarget)} " +
+                                $"findChars={replacement.Replacement.Find.Length} replaceChars={replacement.Replacement.Replace.Length}");
+                        }
+                        catch (Exception ex)
+                        {
+                            AddIssue(
+                                issues,
+                                log,
+                                "warning",
+                                "managed-overlay-quest-replacement-failed",
+                                ReadString(overlay, "artifactPath"),
+                                ex.Message);
+                        }
+                    }
+
+                    if (replacements.Count > 0)
+                    {
+                        var summary = new JsonObject
+                        {
+                            ["target"] = QuestPlotFileTarget,
+                            ["effect"] = "forcePlotQuestAvailable",
+                            ["replacementCount"] = replacements.Count,
+                            ["replacements"] = replacementSummaries
+                        };
+
+                        var rule = new VirtualFileRule
+                        {
+                            Target = QuestPlotFileTarget,
+                            Replacements = replacements.ToArray()
+                        };
+
+                        virtualRules.Add(new OverlayVirtualRule(rule, summary));
+                    }
+                }
             }
         }
 
-        if (replacements.Count == 0)
-        {
-            return [];
-        }
-
-        var summary = new JsonObject
-        {
-            ["target"] = QuestPlotFileTarget,
-            ["effect"] = "forcePlotQuestAvailable",
-            ["replacementCount"] = replacements.Count,
-            ["replacements"] = replacementSummaries
-        };
-
-        var rule = new VirtualFileRule
-        {
-            Target = QuestPlotFileTarget,
-            Replacements = replacements.ToArray()
-        };
-
-        return [new OverlayVirtualRule(rule, summary)];
+        virtualRules.AddRange(BuildInventoryDisableItemSaleVirtualRules(config, overlays, issues, log));
+        return virtualRules;
     }
 
     private static QuestPlotReplacement BuildQuestPlotReplacement(string questPlotText, JsonObject overlay, int replacementIndex)
@@ -432,6 +448,18 @@ internal static class ManagedActionOverlayCompiler
         }
 
         return number;
+    }
+
+    private static bool ReadBool(JsonObject root, string path)
+    {
+        if (!TryGetPath(root, path, out var node) ||
+            node is not JsonValue value ||
+            !value.TryGetValue<bool>(out var result))
+        {
+            return false;
+        }
+
+        return result;
     }
 
     private static bool TryGetPath(JsonObject root, string path, out JsonNode? node)

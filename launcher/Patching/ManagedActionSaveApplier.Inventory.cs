@@ -25,9 +25,9 @@ internal static partial class ManagedActionSaveApplier
 
         context.Issues.Add(new ManagedActionApplyIssue(
             "warning",
-            "managed-action-runtime-consumer-required",
+            "managed-action-hard-lockout-not-verified",
             artifactPath,
-            $"inventory.disableItemSale recorded policy for itemKind={itemKind}; live enforcement still requires a runtime/economy consumer"));
+            $"inventory.disableItemSale recorded decoded profile policy for itemKind={itemKind}; startup overlay can suppress trinket content price, but hard UI/economy lockout still requires live validation"));
 
         AddSuccessfulAction(
             context,
@@ -36,7 +36,7 @@ internal static partial class ManagedActionSaveApplier
             policyFile.Path,
             [
                 $"record inventory sale policy itemKind={itemKind} disabled={disabled}",
-                "no verified persist.estate sale-disable field exists; runtime/economy consumer required for live enforcement"
+                "no verified persist.estate sale-disable field exists; content overlay handles trinket sale-value suppression separately"
             ]);
     }
 

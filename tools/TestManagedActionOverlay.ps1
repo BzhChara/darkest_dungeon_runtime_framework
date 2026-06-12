@@ -30,6 +30,46 @@ function Resolve-ProjectPath {
     return (Join-Path $projectRoot.Path $Path)
 }
 
+function Get-CampaignTrinketEntryFiles {
+    param([string]$GameWorkingDirectory)
+
+    $files = @()
+    $baseTrinketDirectory = Join-Path $GameWorkingDirectory "trinkets"
+    if (Test-Path -LiteralPath $baseTrinketDirectory -PathType Container) {
+        $files += @(Get-ChildItem -LiteralPath $baseTrinketDirectory -Filter "*.entries.trinkets.json" -File | Sort-Object FullName | ForEach-Object { $_.FullName })
+    }
+
+    $dlcDirectory = Join-Path $GameWorkingDirectory "dlc"
+    if (Test-Path -LiteralPath $dlcDirectory -PathType Container) {
+        foreach ($directory in @(Get-ChildItem -LiteralPath $dlcDirectory -Directory | Sort-Object FullName)) {
+            if ([string]::IsNullOrWhiteSpace($directory.Name) -or
+                -not [char]::IsDigit($directory.Name[0]) -or
+                $directory.Name.Contains("arena", [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            $files += @(Get-ChildItem -LiteralPath $directory.FullName -Filter "*.entries.trinkets.json" -File -Recurse | Sort-Object FullName | ForEach-Object { $_.FullName })
+        }
+    }
+
+    return $files
+}
+
+function Get-TrinketEntryFilesWithPositivePrice {
+    param([string[]]$Paths)
+
+    $result = @()
+    foreach ($path in $Paths) {
+        $content = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+        $positive = @($content.entries | Where-Object { $null -ne $_.price -and [int]$_.price -gt 0 })
+        if ($positive.Count -gt 0) {
+            $result += $path
+        }
+    }
+
+    return $result
+}
+
 function Invoke-Loader {
     param([string[]]$LoaderArgs)
 
@@ -65,6 +105,40 @@ try {
     $artifacts = @(Get-ChildItem -LiteralPath $artifactRoot -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
     Assert-True ($artifacts.Count -eq 6) "Expected six materialized managed action artifacts after two selection-start events, found $($artifacts.Count)."
 
+    $config = Get-Content -Raw -LiteralPath (Resolve-ProjectPath $ConfigPath) | ConvertFrom-Json
+    $gameWorkingDirectory = Resolve-ProjectPath ([string]$config.gameWorkingDirectory)
+    $trinketEntryFiles = @(Get-CampaignTrinketEntryFiles -GameWorkingDirectory $gameWorkingDirectory)
+    $positiveTrinketEntryFiles = @(Get-TrinketEntryFilesWithPositivePrice -Paths $trinketEntryFiles)
+    Assert-True ($positiveTrinketEntryFiles.Count -gt 0) "Expected at least one trinket entry content file with positive prices."
+
+    $inventoryArtifactPath = Join-Path $artifactRoot "manual_inventory.disableItemSale.json"
+    $inventoryArtifact = [ordered]@{
+        version = 1
+        status = "materialized"
+        eventId = "manual.overlay-test"
+        pluginId = "validation.managed_action_overlay_test"
+        sourceName = "Validation - Managed Action Overlay Test"
+        sourcePath = "tools/TestManagedActionOverlay.ps1"
+        ruleIndex = 1
+        ruleId = "manual_inventory_policy"
+        actionIndex = 0
+        action = [ordered]@{
+            type = "inventory.disableItemSale"
+        }
+        plan = [ordered]@{
+            effect = "disableItemSale"
+            target = "profile.inventory"
+            arguments = [ordered]@{
+                itemKind = "trinket"
+                disabled = $true
+            }
+        }
+    }
+    $inventoryArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $inventoryArtifactPath -Encoding UTF8
+
+    $artifacts = @(Get-ChildItem -LiteralPath $artifactRoot -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
+    Assert-True ($artifacts.Count -eq 7) "Expected seven materialized managed action artifacts after adding inventory policy artifact, found $($artifacts.Count)."
+
     $dryRunArgs = @(
         "--config", (Resolve-ProjectPath $ConfigPath),
         "--no-inject",
@@ -77,25 +151,29 @@ try {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Managed action overlay manifest was not written: $manifestPath"
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 
-    Assert-True ([int]$manifest.artifactCount -eq 6) "Overlay manifest should count all six artifacts."
-    Assert-True ([int]$manifest.overlayCount -eq 1) "First overlay compiler slice should expose only the latest quest.injectFixedStage overlay."
+    Assert-True ([int]$manifest.artifactCount -eq 7) "Overlay manifest should count all seven artifacts."
+    Assert-True ([int]$manifest.overlayCount -eq 2) "Overlay compiler should expose the latest quest.injectFixedStage overlay and the inventory policy overlay."
     Assert-True ([int]$manifest.ignoredArtifactCount -eq 4) "Overlay manifest should ignore hero/trinket filter artifacts for now."
     Assert-True ([int]$manifest.supersededOverlayCount -eq 1) "Overlay manifest should supersede the older quest injection artifact."
-    Assert-True ([int]$manifest.virtualFileRuleCount -eq 1) "Overlay manifest should compile one quest plot virtual file rule."
-    Assert-True ([int]$manifest.virtualFileReplacementCount -eq 1) "Overlay manifest should compile one quest plot replacement."
+    Assert-True ([int]$manifest.virtualFileRuleCount -eq (1 + $positiveTrinketEntryFiles.Count)) "Overlay manifest should compile one quest plot virtual file rule plus one trinket sourcePath rule per positive-price trinket file."
+    Assert-True ([int]$manifest.virtualFileReplacementCount -eq 1) "Overlay manifest should compile one quest plot replacement; trinket price suppression uses sourcePath overlays."
     Assert-True ((@($manifest.issues)).Count -eq 0) "Overlay manifest should not contain issues."
 
     $overlays = @($manifest.overlays)
-    Assert-True ($overlays.Count -eq 1) "Expected exactly one overlay entry."
-    $overlay = $overlays[0]
+    Assert-True ($overlays.Count -eq 2) "Expected exactly two overlay entries."
+    $overlay = @($overlays | Where-Object { $_.kind -eq "quest.injectFixedStage" })[0]
     Assert-True ($overlay.kind -eq "quest.injectFixedStage") "Overlay kind should be quest.injectFixedStage."
     Assert-True ($overlay.stageId -eq "stage_1_necromancer") "Overlay should target the first challenge stage."
     Assert-True ($overlay.sourceQuestId -eq "plot_kill_necromancer_1") "Overlay should carry the source quest id."
     Assert-True (Test-Path -LiteralPath ([string]$overlay.artifactPath) -PathType Leaf) "Overlay artifact path should point to an existing artifact."
+    $inventoryOverlay = @($overlays | Where-Object { $_.kind -eq "inventory.disableItemSale" })[0]
+    Assert-True ($inventoryOverlay.effect -eq "suppressSaleValue") "Inventory overlay should record sale-value suppression."
+    Assert-True ($inventoryOverlay.itemKind -eq "trinket") "Inventory overlay should target trinkets."
+    Assert-True ([bool]$inventoryOverlay.disabled) "Inventory overlay should be enabled."
 
     $virtualRules = @($manifest.virtualFileRules)
-    Assert-True ($virtualRules.Count -eq 1) "Expected exactly one overlay virtual file rule."
-    $virtualRule = $virtualRules[0]
+    Assert-True ($virtualRules.Count -eq (1 + $positiveTrinketEntryFiles.Count)) "Expected quest overlay plus trinket content sourcePath overlays."
+    $virtualRule = @($virtualRules | Where-Object { $_.effect -eq "forcePlotQuestAvailable" })[0]
     Assert-True ($virtualRule.target -eq "campaign/quest/quest.plot_quests.json") "Overlay virtual rule should target the base plot quest file."
     Assert-True ($virtualRule.effect -eq "forcePlotQuestAvailable") "Overlay virtual rule should force the selected plot quest available."
     $virtualReplacements = @($virtualRule.replacements)
@@ -107,6 +185,10 @@ try {
     Assert-True ([bool]$virtualReplacement.setRepeatable) "Overlay virtual replacement should force the quest to repeatable."
     Assert-True ([int]$virtualReplacement.findChars -gt 0) "Overlay virtual replacement should contain non-empty find text."
     Assert-True ([int]$virtualReplacement.replaceChars -gt 0) "Overlay virtual replacement should contain non-empty replacement text."
+    $trinketRules = @($virtualRules | Where-Object { $_.effect -eq "suppressTrinketSaleValue" })
+    Assert-True ($trinketRules.Count -eq $positiveTrinketEntryFiles.Count) "Expected one trinket sale-value sourcePath rule per positive-price trinket file."
+    Assert-True (($trinketRules | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.sourcePath) }).Count -eq 0) "Trinket sale-value overlays should use generated sourcePath files."
+    Assert-True (($trinketRules | Where-Object { [int]$_.affectedEntryCount -le 0 }).Count -eq 0) "Trinket sale-value overlays should affect at least one entry each."
 
     $previewRoot = Join-Path $projectRoot.Path "logs\managed_action_overlay_preview"
     $previewPath = Join-Path $previewRoot "campaign_quest_quest.plot_quests.json.preview.txt"
@@ -122,7 +204,13 @@ try {
     Assert-True ([int]$previewQuest[0].dungeon_level -eq 0) "Managed overlay preview should force dungeon_level to 0."
     Assert-True ([bool]$previewQuest[0].is_repeatable) "Managed overlay preview should force is_repeatable to true."
 
-    Write-Host "PASS: managed action artifacts compiled into an overlay manifest."
+    $baseTrinketPreviewPath = Join-Path $previewRoot "trinkets_base.entries.trinkets.json.preview.bin"
+    Assert-True (Test-Path -LiteralPath $baseTrinketPreviewPath -PathType Leaf) "Managed overlay trinket sourcePath preview was not written: $baseTrinketPreviewPath"
+    $baseTrinketPreview = Get-Content -Raw -LiteralPath $baseTrinketPreviewPath | ConvertFrom-Json
+    $positivePreviewPrices = @($baseTrinketPreview.entries | Where-Object { $null -ne $_.price -and [int]$_.price -gt 0 })
+    Assert-True ($positivePreviewPrices.Count -eq 0) "Trinket sale-value overlay preview should suppress all positive base trinket prices."
+
+    Write-Host "PASS: managed action artifacts compiled into quest and trinket sale-value overlay manifest."
 }
 finally {
     Pop-Location
