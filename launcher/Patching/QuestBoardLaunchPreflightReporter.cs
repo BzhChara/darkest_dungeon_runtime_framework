@@ -16,6 +16,7 @@ internal static class QuestBoardLaunchPreflightReporter
         LauncherLog log,
         QuestBoardPreviewReport preview,
         ManagedActionOverlayReport overlay,
+        QuestBoardRuntimeOverlayReport runtimeOverlay,
         string mode)
     {
         var reportPath = Path.Combine(config.LogDirectory, "quest_board_launch_preflight_report.json");
@@ -32,24 +33,35 @@ internal static class QuestBoardLaunchPreflightReporter
         }
 
         var hasCandidate = preview.FinalActiveQuestCount > 0;
-        var runtimeQuestBoardConsumerStatus = "notImplemented";
-        var willRuntimeReplaceQuestBoard = false;
+        var runtimeQuestBoardConsumerStatus = runtimeOverlay.Status;
+        var willRuntimeReplaceQuestBoard = runtimeOverlay.VirtualFileRuleCount > 0;
         var willRuntimeForceQuestContentAvailable = runtimeContentOverlays.Any(overlay =>
             overlay.Target.Equals("campaign/quest/quest.plot_quests.json", StringComparison.OrdinalIgnoreCase) &&
             overlay.Replacements.Any(replacement => replacement.Subject.StartsWith("quest.injectFixedStage:", StringComparison.OrdinalIgnoreCase)));
         var candidateStatus = preview.ErrorCount > 0
             ? "invalid"
             : hasCandidate
-                ? "previewOnly"
+                ? willRuntimeReplaceQuestBoard
+                    ? "runtimeOverlayReady"
+                    : "previewOnly"
                 : "none";
 
         if (hasCandidate && !willRuntimeReplaceQuestBoard)
         {
             issues.Add(new QuestBoardLaunchPreflightIssue(
                 "warning",
-                "quest-board-runtime-consumer-not-implemented",
-                preview.ReportPath,
-                "quest board candidates exist, but the current runtime path will not replace the in-game quest board; use decoded-save apply/write or a future quest-board hook consumer"));
+                "quest-board-runtime-consumer-unavailable",
+                runtimeOverlay.ReportPath,
+                "quest board candidates exist, but the current runtime path could not compile a save overlay; check saveWatchDirectories and dsonSaveEditorJarPath"));
+        }
+
+        if (runtimeOverlay.WarningCount > 0)
+        {
+            issues.Add(new QuestBoardLaunchPreflightIssue(
+                "warning",
+                "quest-board-runtime-overlay-has-warnings",
+                runtimeOverlay.ReportPath,
+                $"quest board runtime overlay reported {runtimeOverlay.WarningCount} warning(s)"));
         }
 
         var report = new QuestBoardLaunchPreflightReport(
@@ -59,6 +71,7 @@ internal static class QuestBoardLaunchPreflightReporter
             mode,
             preview.ReportPath,
             overlay.ManifestPath,
+            runtimeOverlay.ReportPath,
             preview.Succeeded,
             hasCandidate,
             candidateStatus,
@@ -66,6 +79,7 @@ internal static class QuestBoardLaunchPreflightReporter
             runtimeQuestBoardConsumerStatus,
             willRuntimeReplaceQuestBoard,
             willRuntimeForceQuestContentAvailable,
+            runtimeOverlay.VirtualFileRuleCount,
             overlay.ArtifactCount,
             overlay.OverlayCount,
             overlay.IssueCount,
@@ -156,6 +170,7 @@ internal sealed record QuestBoardLaunchPreflightReport(
     string Mode,
     string QuestBoardPreviewReportPath,
     string ManagedOverlayManifestPath,
+    string QuestBoardRuntimeOverlayReportPath,
     bool QuestBoardPreviewSucceeded,
     bool HasQuestBoardCandidate,
     string CandidateQuestBoardStatus,
@@ -163,6 +178,7 @@ internal sealed record QuestBoardLaunchPreflightReport(
     string RuntimeQuestBoardConsumerStatus,
     bool WillRuntimeReplaceQuestBoard,
     bool WillRuntimeForceQuestContentAvailable,
+    int RuntimeQuestBoardOverlayRuleCount,
     int ManagedArtifactCount,
     int ManagedOverlayCount,
     int ManagedOverlayIssueCount,

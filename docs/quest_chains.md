@@ -89,11 +89,11 @@ Before `--dry-run` or a real game launch, the loader also writes:
 logs/quest_board_launch_preflight_report.json
 ```
 
-This preflight report links the quest-board preview to `logs/managed_action_overlay_manifest.json`. It explicitly separates candidate board state from live runtime behavior. In the current implementation, `runtimeQuestBoardConsumerStatus` is `notImplemented` and `willRuntimeReplaceQuestBoard` is `false`; the report is there to show what the fixed board candidate would be and what content overlays the runtime will actually see before a future quest-board hook or decoded-save initialization path consumes it.
+This preflight report links the quest-board preview to `logs/managed_action_overlay_manifest.json` and `logs/quest_board_runtime_overlay_report.json`. It explicitly separates candidate board state from live runtime behavior. When `saveWatchDirectories` points at one or more `profile_*` saves, the runtime overlay compiler builds virtual `profile_*/persist.quest.json` replacements from the fixed-board candidate. JSON fixtures are rewritten directly; binary DSON saves require `dsonSaveEditorJarPath` to point at DDSaveEditor so the framework can decode, patch, and re-encode a runtime-only overlay without mutating the original save.
 
 Regression coverage:
 
-- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> quest-board preview -> launch preflight -> decoded persist.quest.json` can preview, preflight, dry-run, write, and repeat idempotently without accumulating duplicate artifacts.
+- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> quest-board preview -> launch preflight -> runtime persist.quest.json overlay -> decoded persist.quest.json writer` can preview, preflight, dry-run, write, and repeat idempotently without accumulating duplicate artifacts.
 
 ## Relationship To Map Layouts
 
@@ -102,6 +102,7 @@ Regression coverage:
 ## Current Limits
 
 - Quest-board output is opt-in and currently materializes only fixed-set board entries from `sourceQuestId`.
+- Live quest-board replacement is currently a virtual-save overlay, not an original-save write. If no readable watched profile exists, or a binary DSON save is present without a configured DDSaveEditor jar, preflight reports the board as preview-only/unavailable instead of pretending the runtime path is active.
 - No custom quest object writer exists yet; `sourceQuestId` still anchors a stage to original quest content.
 - No encounter mash writer exists yet, so stage-specific monster lineups are still represented by future `encounter.*` primitives.
 - Cross-plugin map template references are not supported in the first slice; keep chain and referenced map templates in the same plugin.

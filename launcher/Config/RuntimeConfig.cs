@@ -14,6 +14,9 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("runtimeDllPath")]
     public string RuntimeDllPath { get; set; } = string.Empty;
 
+    [JsonPropertyName("dsonSaveEditorJarPath")]
+    public string DsonSaveEditorJarPath { get; set; } = "./.research/DDSaveEditor-v0.0.70/DDSaveEditor.jar";
+
     [JsonPropertyName("logDirectory")]
     public string LogDirectory { get; set; } = string.Empty;
 
@@ -138,6 +141,7 @@ internal sealed partial class RuntimeConfig
         GameExecutablePath = ResolvePath(projectRoot, GameExecutablePath);
         GameWorkingDirectory = ResolvePath(projectRoot, GameWorkingDirectory);
         RuntimeDllPath = ResolvePath(projectRoot, RuntimeDllPath);
+        DsonSaveEditorJarPath = ResolvePath(projectRoot, DsonSaveEditorJarPath);
         LogDirectory = ResolvePath(projectRoot, LogDirectory);
         ModStateDirectory = ResolvePath(projectRoot, ModStateDirectory);
         if (!IsInsideDirectory(projectRoot, ModStateDirectory))

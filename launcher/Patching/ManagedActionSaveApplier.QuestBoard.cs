@@ -6,43 +6,8 @@ internal static partial class ManagedActionSaveApplier
 {
     private static void ApplyQuestBoardReplaceWithFixedSet(ApplyContext context, string artifactPath, JsonObject artifact)
     {
-        var questIds = ReadStringArray(ReadNode(artifact, "plan.arguments.questIds"), "plan.arguments.questIds");
-        if (questIds.Count == 0)
-        {
-            throw new InvalidDataException("plan.arguments.questIds must contain at least one quest id.");
-        }
-
-        var removeCompleted = ReadOptionalBool(RequireObject(artifact, "plan.arguments"), "removeCompleted") == true;
-        var completedQuestIds = removeCompleted
-            ? ResolveCompletedQuestIds(context, artifact)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var activeQuestIds = questIds
-            .Where(id => !completedQuestIds.Contains(id))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        var definitions = QuestBoardContentCatalog.LoadEnabledPlotQuestDefinitions(context.GameWorkingDirectory);
-        if (definitions.Count == 0)
-        {
-            throw new InvalidDataException("Plot quest definition catalog produced no quest ids.");
-        }
-
-        var missingQuestIds = activeQuestIds
-            .Where(id => !definitions.ContainsKey(id))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (missingQuestIds.Length > 0)
-        {
-            throw new InvalidDataException($"Fixed quest board references unknown plot quest ids: {string.Join(",", missingQuestIds)}");
-        }
-
-        var replacement = new JsonObject();
-        for (var i = 0; i < activeQuestIds.Length; i++)
-        {
-            replacement[i.ToString(CultureInfo.InvariantCulture)] =
-                QuestBoardContentCatalog.BuildQuestBoardEntry(definitions[activeQuestIds[i]]);
-        }
+        var plan = QuestBoardFixedSetResolver.Resolve(context.GameWorkingDirectory, context.ModStateDirectory, artifact);
+        var replacement = QuestBoardFixedSetResolver.BuildQuestEntries(plan.ActiveQuestIds, plan.Definitions);
 
         var file = context.LoadDecodedJsonFile("persist.quest.json");
         var baseRoot = EnsureObject(file.Root, "base_root");
@@ -55,7 +20,7 @@ internal static partial class ManagedActionSaveApplier
                 baseRoot["quests"] = replacement;
             }
 
-            file.MarkChanged(Math.Max(1, activeQuestIds.Length));
+            file.MarkChanged(Math.Max(1, plan.ActiveQuestIds.Count));
         }
 
         AddSuccessfulAction(
@@ -64,37 +29,10 @@ internal static partial class ManagedActionSaveApplier
             artifact,
             file.Path,
             [
-                $"replace quest board fixedQuestIds={questIds.Count} activeQuestIds={activeQuestIds.Length} removeCompleted={removeCompleted}",
-                $"completedFiltered={questIds.Count - activeQuestIds.Length} definitions={definitions.Count}",
-                $"quests={string.Join(",", activeQuestIds)}"
+                $"replace quest board fixedQuestIds={plan.SourceQuestIds.Count} activeQuestIds={plan.ActiveQuestIds.Count} removeCompleted={plan.RemoveCompleted}",
+                $"completedFiltered={plan.CompletedFilteredQuestIds.Count} definitions={plan.Definitions.Count}",
+                $"quests={string.Join(",", plan.ActiveQuestIds)}"
             ]);
     }
 
-    private static HashSet<string> ResolveCompletedQuestIds(ApplyContext context, JsonObject artifact)
-    {
-        return QuestBoardArtifactStateResolver.ResolveCompletedQuestIds(context.ModStateDirectory, artifact);
-    }
-
-    private static IReadOnlyList<string> ReadStringArray(JsonNode? node, string path)
-    {
-        if (node is not JsonArray array)
-        {
-            throw new InvalidDataException($"{path} must be a string array.");
-        }
-
-        var result = new List<string>();
-        foreach (var item in array)
-        {
-            if (item is not JsonValue value ||
-                !value.TryGetValue<string>(out var text) ||
-                string.IsNullOrWhiteSpace(text))
-            {
-                throw new InvalidDataException($"{path} must contain only non-empty strings.");
-            }
-
-            result.Add(text);
-        }
-
-        return result;
-    }
 }

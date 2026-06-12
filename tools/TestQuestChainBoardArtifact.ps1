@@ -10,6 +10,9 @@ $testRoot = Join-Path $projectRoot.Path "logs\quest_chain_board_artifact_test\$s
 $stateRoot = Join-Path $projectRoot.Path "state\quest_chain_board_artifact_test\$sessionId"
 $pluginRoot = Join-Path $testRoot "plugins\quest_chain_board_artifact"
 $saveRoot = Join-Path $stateRoot "decoded_save"
+$liveJsonProfileRoot = Join-Path $stateRoot "profile_0"
+$liveDsonProfileRoot = Join-Path $stateRoot "profile_1"
+$saveEditorJar = Join-Path $projectRoot.Path ".research\DDSaveEditor-v0.0.70\DDSaveEditor.jar"
 $configPath = Join-Path $projectRoot.Path "config\_quest_chain_board_artifact_test_$sessionId.json"
 
 function Assert-True {
@@ -50,10 +53,23 @@ function Read-QuestBoardLaunchPreflightReport {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-QuestBoardRuntimeOverlayReport {
+    $path = Join-Path $projectRoot.Path "logs\quest_board_runtime_overlay_report.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Quest board runtime overlay report was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Read-DecodedQuest {
     $path = Join-Path $saveRoot "persist.quest.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded quest file was not created: $path"
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
+function Read-QuestFile {
+    param([string]$Path)
+
+    Assert-True (Test-Path -LiteralPath $Path -PathType Leaf) "Quest file was not created: $Path"
+    return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
 }
 
 function Get-QuestIds {
@@ -78,7 +94,13 @@ function Get-QuestById {
 }
 
 function Write-DecodedQuestFixture {
-    $path = Join-Path $saveRoot "persist.quest.json"
+    param(
+        [string]$DirectoryPath = $saveRoot,
+        [string]$FileName = "persist.quest.json"
+    )
+
+    New-Item -ItemType Directory -Force -Path $DirectoryPath | Out-Null
+    $path = Join-Path $DirectoryPath $FileName
     @'
 {
   "base_root": {
@@ -130,7 +152,7 @@ function Write-DecodedQuestFixture {
 
 Push-Location $projectRoot.Path
 try {
-    New-Item -ItemType Directory -Force -Path $pluginRoot, $saveRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $pluginRoot, $saveRoot, $liveJsonProfileRoot, $liveDsonProfileRoot | Out-Null
 
     $manifest = [ordered]@{
         id = "validation.quest_chain_board_artifact"
@@ -186,6 +208,7 @@ try {
         gameExecutablePath = (Join-Path $GameDirectory "_windows\win64\Darkest.exe")
         gameWorkingDirectory = $GameDirectory
         runtimeDllPath = "./runtime/bin/x64/Release/RuntimeHook.dll"
+        dsonSaveEditorJarPath = $saveEditorJar
         logDirectory = "./logs"
         modStateDirectory = $stateRoot
         enableInjection = $false
@@ -196,6 +219,8 @@ try {
         fileIoMaxLogEntries = 20
         fileIoDeduplicate = $true
         eventProbeEnabled = $false
+        saveWatchEnabled = $true
+        saveWatchDirectories = @($stateRoot)
         pluginDirectories = @($pluginRoot)
         pluginPatchManifestName = "patches.json"
         virtualFileEnabled = $true
@@ -207,6 +232,17 @@ try {
     $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
 
     Write-DecodedQuestFixture
+    Write-DecodedQuestFixture -DirectoryPath $liveJsonProfileRoot
+    $dsonDecodedInputPath = Join-Path $liveDsonProfileRoot "persist.quest.decoded.json"
+    $dsonPersistQuestPath = Join-Path $liveDsonProfileRoot "persist.quest.json"
+    Write-DecodedQuestFixture -DirectoryPath $liveDsonProfileRoot -FileName "persist.quest.decoded.json"
+    Assert-True (Test-Path -LiteralPath $saveEditorJar -PathType Leaf) "DDSaveEditor jar is missing: $saveEditorJar"
+    & java -jar $saveEditorJar encode --output $dsonPersistQuestPath $dsonDecodedInputPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDSaveEditor encode failed for runtime DSON fixture with exit code $LASTEXITCODE"
+    }
+    Assert-True ((Get-Item -LiteralPath $dsonPersistQuestPath).Length -gt 0) "Runtime DSON fixture was empty: $dsonPersistQuestPath"
+
     $quest = Read-DecodedQuest
     Assert-True ((Get-QuestIds -Quest $quest).Count -eq 1) "Fixture should start with one quest board entry."
     Assert-True ((Get-QuestIds -Quest $quest) -contains "plot_tutorial_crypts") "Fixture should start with tutorial quest."
@@ -250,14 +286,49 @@ try {
     Assert-True ($preflightReport.mode -eq "dry-run") "Quest board launch preflight should record dry-run mode."
     Assert-True ([bool]$preflightReport.questBoardPreviewSucceeded) "Quest board launch preflight should include a successful preview."
     Assert-True ([bool]$preflightReport.hasQuestBoardCandidate) "Quest board launch preflight should detect a quest board candidate."
-    Assert-True ($preflightReport.candidateQuestBoardStatus -eq "previewOnly") "Quest board launch preflight should mark quest board as preview-only."
+    Assert-True ($preflightReport.candidateQuestBoardStatus -eq "runtimeOverlayReady") "Quest board launch preflight should mark quest board as runtime overlay ready."
     Assert-True ([int]$preflightReport.candidateQuestCount -eq 2) "Quest board launch preflight should report two candidate quests."
-    Assert-True ($preflightReport.runtimeQuestBoardConsumerStatus -eq "notImplemented") "Quest board launch preflight should not claim a live quest-board consumer exists."
-    Assert-True (-not [bool]$preflightReport.willRuntimeReplaceQuestBoard) "Quest board launch preflight must not claim runtime quest board replacement."
+    Assert-True ($preflightReport.runtimeQuestBoardConsumerStatus -eq "ready") "Quest board launch preflight should claim the live quest-board consumer is ready."
+    Assert-True ([bool]$preflightReport.willRuntimeReplaceQuestBoard) "Quest board launch preflight should claim runtime quest board replacement."
+    Assert-True ([int]$preflightReport.runtimeQuestBoardOverlayRuleCount -eq 2) "Quest board launch preflight should report one runtime overlay rule per profile fixture."
     Assert-True (-not [bool]$preflightReport.willRuntimeForceQuestContentAvailable) "This test has no fixed-stage quest content overlay."
-    Assert-True ([int]$preflightReport.warningCount -eq 1) "Quest board launch preflight should warn that live quest-board consumer is not implemented."
+    Assert-True ([int]$preflightReport.warningCount -eq 0) "Quest board launch preflight should not warn when runtime overlays are ready."
     Assert-True ([int]$preflightReport.errorCount -eq 0) "Quest board launch preflight should not report errors."
     Assert-True ($preflightReport.candidateQuests[0].questId -eq "plot_kill_necromancer_3") "Quest board launch preflight first candidate quest id mismatch."
+
+    $runtimeOverlayReport = Read-QuestBoardRuntimeOverlayReport
+    Assert-True ($runtimeOverlayReport.status -eq "ready") "Runtime quest-board overlay should be ready."
+    Assert-True ([int]$runtimeOverlayReport.profileCount -eq 2) "Runtime quest-board overlay should inspect both profile fixtures."
+    Assert-True ([int]$runtimeOverlayReport.virtualFileRuleCount -eq 2) "Runtime quest-board overlay should produce one sourcePath rule per profile fixture."
+    $jsonProfileOverlay = @($runtimeOverlayReport.profiles | Where-Object { $_.profileId -eq "profile_0" })[0]
+    Assert-True ($jsonProfileOverlay.status -eq "ready") "JSON profile runtime overlay should be ready."
+    Assert-True ($jsonProfileOverlay.sourceFormat -eq "json") "JSON profile source format mismatch."
+    Assert-True ($jsonProfileOverlay.runtimeSourceFormat -eq "json") "JSON profile runtime source format mismatch."
+    Assert-True ($jsonProfileOverlay.target -eq "profile_0/persist.quest.json") "JSON profile runtime target mismatch."
+    $jsonOverlayQuest = Read-QuestFile -Path ([string]$jsonProfileOverlay.runtimeSourcePath)
+    $jsonOverlayQuestIds = @(Get-QuestIds -Quest $jsonOverlayQuest)
+    Assert-True ($jsonOverlayQuestIds.Count -eq 2) "JSON runtime overlay should replace quest board with two entries."
+    Assert-True ($jsonOverlayQuestIds[0] -eq "plot_kill_necromancer_3") "JSON runtime overlay first quest mismatch."
+    Assert-True ($jsonOverlayQuestIds[1] -eq "plot_kill_prophet_3") "JSON runtime overlay second quest mismatch."
+
+    $dsonProfileOverlay = @($runtimeOverlayReport.profiles | Where-Object { $_.profileId -eq "profile_1" })[0]
+    Assert-True ($dsonProfileOverlay.status -eq "ready") "DSON profile runtime overlay should be ready."
+    Assert-True ($dsonProfileOverlay.sourceFormat -eq "dson") "DSON profile source format mismatch."
+    Assert-True ($dsonProfileOverlay.runtimeSourceFormat -eq "dson") "DSON profile runtime source format mismatch."
+    Assert-True ($dsonProfileOverlay.target -eq "profile_1/persist.quest.json") "DSON profile runtime target mismatch."
+    $dsonOverlayBytes = [System.IO.File]::ReadAllBytes([string]$dsonProfileOverlay.runtimeSourcePath)
+    Assert-True ($dsonOverlayBytes.Length -gt 4) "DSON runtime overlay should not be empty."
+    Assert-True ($dsonOverlayBytes[0] -eq 0x01 -and $dsonOverlayBytes[1] -eq 0xB1 -and $dsonOverlayBytes[2] -eq 0x00 -and $dsonOverlayBytes[3] -eq 0x00) "DSON runtime overlay should start with DD save magic."
+    $decodedDsonOverlayPath = Join-Path $stateRoot "decoded_runtime_overlay_profile_1.persist.quest.json"
+    & java -jar $saveEditorJar decode --output $decodedDsonOverlayPath ([string]$dsonProfileOverlay.runtimeSourcePath)
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDSaveEditor decode failed for runtime DSON overlay with exit code $LASTEXITCODE"
+    }
+    $dsonOverlayQuest = Read-QuestFile -Path $decodedDsonOverlayPath
+    $dsonOverlayQuestIds = @(Get-QuestIds -Quest $dsonOverlayQuest)
+    Assert-True ($dsonOverlayQuestIds.Count -eq 2) "DSON runtime overlay should replace quest board with two entries."
+    Assert-True ($dsonOverlayQuestIds[0] -eq "plot_kill_necromancer_3") "DSON runtime overlay first quest mismatch."
+    Assert-True ($dsonOverlayQuestIds[1] -eq "plot_kill_prophet_3") "DSON runtime overlay second quest mismatch."
 
     Invoke-Loader -LoaderArgs @("--config", $configPath, "--apply-managed-actions", "--managed-action-save-dir", $saveRoot, "--no-inject")
     $dryRunReport = Read-ApplyReport
