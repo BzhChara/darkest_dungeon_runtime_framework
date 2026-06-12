@@ -303,6 +303,136 @@ internal sealed partial class SaveDirectoryWatcher
             return outputPath;
         }
 
+        public static string WriteMapFinalRoomPrototype(
+            string sourceMapFilePath,
+            string outputMapFilePath,
+            string targetFinalRoomId,
+            string reportOutputPath,
+            LauncherLog log)
+        {
+            var sourceFullPath = Path.GetFullPath(sourceMapFilePath);
+            var outputFullPath = Path.GetFullPath(outputMapFilePath);
+            var reportFullPath = Path.GetFullPath(reportOutputPath);
+            var generatedAt = DateTimeOffset.Now;
+            var accessIssues = new List<string>();
+
+            if (!File.Exists(sourceFullPath))
+            {
+                throw new FileNotFoundException("Source map file was not found.", sourceFullPath);
+            }
+
+            var sourceFile = InspectFile(sourceFullPath, Path.GetFileName(sourceFullPath));
+            var sourceMap = BuildMapFacts(sourceFile);
+            accessIssues.AddRange(sourceFile.AccessIssues);
+            if (!sourceFile.ParseStatus.Equals("dsonPartialDecoded", StringComparison.OrdinalIgnoreCase))
+            {
+                accessIssues.Add($"Source map did not parse as a DSON container: {sourceFullPath}");
+            }
+
+            if (!sourceMap.HasStaticSave)
+            {
+                accessIssues.Add("Source map has no decoded base_root.map.static_dynamic.static_save payload.");
+            }
+
+            var targetArea = sourceMap.Areas.FirstOrDefault(area =>
+                area.AreaId.Equals(targetFinalRoomId, StringComparison.OrdinalIgnoreCase));
+            if (targetArea is null)
+            {
+                accessIssues.Add($"Target final room area was not found: {targetFinalRoomId}");
+            }
+            else if (!targetArea.InferredRole.Equals("room", StringComparison.OrdinalIgnoreCase))
+            {
+                accessIssues.Add($"Target final room area is not a room: {targetFinalRoomId}");
+            }
+            else if (!targetArea.AreaHash.HasValue)
+            {
+                accessIssues.Add($"Target final room area has no hash: {targetFinalRoomId}");
+            }
+
+            var finalRoomScalar = FindDsonScalar(sourceFile, "base_root.map.final_room_id");
+            if (finalRoomScalar is null)
+            {
+                accessIssues.Add("Source map has no base_root.map.final_room_id scalar.");
+            }
+            else if (!finalRoomScalar.Type.Equals("int32", StringComparison.OrdinalIgnoreCase))
+            {
+                accessIssues.Add($"base_root.map.final_room_id is not int32: {finalRoomScalar.Type}");
+            }
+
+            if (accessIssues.Count > 0 || targetArea is null || !targetArea.AreaHash.HasValue || finalRoomScalar is null)
+            {
+                throw new InvalidOperationException($"Map final-room prototype validation failed: {string.Join("; ", accessIssues)}");
+            }
+
+            var bytes = File.ReadAllBytes(sourceFullPath);
+            var valueOffset = GetDsonScalarValueOffset(finalRoomScalar);
+            if (valueOffset < 0 || valueOffset + sizeof(int) > bytes.Length)
+            {
+                throw new InvalidOperationException($"Computed final_room_id value offset is outside the source file: {valueOffset}");
+            }
+
+            var previousFinalRoomHash = TryGetInt(sourceFile, "base_root.map.final_room_id");
+            var targetHash = targetArea.AreaHash.Value;
+            WriteInt32LittleEndian(bytes, valueOffset, targetHash);
+
+            var outputDirectory = Path.GetDirectoryName(outputFullPath);
+            if (!string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
+            }
+
+            File.WriteAllBytes(outputFullPath, bytes);
+
+            var outputFile = InspectFile(outputFullPath, Path.GetFileName(outputFullPath));
+            var outputMap = BuildMapFacts(outputFile);
+            accessIssues.AddRange(outputFile.AccessIssues.Select(issue => $"output: {issue}"));
+            if (!outputFile.ParseStatus.Equals("dsonPartialDecoded", StringComparison.OrdinalIgnoreCase))
+            {
+                accessIssues.Add($"Output map did not parse as a DSON container: {outputFullPath}");
+            }
+
+            if (!string.Equals(outputMap.FinalRoomId, targetFinalRoomId, StringComparison.OrdinalIgnoreCase))
+            {
+                accessIssues.Add($"Output final room mismatch: expected={targetFinalRoomId} actual={outputMap.FinalRoomId ?? ""}");
+            }
+
+            var succeeded = accessIssues.Count == 0;
+            var report = new MapPrototypeMutationReport(
+                1,
+                generatedAt,
+                sourceFullPath,
+                outputFullPath,
+                Path.GetFileNameWithoutExtension(sourceFullPath),
+                "set_final_room_id",
+                targetFinalRoomId,
+                targetHash,
+                sourceMap.FinalRoomId,
+                previousFinalRoomHash,
+                finalRoomScalar.Offset,
+                valueOffset,
+                succeeded,
+                sourceMap,
+                outputMap,
+                accessIssues);
+
+            var reportDirectory = Path.GetDirectoryName(reportFullPath);
+            if (!string.IsNullOrWhiteSpace(reportDirectory))
+            {
+                Directory.CreateDirectory(reportDirectory);
+            }
+
+            File.WriteAllText(reportFullPath, JsonSerializer.Serialize(report, SessionJsonOptions), Encoding.UTF8);
+            log.Info(
+                $"event name=map.prototype_written report={Quote(reportFullPath)} output={Quote(outputFullPath)} " +
+                $"source={Quote(sourceFullPath)} targetFinalRoom={targetFinalRoomId} succeeded={succeeded} issues={accessIssues.Count}");
+            if (!succeeded)
+            {
+                throw new InvalidOperationException($"Map final-room prototype failed validation: {string.Join("; ", accessIssues)}");
+            }
+
+            return reportFullPath;
+        }
+
         private static SaveStateFileReport InspectFile(string path, string fileName)
         {
             var accessIssues = new List<string>();
@@ -965,6 +1095,12 @@ internal sealed partial class SaveDirectoryWatcher
         private static SaveStateDsonScalar? FindDsonScalar(IReadOnlyList<SaveStateDsonScalar> scalars, string path)
         {
             return scalars.FirstOrDefault(scalar => scalar.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static int GetDsonScalarValueOffset(SaveStateDsonScalar scalar)
+        {
+            var nameLength = Encoding.UTF8.GetByteCount(scalar.Name) + 1;
+            return Align4(scalar.Offset + nameLength);
         }
 
         private static IReadOnlyList<SaveStateDsonScalar> GetDsonScalars(SaveStateFileReport? file)

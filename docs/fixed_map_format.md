@@ -48,6 +48,24 @@ Regression check:
 .\tools\TestMapFileInspector.ps1
 ```
 
+## Prototype Mutation
+
+The launcher can also create a project-local prototype copy that changes the top-level final room id in place:
+
+```powershell
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/default_config.json --prototype-map-final-room "E:\Steam\steamapps\common\DarkestDungeon\maps\DD_map4.dm" --map-final-room-id rooC --no-inject
+```
+
+This is intentionally narrow:
+
+- it copies the source map to `logs/map_prototypes/` by default,
+- it writes only `base_root.map.final_room_id`,
+- the field must be an existing int32 scalar,
+- the target area id must already exist in the source map and must be inferred as a room,
+- the output map is immediately parsed again and the mutation report fails if the final room does not match.
+
+Use `--map-prototype-output <path>` and `--map-prototype-report-output <path>` to choose project-local output paths.
+
 ## Static Topology
 
 The `.dm` files are binary DSON-like map files, not JSON text. They expose the same broad structure as `persist.map.json`:
@@ -136,4 +154,6 @@ map.place_named_encounter
 
 ## Current Conclusion
 
-The framework can now read original fixed map topology well enough to support a data model for straight-line or winding custom maps. It cannot yet write a new `.dm` safely. The next implementation step should be a project-local generated `.dm` prototype or a virtual-file overlay experiment that starts from a small original map such as `DD_map4.dm`, changes one low-risk structural value, and verifies whether the game accepts the file.
+The framework can now read original fixed map topology well enough to support a data model for straight-line or winding custom maps. It also has a narrow project-local in-place mutation prototype for one top-level int32 field. It still cannot safely generate an arbitrary new `.dm` from a high-level layout.
+
+The next implementation step should be a virtual-file overlay experiment that serves the mutated `DD_map4.dm` copy as `maps/DD_map4.dm` and verifies whether the game accepts it. If that works, the following step is a small template-based map writer that can change graph-level fields under strict validation before attempting full arbitrary map generation.

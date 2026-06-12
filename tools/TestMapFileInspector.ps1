@@ -82,7 +82,38 @@ function Test-MapReport {
     Assert-True ((Convert-ToArray $report.map.dynamicAreas).Count -eq $ExpectedAreas) "$MapName dynamic areas were not exported."
 }
 
+function Test-MapFinalRoomPrototype {
+    $sourcePath = Join-Path $GameDirectory "maps\DD_map4.dm"
+    $outputMapPath = Join-Path $testRoot "DD_map4_final_rooC.dm"
+    $reportPath = Join-Path $testRoot "DD_map4_final_rooC.prototype.json"
+    Assert-True (Test-Path -LiteralPath $sourcePath -PathType Leaf) "Map file missing: $sourcePath"
+
+    Invoke-Loader @(
+        "--config", $ConfigPath,
+        "--prototype-map-final-room", $sourcePath,
+        "--map-final-room-id", "rooC",
+        "--map-prototype-output", $outputMapPath,
+        "--map-prototype-report-output", $reportPath,
+        "--no-inject"
+    )
+
+    Assert-True (Test-Path -LiteralPath $outputMapPath -PathType Leaf) "Prototype map was not created: $outputMapPath"
+    Assert-True (Test-Path -LiteralPath $reportPath -PathType Leaf) "Prototype report was not created: $reportPath"
+    $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+
+    Assert-True ([bool]$report.succeeded) "Prototype report did not succeed."
+    Assert-True ((Convert-ToArray $report.accessIssues).Count -eq 0) "Prototype report had access issues."
+    Assert-True ($report.previousFinalRoomId -eq "rooB") "Prototype source final room mismatch."
+    Assert-True ($report.targetFinalRoomId -eq "rooC") "Prototype target final room mismatch."
+    Assert-True ($report.outputMap.finalRoomId -eq "rooC") "Prototype output final room was not updated."
+    Assert-True ($report.outputMap.areaCount -eq 4) "Prototype output area count changed."
+    Assert-True ($report.outputMap.roomCount -eq 3) "Prototype output room count changed."
+    Assert-True ($report.outputMap.corridorCount -eq 1) "Prototype output corridor count changed."
+    Assert-True ($report.outputMap.tileCount -eq 31) "Prototype output tile count changed."
+}
+
 Test-MapReport -MapName "tutorial_crypts" -ExpectedAreas 16 -ExpectedRooms 8 -ExpectedCorridors 8 -ExpectedTiles 56 -ExpectedEntrance "rooH" -ExpectedFinal $null
 Test-MapReport -MapName "DD_map4" -ExpectedAreas 4 -ExpectedRooms 3 -ExpectedCorridors 1 -ExpectedTiles 31 -ExpectedEntrance "rooA" -ExpectedFinal "rooB"
+Test-MapFinalRoomPrototype
 
 Write-Host "Map file inspector test passed. Output: $testRoot"

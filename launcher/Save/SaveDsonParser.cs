@@ -716,6 +716,11 @@ internal sealed partial class SaveDirectoryWatcher
             return BitConverter.ToInt32(bytes, offset);
         }
 
+        private static void WriteInt32LittleEndian(byte[] bytes, int offset, int value)
+        {
+            BitConverter.TryWriteBytes(bytes.AsSpan(offset, sizeof(int)), value);
+        }
+
         private static string ReadNullTerminatedAscii(byte[] bytes, int offset)
         {
             var end = offset;

@@ -94,6 +94,24 @@ internal sealed partial class SaveDirectoryWatcher
         SaveStateMapFacts Map,
         IReadOnlyList<string> AccessIssues);
 
+    private sealed record MapPrototypeMutationReport(
+        int Version,
+        DateTimeOffset GeneratedAt,
+        string SourceMapFilePath,
+        string OutputMapFilePath,
+        string SourceMapName,
+        string Mutation,
+        string TargetFinalRoomId,
+        int TargetFinalRoomHash,
+        string? PreviousFinalRoomId,
+        int? PreviousFinalRoomHash,
+        int FieldOffset,
+        int ValueOffset,
+        bool Succeeded,
+        SaveStateMapFacts SourceMap,
+        SaveStateMapFacts OutputMap,
+        IReadOnlyList<string> AccessIssues);
+
     private sealed record SaveStateFacts(
         IReadOnlyList<SaveStatePersistFileFacts> PersistFiles,
         SaveStateHashCatalogFacts HashCatalog,

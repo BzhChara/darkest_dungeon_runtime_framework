@@ -45,6 +45,7 @@ internal static class Program
                     !options.InferSaveEvents &&
                     !options.ApplyManagedActions &&
                     !options.InspectMapFile &&
+                    !options.PrototypeMapFinalRoom &&
                     !options.WatchSavesForMilliseconds.HasValue &&
                     string.IsNullOrWhiteSpace(options.EmitEvent))
                 {
@@ -149,6 +150,23 @@ internal static class Program
                 SaveDirectoryWatcher.WriteMapFileInspectionReport(options.MapFilePath, outputPath, log);
             }
 
+            if (options.PrototypeMapFinalRoom)
+            {
+                if (string.IsNullOrWhiteSpace(options.MapPrototypeSourcePath))
+                {
+                    throw new ArgumentException("--prototype-map-final-room requires a source .dm path.");
+                }
+
+                if (string.IsNullOrWhiteSpace(options.MapFinalRoomId))
+                {
+                    throw new ArgumentException("--prototype-map-final-room requires --map-final-room-id <areaId>.");
+                }
+
+                var outputPath = ResolveMapPrototypeOutputPath(projectRoot, options.MapPrototypeSourcePath, options.MapFinalRoomId, options.MapPrototypeOutputPath);
+                var reportPath = ResolveMapPrototypeReportOutputPath(projectRoot, config.LogDirectory, options.MapPrototypeSourcePath, options.MapFinalRoomId, options.MapPrototypeReportOutputPath);
+                SaveDirectoryWatcher.WriteMapFinalRoomPrototype(options.MapPrototypeSourcePath, outputPath, options.MapFinalRoomId, reportPath, log);
+            }
+
             if (options.WatchSavesForMilliseconds.HasValue)
             {
                 using var diagnosticWatcher = SaveDirectoryWatcher.Start(config, patchPlan, projectRoot, log);
@@ -174,6 +192,7 @@ internal static class Program
                 options.InferSaveEvents ||
                 options.ApplyManagedActions ||
                 options.InspectMapFile ||
+                options.PrototypeMapFinalRoom ||
                 options.WatchSavesForMilliseconds.HasValue ||
                 !string.IsNullOrWhiteSpace(options.EmitEvent))
             {
@@ -331,6 +350,7 @@ internal static class Program
             !options.InferSaveEvents &&
             !options.ApplyManagedActions &&
             !options.InspectMapFile &&
+            !options.PrototypeMapFinalRoom &&
             !options.WatchSavesForMilliseconds.HasValue &&
             string.IsNullOrWhiteSpace(options.EmitEvent);
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))
@@ -380,5 +400,33 @@ internal static class Program
         var safeMapName = string.Concat(mapName.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_'));
         var fileName = $"{safeMapName}_{DateTimeOffset.Now:yyyyMMdd_HHmmss_fff}.json";
         return Path.Combine(logDirectory, "map_file_reports", fileName);
+    }
+
+    private static string ResolveMapPrototypeOutputPath(string projectRoot, string mapFilePath, string targetFinalRoomId, string? requestedPath)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedPath))
+        {
+            return ResolvePreviewOutputPath(projectRoot, requestedPath);
+        }
+
+        var mapName = Path.GetFileNameWithoutExtension(mapFilePath);
+        var safeMapName = string.Concat(mapName.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_'));
+        var safeFinalRoom = string.Concat(targetFinalRoomId.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_'));
+        var fileName = $"{safeMapName}_final_{safeFinalRoom}_{DateTimeOffset.Now:yyyyMMdd_HHmmss_fff}.dm";
+        return Path.Combine(projectRoot, "logs", "map_prototypes", fileName);
+    }
+
+    private static string ResolveMapPrototypeReportOutputPath(string projectRoot, string logDirectory, string mapFilePath, string targetFinalRoomId, string? requestedPath)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedPath))
+        {
+            return ResolvePreviewOutputPath(projectRoot, requestedPath);
+        }
+
+        var mapName = Path.GetFileNameWithoutExtension(mapFilePath);
+        var safeMapName = string.Concat(mapName.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_'));
+        var safeFinalRoom = string.Concat(targetFinalRoomId.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_'));
+        var fileName = $"{safeMapName}_final_{safeFinalRoom}_{DateTimeOffset.Now:yyyyMMdd_HHmmss_fff}.json";
+        return Path.Combine(logDirectory, "map_prototype_reports", fileName);
     }
 }

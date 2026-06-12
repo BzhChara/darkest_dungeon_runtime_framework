@@ -102,6 +102,21 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         return SaveStateExporter.WriteMapFileInspectionReport(mapFilePath, outputPath, log);
     }
 
+    public static string WriteMapFinalRoomPrototype(
+        string sourceMapFilePath,
+        string outputMapFilePath,
+        string targetFinalRoomId,
+        string reportOutputPath,
+        LauncherLog log)
+    {
+        return SaveStateExporter.WriteMapFinalRoomPrototype(
+            sourceMapFilePath,
+            outputMapFilePath,
+            targetFinalRoomId,
+            reportOutputPath,
+            log);
+    }
+
     public void WaitForGameExit(int processId, int afterExitSeconds)
     {
         _gameProcessId = processId;

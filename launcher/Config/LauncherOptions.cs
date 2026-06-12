@@ -23,6 +23,7 @@ internal sealed class LauncherOptions
     public bool ApplyManagedActions { get; private set; }
     public bool WriteManagedActions { get; private set; }
     public bool InspectMapFile { get; private set; }
+    public bool PrototypeMapFinalRoom { get; private set; }
     public int? WatchSavesForMilliseconds { get; private set; }
     public string? ModStateId { get; private set; }
     public string? ModStateDirectory { get; private set; }
@@ -34,6 +35,10 @@ internal sealed class LauncherOptions
     public string? PreviewOutputPath { get; private set; }
     public string? MapFilePath { get; private set; }
     public string? MapReportOutputPath { get; private set; }
+    public string? MapPrototypeSourcePath { get; private set; }
+    public string? MapPrototypeOutputPath { get; private set; }
+    public string? MapPrototypeReportOutputPath { get; private set; }
+    public string? MapFinalRoomId { get; private set; }
 
     public static LauncherOptions Parse(string[] args)
     {
@@ -101,6 +106,10 @@ internal sealed class LauncherOptions
                     options.InspectMapFile = true;
                     options.MapFilePath = RequireValue(args, ref i, "--inspect-map-file");
                     break;
+                case "--prototype-map-final-room":
+                    options.PrototypeMapFinalRoom = true;
+                    options.MapPrototypeSourcePath = RequireValue(args, ref i, "--prototype-map-final-room");
+                    break;
                 case "--watch-saves-for-ms":
                     options.WatchSavesForMilliseconds = RequirePositiveInt(args, ref i, "--watch-saves-for-ms");
                     break;
@@ -130,6 +139,15 @@ internal sealed class LauncherOptions
                     break;
                 case "--map-report-output":
                     options.MapReportOutputPath = RequireValue(args, ref i, "--map-report-output");
+                    break;
+                case "--map-prototype-output":
+                    options.MapPrototypeOutputPath = RequireValue(args, ref i, "--map-prototype-output");
+                    break;
+                case "--map-prototype-report-output":
+                    options.MapPrototypeReportOutputPath = RequireValue(args, ref i, "--map-prototype-report-output");
+                    break;
+                case "--map-final-room-id":
+                    options.MapFinalRoomId = RequireValue(args, ref i, "--map-final-room-id");
                     break;
                 default:
                     throw new ArgumentException($"Unknown argument: {args[i]}");
