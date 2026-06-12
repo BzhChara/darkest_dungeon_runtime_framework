@@ -99,7 +99,7 @@ internal sealed partial class RuntimeConfig
             skippedRuntimeRules,
             sourceFactEventRules,
             skippedFactEventRules,
-            BuildEffectiveVirtualRules(sourceRules, compileIssues, log),
+            BuildEffectiveVirtualRules(projectRoot, sourceRules, compileIssues, log),
             compileIssues);
     }
 
@@ -358,6 +358,7 @@ internal sealed partial class RuntimeConfig
     }
 
     private List<VirtualFileRule> BuildEffectiveVirtualRules(
+        string projectRoot,
         IReadOnlyList<VirtualFileRuleSource> sourceRules,
         List<PatchCompileIssue> compileIssues,
         LauncherLog log)
@@ -392,6 +393,26 @@ internal sealed partial class RuntimeConfig
                 builders.Add(builder);
             }
 
+            if (!string.IsNullOrWhiteSpace(rule.SourcePath))
+            {
+                ApplySourcePathOverlay(projectRoot, sourceRule, builder, compileIssues);
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(builder.SourcePath))
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    sourceRule.SourceName,
+                    sourceRule.SourcePath,
+                    sourceRule.RuleIndex,
+                    0,
+                    rule.Target,
+                    "text replacements cannot be merged after a direct sourcePath virtual file overlay");
+                continue;
+            }
+
             ApplyRawReplacements(sourceRule, builder, currentTextByTarget, targetKey, compileIssues);
 
             if ((rule.Operations ?? []).Length == 0)
@@ -419,13 +440,82 @@ internal sealed partial class RuntimeConfig
         }
 
         return builders
-            .Where(builder => builder.Replacements.Count > 0)
+            .Where(builder => builder.HasContent)
             .Select(builder => new VirtualFileRule
             {
                 Target = builder.Target,
+                SourcePath = builder.SourcePath,
                 Replacements = builder.Replacements.ToArray()
             })
             .ToList();
+    }
+
+    private void ApplySourcePathOverlay(
+        string projectRoot,
+        VirtualFileRuleSource sourceRule,
+        SequentialVirtualRuleBuilder builder,
+        List<PatchCompileIssue> compileIssues)
+    {
+        var rule = sourceRule.Rule;
+        if ((rule.Replacements ?? []).Any(replacement => !string.IsNullOrEmpty(replacement.Find)) ||
+            (rule.Operations ?? []).Length > 0)
+        {
+            AddCompileIssue(
+                compileIssues,
+                true,
+                sourceRule.SourceName,
+                sourceRule.SourcePath,
+                sourceRule.RuleIndex,
+                0,
+                rule.Target,
+                "sourcePath overlays currently replace the whole virtual file and cannot include replacements or operations");
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(builder.SourcePath) || builder.Replacements.Count > 0)
+        {
+            AddCompileIssue(
+                compileIssues,
+                true,
+                sourceRule.SourceName,
+                sourceRule.SourcePath,
+                sourceRule.RuleIndex,
+                0,
+                rule.Target,
+                "multiple virtual file content sources target the same file");
+            return;
+        }
+
+        var sourcePath = ResolvePath(projectRoot, rule.SourcePath);
+        if (!IsInsideDirectory(projectRoot, sourcePath))
+        {
+            AddCompileIssue(
+                compileIssues,
+                true,
+                sourceRule.SourceName,
+                sourceRule.SourcePath,
+                sourceRule.RuleIndex,
+                0,
+                rule.Target,
+                $"sourcePath resolves outside project root: {sourcePath}");
+            return;
+        }
+
+        if (!File.Exists(sourcePath))
+        {
+            AddCompileIssue(
+                compileIssues,
+                true,
+                sourceRule.SourceName,
+                sourceRule.SourcePath,
+                sourceRule.RuleIndex,
+                0,
+                rule.Target,
+                $"sourcePath file was not found: {sourcePath}");
+            return;
+        }
+
+        builder.SourcePath = sourcePath;
     }
 
     private void ApplyRawReplacements(

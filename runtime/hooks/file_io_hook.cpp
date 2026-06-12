@@ -122,6 +122,7 @@ struct ReplacementRule
 struct VirtualRule
 {
     std::wstring targetPath;
+    std::wstring sourcePath;
     std::vector<ReplacementRule> replacements;
 };
 
@@ -798,6 +799,7 @@ void LoadSettings()
         std::wstring prefix = L"DD_RUNTIME_VIRTUAL_RULE_" + std::to_wstring(ruleIndex);
         VirtualRule rule;
         rule.targetPath = NormalizePath(GetEnvironmentString((prefix + L"_TARGET").c_str()));
+        rule.sourcePath = NormalizePath(GetEnvironmentString((prefix + L"_SOURCE_PATH").c_str()));
         if (rule.targetPath.empty())
         {
             continue;
@@ -816,7 +818,7 @@ void LoadSettings()
             }
         }
 
-        if (!rule.replacements.empty())
+        if (!rule.sourcePath.empty() || !rule.replacements.empty())
         {
             g_virtualRules.push_back(std::move(rule));
         }
@@ -1079,20 +1081,28 @@ HANDLE CreateVirtualFileHandle(const std::wstring& path, DWORD desiredAccess, DW
     }
 
     std::vector<std::uint8_t> bytes;
-    if (!ReadOriginalFileBytes(path, bytes))
+    std::wstring sourcePath = rule->sourcePath.empty() ? path : rule->sourcePath;
+    if (!ReadOriginalFileBytes(sourcePath, bytes))
     {
-        Logger::Warn(L"virtual-file failed to read original: " + path);
+        if (rule->sourcePath.empty())
+        {
+            Logger::Warn(L"virtual-file failed to read original: " + path);
+        }
+        else
+        {
+            Logger::Warn(L"virtual-file failed to read source: target=" + path + L" source=" + sourcePath);
+        }
         return INVALID_HANDLE_VALUE;
     }
 
-    std::size_t originalSize = bytes.size();
+    std::size_t sourceSize = bytes.size();
     std::size_t replacements = 0;
     for (const ReplacementRule& replacement : rule->replacements)
     {
         replacements += ReplaceAll(bytes, replacement.find, replacement.replace);
     }
 
-    if (replacements == 0)
+    if (!rule->replacements.empty() && replacements == 0)
     {
         Logger::Warn(L"virtual-file rule matched but no replacement text was found: " + path);
         return INVALID_HANDLE_VALUE;
@@ -1118,7 +1128,9 @@ HANDLE CreateVirtualFileHandle(const std::wstring& path, DWORD desiredAccess, DW
 
     Logger::Info(
         L"virtual-file served path=" + path +
-        L" originalBytes=" + std::to_wstring(originalSize) +
+        L" mode=" + (rule->sourcePath.empty() ? L"replacement" : L"sourcePath") +
+        (rule->sourcePath.empty() ? L"" : L" source=" + sourcePath) +
+        L" sourceBytes=" + std::to_wstring(sourceSize) +
         L" virtualBytes=" + std::to_wstring(virtualFile->bytes.size()) +
         L" replacements=" + std::to_wstring(replacements));
     return backingFile;

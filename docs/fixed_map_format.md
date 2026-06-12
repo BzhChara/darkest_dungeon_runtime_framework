@@ -154,6 +154,15 @@ map.place_named_encounter
 
 ## Current Conclusion
 
-The framework can now read original fixed map topology well enough to support a data model for straight-line or winding custom maps. It also has a narrow project-local in-place mutation prototype for one top-level int32 field. It still cannot safely generate an arbitrary new `.dm` from a high-level layout.
+The framework can now read original fixed map topology well enough to support a data model for straight-line or winding custom maps. It also has a narrow project-local in-place mutation prototype for one top-level int32 field, plus a virtual-file `sourcePath` overlay path that can serve the mutated `.dm` copy as the bytes for an original game map path. It still cannot safely generate an arbitrary new `.dm` from a high-level layout.
 
-The next implementation step should be a virtual-file overlay experiment that serves the mutated `DD_map4.dm` copy as `maps/DD_map4.dm` and verifies whether the game accepts it. If that works, the following step is a small template-based map writer that can change graph-level fields under strict validation before attempting full arbitrary map generation.
+The virtual overlay syntax is intentionally whole-file and binary-safe:
+
+```json
+{
+  "target": "maps/DD_map4.dm",
+  "sourcePath": "./logs/map_prototypes/DD_map4_final_rooC.dm"
+}
+```
+
+The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. The next implementation step is live-game validation: launch with this overlay, enter the relevant quest path, and verify whether the game accepts the mutated map. If that works, the following step is a small template-based map writer that can change graph-level fields under strict validation before attempting full arbitrary map generation.

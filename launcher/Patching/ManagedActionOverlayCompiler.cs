@@ -374,6 +374,7 @@ internal static class ManagedActionOverlayCompiler
             var ruleIndex = offset + i;
             var rule = virtualRules[i];
             values[$"DD_RUNTIME_VIRTUAL_RULE_{ruleIndex}_TARGET"] = rule.Target;
+            values[$"DD_RUNTIME_VIRTUAL_RULE_{ruleIndex}_SOURCE_PATH"] = rule.SourcePath;
             values[$"DD_RUNTIME_VIRTUAL_RULE_{ruleIndex}_REPLACEMENT_COUNT"] =
                 rule.Replacements.Length.ToString(CultureInfo.InvariantCulture);
 

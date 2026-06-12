@@ -180,6 +180,7 @@ internal sealed partial class RuntimeConfig
         {
             var rule = rules[i];
             values[$"DD_RUNTIME_VIRTUAL_RULE_{i}_TARGET"] = rule.Target;
+            values[$"DD_RUNTIME_VIRTUAL_RULE_{i}_SOURCE_PATH"] = rule.SourcePath;
             values[$"DD_RUNTIME_VIRTUAL_RULE_{i}_REPLACEMENT_COUNT"] = rule.Replacements.Length.ToString();
 
             for (var j = 0; j < rule.Replacements.Length; j++)

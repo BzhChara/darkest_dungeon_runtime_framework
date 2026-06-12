@@ -76,6 +76,29 @@ internal static class PatchValidator
                 continue;
             }
 
+            if (!string.IsNullOrWhiteSpace(rule.SourcePath))
+            {
+                if (!File.Exists(rule.SourcePath))
+                {
+                    errors++;
+                    log.Error($"Patch source file was not found: target={rule.Target} sourcePath={rule.SourcePath}");
+                    continue;
+                }
+
+                var sourceInfo = new FileInfo(rule.SourcePath);
+                if (sourceInfo.Length > MaxVirtualFileBytes)
+                {
+                    errors++;
+                    log.Error($"Patch source exceeds runtime virtual file size limit: target={rule.Target} sourcePath={rule.SourcePath} bytes={sourceInfo.Length} limit={MaxVirtualFileBytes}");
+                    continue;
+                }
+
+                log.Info(
+                    $"patch-validate-source target={rule.Target} path={targetPath} " +
+                    $"sourcePath={rule.SourcePath} targetBytes={info.Length} sourceBytes={sourceInfo.Length}");
+                continue;
+            }
+
             string currentText;
             try
             {

@@ -129,6 +129,9 @@ internal sealed class VirtualFileRule
     [JsonPropertyName("target")]
     public string Target { get; set; } = string.Empty;
 
+    [JsonPropertyName("sourcePath")]
+    public string SourcePath { get; set; } = string.Empty;
+
     [JsonPropertyName("replacements")]
     public VirtualFileReplacement[] Replacements { get; set; } = [];
 

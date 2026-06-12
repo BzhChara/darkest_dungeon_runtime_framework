@@ -35,6 +35,34 @@ internal static class PatchPreviewer
             throw new FileNotFoundException("Patch preview target file was not found.", targetPath);
         }
 
+        if (!string.IsNullOrWhiteSpace(rule.SourcePath))
+        {
+            if (!File.Exists(rule.SourcePath))
+            {
+                throw new FileNotFoundException("Patch preview source file was not found.", rule.SourcePath);
+            }
+
+            var targetBytes = File.ReadAllBytes(targetPath);
+            var sourceBytes = File.ReadAllBytes(rule.SourcePath);
+            log.Info(
+                $"patch-preview target={rule.Target} sourcePath={rule.SourcePath} " +
+                $"originalBytes={targetBytes.Length} virtualBytes={sourceBytes.Length} replacements=0");
+
+            return new PatchPreviewResult(
+                rule.Target,
+                targetPath,
+                rule.SourcePath,
+                directSourceOverlay: true,
+                string.Empty,
+                string.Empty,
+                targetBytes.Length,
+                sourceBytes.Length,
+                0,
+                0,
+                [],
+                []);
+        }
+
         var originalText = File.ReadAllText(targetPath, Encoding.UTF8);
         var currentText = originalText;
         var applications = new List<PatchReplacementApplication>();
@@ -72,6 +100,8 @@ internal static class PatchPreviewer
         return new PatchPreviewResult(
             rule.Target,
             targetPath,
+            string.Empty,
+            directSourceOverlay: false,
             originalText,
             currentText,
             Encoding.UTF8.GetByteCount(originalText),
@@ -85,7 +115,14 @@ internal static class PatchPreviewer
     private static void WritePreviewFiles(string outputDirectory, PatchPreviewResult result)
     {
         var name = SafeFileName(result.Target);
-        File.WriteAllText(Path.Combine(outputDirectory, name + ".preview.txt"), result.VirtualText, new UTF8Encoding(false));
+        if (result.DirectSourceOverlay)
+        {
+            File.Copy(result.SourcePath, Path.Combine(outputDirectory, name + ".preview.bin"), overwrite: true);
+        }
+        else
+        {
+            File.WriteAllText(Path.Combine(outputDirectory, name + ".preview.txt"), result.VirtualText, new UTF8Encoding(false));
+        }
         File.WriteAllText(Path.Combine(outputDirectory, name + ".diff.txt"), BuildDiff(result), new UTF8Encoding(false));
     }
 
@@ -100,6 +137,11 @@ internal static class PatchPreviewer
         {
             builder.AppendLine($"Target: {result.Target}");
             builder.AppendLine($"Path: {result.TargetPath}");
+            if (result.DirectSourceOverlay)
+            {
+                builder.AppendLine($"Source path: {result.SourcePath}");
+                builder.AppendLine("Mode: sourcePath");
+            }
             builder.AppendLine($"Original bytes: {result.OriginalBytes}");
             builder.AppendLine($"Virtual bytes: {result.VirtualBytes}");
             builder.AppendLine($"Replacement attempts: {result.ReplacementAttempts}");
@@ -119,6 +161,11 @@ internal static class PatchPreviewer
         var builder = new StringBuilder();
         builder.AppendLine($"Target: {result.Target}");
         builder.AppendLine($"Path: {result.TargetPath}");
+        if (result.DirectSourceOverlay)
+        {
+            builder.AppendLine($"Source path: {result.SourcePath}");
+            builder.AppendLine("Mode: sourcePath");
+        }
         builder.AppendLine($"Original bytes: {result.OriginalBytes}");
         builder.AppendLine($"Virtual bytes: {result.VirtualBytes}");
         builder.AppendLine($"Replacements applied: {result.ReplacementsApplied}");
@@ -127,6 +174,12 @@ internal static class PatchPreviewer
             builder.AppendLine($"Warning: {warning}");
         }
         builder.AppendLine();
+
+        if (result.DirectSourceOverlay)
+        {
+            builder.AppendLine("Binary source overlay. Preview bytes were copied to the .preview.bin file.");
+            return builder.ToString();
+        }
 
         foreach (var application in result.Applications)
         {

@@ -62,7 +62,8 @@ internal sealed class PatchPlan
         {
             log.Info(
                 $"patch-source-rule source={sourceRule.SourceName} index={sourceRule.RuleIndex} " +
-                $"target={sourceRule.Rule.Target} replacements={sourceRule.Rule.Replacements.Length} " +
+                $"target={sourceRule.Rule.Target} sourcePath={QuoteLogValue(sourceRule.Rule.SourcePath)} " +
+                $"replacements={sourceRule.Rule.Replacements.Length} " +
                 $"operations={sourceRule.Rule.Operations.Length} condition={QuoteLogValue(sourceRule.ConditionReason)}");
         }
 
@@ -78,7 +79,9 @@ internal sealed class PatchPlan
         log.Info($"Effective virtual file rules: {EffectiveVirtualFileRules.Count}");
         foreach (var rule in EffectiveVirtualFileRules)
         {
-            log.Info($"patch-effective-rule target={rule.Target} replacements={rule.Replacements.Length}");
+            log.Info(
+                $"patch-effective-rule target={rule.Target} sourcePath={QuoteLogValue(rule.SourcePath)} " +
+                $"replacements={rule.Replacements.Length}");
         }
     }
 
@@ -141,7 +144,8 @@ internal sealed class PatchPlan
             {
                 log.Info(
                     $"patch-explain-target-source target={group.Key} status=active source={source.SourceName} " +
-                    $"rule={source.RuleIndex} replacements={source.Rule.Replacements.Length} " +
+                    $"rule={source.RuleIndex} sourcePath={QuoteLogValue(source.Rule.SourcePath)} " +
+                    $"replacements={source.Rule.Replacements.Length} " +
                     $"operations={source.Rule.Operations.Length} reason={QuoteLogValue(source.ConditionReason)} path={source.SourcePath}");
             }
         }
@@ -370,7 +374,9 @@ internal sealed class SequentialVirtualRuleBuilder
     }
 
     public string Target { get; }
+    public string SourcePath { get; set; } = string.Empty;
     public List<VirtualFileReplacement> Replacements { get; } = [];
+    public bool HasContent => !string.IsNullOrWhiteSpace(SourcePath) || Replacements.Count > 0;
 }
 
 internal sealed record VirtualFileRuleSource(
@@ -452,6 +458,8 @@ internal sealed class PatchPreviewResult
     public PatchPreviewResult(
         string target,
         string targetPath,
+        string sourcePath,
+        bool directSourceOverlay,
         string originalText,
         string virtualText,
         int originalBytes,
@@ -463,6 +471,8 @@ internal sealed class PatchPreviewResult
     {
         Target = target;
         TargetPath = targetPath;
+        SourcePath = sourcePath;
+        DirectSourceOverlay = directSourceOverlay;
         OriginalText = originalText;
         VirtualText = virtualText;
         OriginalBytes = originalBytes;
@@ -475,6 +485,8 @@ internal sealed class PatchPreviewResult
 
     public string Target { get; }
     public string TargetPath { get; }
+    public string SourcePath { get; }
+    public bool DirectSourceOverlay { get; }
     public string OriginalText { get; }
     public string VirtualText { get; }
     public int OriginalBytes { get; }

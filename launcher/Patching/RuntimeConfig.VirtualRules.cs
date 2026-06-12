@@ -39,9 +39,11 @@ internal sealed partial class RuntimeConfig
                 continue;
             }
 
+            rule.SourcePath ??= string.Empty;
+            var hasSourcePath = !string.IsNullOrWhiteSpace(rule.SourcePath);
             var hasReplacements = (rule.Replacements ?? []).Any(replacement => !string.IsNullOrEmpty(replacement.Find));
             var hasOperations = (rule.Operations ?? []).Length > 0;
-            if (!hasReplacements && !hasOperations)
+            if (!hasSourcePath && !hasReplacements && !hasOperations)
             {
                 continue;
             }
@@ -67,6 +69,7 @@ internal sealed partial class RuntimeConfig
                 new VirtualFileRule
                 {
                     Target = rule.Target,
+                    SourcePath = rule.SourcePath,
                     Replacements = rule.Replacements ?? [],
                     Operations = rule.Operations ?? [],
                     When = rule.When

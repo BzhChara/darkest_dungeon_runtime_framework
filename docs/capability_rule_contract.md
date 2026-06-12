@@ -4,7 +4,7 @@ This document defines the generic runtime rule model. It is intentionally not a 
 
 ## Current Status
 
-- `virtualFileRules` are implemented and executable.
+- `virtualFileRules` are implemented and executable. They support ordered text replacements/operations for text-like game data, and whole-file `sourcePath` overlays for project-local generated binary or data files.
 - `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions and selected materialized managed action artifacts.
 - `factEventRules` are parsed, explained, and can be exercised through `--infer-save-events` to convert save/content/runtime facts into ordinary framework events.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
