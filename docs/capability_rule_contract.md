@@ -5,6 +5,7 @@ This document defines the generic runtime rule model. It is intentionally not a 
 ## Current Status
 
 - `virtualFileRules` are implemented and executable. They support ordered text replacements/operations for text-like game data, and whole-file `sourcePath` overlays for project-local generated binary or data files.
+- `mapTemplates` are implemented as a plugin-declared fixed-map compiler. They mutate existing scalar fields in a source `.dm` template, validate the generated `.dm`, write it under `modStateDirectory/_map_templates/`, and append a normal `sourcePath` virtual file rule for the declared game target. This keeps fixed-map customization on the same overlay path as other generated assets.
 - `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions and selected materialized managed action artifacts.
 - `factEventRules` are parsed, explained, and can be exercised through `--infer-save-events` to convert save/content/runtime facts into ordinary framework events.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
@@ -53,6 +54,7 @@ The manifest may carry future runtime rules alongside existing content patches:
     "state.sidecar"
   ],
   "virtualFileRules": [],
+  "mapTemplates": [],
   "factEventRules": [],
   "eventRules": [],
   "stateSchema": {}

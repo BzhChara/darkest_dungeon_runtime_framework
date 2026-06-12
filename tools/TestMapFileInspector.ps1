@@ -306,10 +306,142 @@ function Test-MapVirtualSourceOverlay {
     Assert-True ($diffText.Contains("Binary source overlay")) "Binary source overlay diff did not record binary overlay details."
 }
 
+function Test-PluginMapTemplateOverlay {
+    $pluginRoot = Join-Path $testRoot "plugins\map_template_overlay"
+    $stateRoot = Join-Path $testRoot "plugin_map_template_state"
+    $previewRoot = Join-Path $testRoot "plugin_map_template_preview"
+    $overlayConfigPath = Join-Path $projectRoot.Path "config\_map_template_plugin_test_$sessionId.json"
+    New-Item -ItemType Directory -Force -Path $pluginRoot | Out-Null
+
+    $pluginSourcePath = Join-Path $pluginRoot "DD_map4_plugin_source.dm"
+    Copy-Item -LiteralPath (Join-Path $GameDirectory "maps\DD_map4.dm") -Destination $pluginSourcePath -Force
+
+    $specPath = Join-Path $pluginRoot "DD_map4_plugin_template_spec.json"
+    $spec = [ordered]@{
+        version = 1
+        name = "dd4_plugin_map_template_probe"
+        finalRoomId = "rooC"
+        staticTiles = @(
+            [ordered]@{
+                areaId = "rooC"
+                tileId = "tile0"
+                mapPosition = @(20, 2)
+            }
+        )
+        staticDoors = @(
+            [ordered]@{
+                areaId = "rooB"
+                doorSlot = "door4"
+                disabled = $true
+            },
+            [ordered]@{
+                areaId = "rooC"
+                doorSlot = "door0"
+                targetTileId = "tile27"
+                doorType = 0
+                implied = $true
+            }
+        )
+        staticTileDoors = @(
+            [ordered]@{
+                areaId = "corA"
+                tileId = "tile17"
+                disabled = $true
+            },
+            [ordered]@{
+                areaId = "corA"
+                tileId = "tile27"
+                targetAreaId = "rooC"
+                targetTileIndex = 0
+                doorType = 0
+                implied = $false
+            }
+        )
+    }
+    $spec | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $specPath -Encoding UTF8
+
+    $manifest = [ordered]@{
+        id = "validation.map_template_overlay"
+        name = "Validation - Map Template Overlay"
+        version = "0.1.0"
+        enabled = $true
+        capabilities = @("map.template.fixed")
+        virtualFileRules = @()
+        mapTemplates = @(
+            [ordered]@{
+                id = "dd4_rooC_plugin"
+                target = "maps/DD_map4.dm"
+                source = "DD_map4_plugin_source.dm"
+                specPath = "DD_map4_plugin_template_spec.json"
+            }
+        )
+        eventRules = @()
+        factEventRules = @()
+        stateSchema = [ordered]@{}
+    }
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $pluginRoot "patches.json") -Encoding UTF8
+
+    $config = [ordered]@{
+        gameExecutablePath = (Join-Path $GameDirectory "_windows\win64\Darkest.exe")
+        gameWorkingDirectory = $GameDirectory
+        runtimeDllPath = "./runtime/bin/x64/Release/RuntimeHook.dll"
+        logDirectory = "./logs"
+        modStateDirectory = $stateRoot
+        enableInjection = $false
+        killGameOnInjectionFailure = $false
+        startSuspendedForInjection = $false
+        fileIoObserveOnly = $true
+        fileIoLogExtensions = @(".dm")
+        fileIoMaxLogEntries = 20
+        fileIoDeduplicate = $true
+        eventProbeEnabled = $false
+        pluginDirectories = @($pluginRoot)
+        pluginPatchManifestName = "patches.json"
+        virtualFileEnabled = $true
+        virtualFileTarget = ""
+        virtualFileFind = ""
+        virtualFileReplace = ""
+        virtualFileRules = @()
+    }
+    $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $overlayConfigPath -Encoding UTF8
+
+    Invoke-Loader @(
+        "--config", $overlayConfigPath,
+        "--validate-only",
+        "--preview-patches",
+        "--preview-output", $previewRoot,
+        "--no-inject"
+    )
+
+    $artifactPath = Join-Path $stateRoot "_map_templates\validation.map_template_overlay\001_dd4_rooC_plugin.dm"
+    $artifactReportPath = Join-Path $stateRoot "_map_templates\validation.map_template_overlay\001_dd4_rooC_plugin.report.json"
+    Assert-True (Test-Path -LiteralPath $artifactPath -PathType Leaf) "Plugin map template artifact was not created: $artifactPath"
+    Assert-True (Test-Path -LiteralPath $artifactReportPath -PathType Leaf) "Plugin map template report was not created: $artifactReportPath"
+
+    $artifactReport = Get-Content -LiteralPath $artifactReportPath -Raw | ConvertFrom-Json
+    Assert-True ([bool]$artifactReport.succeeded) "Plugin map template report did not succeed."
+    Assert-True ($artifactReport.outputMap.finalRoomId -eq "rooC") "Plugin map template output final room was not updated."
+    $corA = Convert-ToArray $artifactReport.outputMap.areas | Where-Object { $_.areaId -eq "corA" } | Select-Object -First 1
+    Assert-True ($null -ne $corA) "Plugin map template output static area corA was not found."
+    $corATile17 = Convert-ToArray $corA.tileSamples | Where-Object { $_.tileId -eq "tile17" } | Select-Object -First 1
+    Assert-True ($null -ne $corATile17) "Plugin map template output static tile corA.tile17 was not found."
+    Assert-True ($null -eq $corATile17.doorTo) "Plugin map template output static tile corA.tile17 door_to was not disabled."
+
+    $previewPath = Join-Path $previewRoot "maps_DD_map4.dm.preview.bin"
+    $diffPath = Join-Path $previewRoot "maps_DD_map4.dm.diff.txt"
+    Assert-True (Test-Path -LiteralPath $previewPath -PathType Leaf) "Plugin map template overlay preview was not written: $previewPath"
+    Assert-True (Test-Path -LiteralPath $diffPath -PathType Leaf) "Plugin map template overlay diff was not written: $diffPath"
+
+    $artifactHash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash
+    $previewHash = (Get-FileHash -LiteralPath $previewPath -Algorithm SHA256).Hash
+    Assert-True ($previewHash -eq $artifactHash) "Plugin map template overlay preview bytes did not match the generated artifact."
+}
+
 Test-MapReport -MapName "tutorial_crypts" -ExpectedAreas 16 -ExpectedRooms 8 -ExpectedCorridors 8 -ExpectedTiles 56 -ExpectedEntrance "rooH" -ExpectedFinal $null
 Test-MapReport -MapName "DD_map4" -ExpectedAreas 4 -ExpectedRooms 3 -ExpectedCorridors 1 -ExpectedTiles 31 -ExpectedEntrance "rooA" -ExpectedFinal "rooB"
 Test-MapFinalRoomPrototype
 Test-MapTemplatePrototype
 Test-MapVirtualSourceOverlay
+Test-PluginMapTemplateOverlay
 
 Write-Host "Map file inspector test passed. Output: $testRoot"

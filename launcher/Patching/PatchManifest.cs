@@ -41,6 +41,9 @@ internal sealed class PluginPatchManifest
     [JsonPropertyName("virtualFileRules")]
     public VirtualFileRule[] VirtualFileRules { get; set; } = [];
 
+    [JsonPropertyName("mapTemplates")]
+    public MapTemplateRule[] MapTemplates { get; set; } = [];
+
     [JsonPropertyName("eventRules")]
     public RuntimeEventRule[] EventRules { get; set; } = [];
 
@@ -73,6 +76,7 @@ internal sealed class PluginPatchManifest
             manifest.LoadBefore ??= [];
             manifest.Conflicts ??= [];
             manifest.VirtualFileRules ??= [];
+            manifest.MapTemplates ??= [];
             manifest.EventRules ??= [];
             manifest.FactEventRules ??= [];
             manifest.StateSchema ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
@@ -137,6 +141,27 @@ internal sealed class VirtualFileRule
 
     [JsonPropertyName("operations")]
     public VirtualFileOperation[] Operations { get; set; } = [];
+}
+
+internal sealed class MapTemplateRule
+{
+    [JsonPropertyName("when")]
+    public PatchCondition? When { get; set; }
+
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("target")]
+    public string Target { get; set; } = string.Empty;
+
+    [JsonPropertyName("source")]
+    public string Source { get; set; } = string.Empty;
+
+    [JsonPropertyName("specPath")]
+    public string SpecPath { get; set; } = string.Empty;
+
+    [JsonPropertyName("spec")]
+    public JsonElement Spec { get; set; }
 }
 
 internal sealed class PatchCondition

@@ -56,8 +56,17 @@ internal sealed partial class RuntimeConfig
                 $"Plugin patch manifest enabled: order={plugin.LoadOrder} id={plugin.Id} " +
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
-                $"virtualRules={plugin.VirtualFileRuleCount} eventRules={plugin.EventRuleCount} " +
+                $"virtualRules={plugin.VirtualFileRuleCount} mapTemplates={plugin.MapTemplateRuleCount} eventRules={plugin.EventRuleCount} " +
                 $"factEventRules={plugin.FactEventRuleCount} path={plugin.Path}");
+            AddMapTemplateVirtualRules(
+                projectRoot,
+                sourceRules,
+                skippedRules,
+                compileIssues,
+                plugin,
+                activePluginIds,
+                activeCapabilities,
+                log);
             AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds, activeCapabilities);
             AddRuntimeEventRules(
                 sourceRuntimeRules,
@@ -139,6 +148,216 @@ internal sealed partial class RuntimeConfig
                 };
             }
         }
+    }
+
+    private void AddMapTemplateVirtualRules(
+        string projectRoot,
+        List<VirtualFileRuleSource> output,
+        List<VirtualFileRuleSkip> skipped,
+        List<PatchCompileIssue> compileIssues,
+        PluginManifestCandidate plugin,
+        IReadOnlySet<string> activePluginIds,
+        IReadOnlySet<string> activeCapabilities,
+        LauncherLog log)
+    {
+        var manifestDirectory = Path.GetDirectoryName(plugin.Path) ?? projectRoot;
+        for (var index = 0; index < plugin.Manifest.MapTemplates.Length; index++)
+        {
+            var template = plugin.Manifest.MapTemplates[index];
+            var ruleIndex = index + 1;
+            if (string.IsNullOrWhiteSpace(template.Target))
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    string.Empty,
+                    "mapTemplates entry requires target");
+                continue;
+            }
+
+            var condition = EvaluatePatchCondition(template.When, activePluginIds, activeCapabilities);
+            if (!condition.Matched)
+            {
+                skipped.Add(new VirtualFileRuleSkip(
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    template.Target,
+                    0,
+                    0,
+                    "mapTemplate " + condition.Reason));
+                continue;
+            }
+
+            try
+            {
+                var sourcePath = ResolveMapTemplateSourcePath(projectRoot, manifestDirectory, template);
+                var artifactDirectory = Path.Combine(ModStateDirectory, "_map_templates", SafeFileName(plugin.Id));
+                var artifactBaseName = $"{ruleIndex:000}_{SafeFileName(string.IsNullOrWhiteSpace(template.Id) ? template.Target : template.Id)}";
+                var outputPath = Path.Combine(artifactDirectory, artifactBaseName + ".dm");
+                var reportPath = Path.Combine(artifactDirectory, artifactBaseName + ".report.json");
+                var specPath = ResolveMapTemplateSpecPath(projectRoot, manifestDirectory, template, artifactDirectory, artifactBaseName, compileIssues, plugin, ruleIndex);
+                if (string.IsNullOrWhiteSpace(specPath))
+                {
+                    continue;
+                }
+
+                SaveDirectoryWatcher.WriteMapTemplatePrototype(sourcePath, specPath, outputPath, reportPath, log);
+                output.Add(new VirtualFileRuleSource(
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    new VirtualFileRule
+                    {
+                        Target = template.Target,
+                        SourcePath = outputPath
+                    },
+                    condition.Reason + "; map template generated"));
+                log.Info(
+                    $"map-template-rule source={plugin.SourceName} rule={ruleIndex} id={QuoteLogValue(template.Id)} " +
+                    $"target={template.Target} source={QuoteLogValue(sourcePath)} spec={QuoteLogValue(specPath)} " +
+                    $"output={QuoteLogValue(outputPath)} report={QuoteLogValue(reportPath)}");
+            }
+            catch (Exception ex)
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    template.Target,
+                    $"map template failed: {ex.Message}");
+            }
+        }
+    }
+
+    private string ResolveMapTemplateSourcePath(string projectRoot, string manifestDirectory, MapTemplateRule template)
+    {
+        var source = string.IsNullOrWhiteSpace(template.Source) ? template.Target : template.Source;
+        if (Path.IsPathRooted(source))
+        {
+            return ValidateMapTemplateSourcePath(projectRoot, Path.GetFullPath(source));
+        }
+
+        var relativeSource = source.TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+        var gameCandidate = Path.GetFullPath(Path.Combine(GameWorkingDirectory, relativeSource));
+        if (IsInsideDirectory(GameWorkingDirectory, gameCandidate) && File.Exists(gameCandidate))
+        {
+            return gameCandidate;
+        }
+
+        var pluginCandidate = Path.GetFullPath(Path.Combine(manifestDirectory, relativeSource));
+        if (IsInsideDirectory(projectRoot, pluginCandidate) && File.Exists(pluginCandidate))
+        {
+            return pluginCandidate;
+        }
+
+        if (!IsInsideDirectory(GameWorkingDirectory, gameCandidate) && !IsInsideDirectory(projectRoot, pluginCandidate))
+        {
+            throw new InvalidOperationException($"map template source must stay inside the game directory or project root: {source}");
+        }
+
+        throw new FileNotFoundException($"Map template source file was not found. Tried: {gameCandidate}; {pluginCandidate}", source);
+    }
+
+    private string ValidateMapTemplateSourcePath(string projectRoot, string fullPath)
+    {
+        if (!IsInsideDirectory(GameWorkingDirectory, fullPath) && !IsInsideDirectory(projectRoot, fullPath))
+        {
+            throw new InvalidOperationException($"map template source must stay inside the game directory or project root: {fullPath}");
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException("Map template source file was not found.", fullPath);
+        }
+
+        return fullPath;
+    }
+
+    private static string ResolveMapTemplateSpecPath(
+        string projectRoot,
+        string manifestDirectory,
+        MapTemplateRule template,
+        string artifactDirectory,
+        string artifactBaseName,
+        List<PatchCompileIssue> compileIssues,
+        PluginManifestCandidate plugin,
+        int ruleIndex)
+    {
+        var hasSpecPath = !string.IsNullOrWhiteSpace(template.SpecPath);
+        var hasInlineSpec = template.Spec.ValueKind is not JsonValueKind.Undefined and not JsonValueKind.Null;
+        if (hasSpecPath == hasInlineSpec)
+        {
+            AddCompileIssue(
+                compileIssues,
+                true,
+                plugin.SourceName,
+                plugin.Path,
+                ruleIndex,
+                0,
+                template.Target,
+                "mapTemplates entry requires exactly one of specPath or spec");
+            return string.Empty;
+        }
+
+        if (hasSpecPath)
+        {
+            var specPath = Path.IsPathRooted(template.SpecPath)
+                ? Path.GetFullPath(template.SpecPath)
+                : Path.GetFullPath(Path.Combine(manifestDirectory, template.SpecPath));
+            if (!IsInsideDirectory(projectRoot, specPath))
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    template.Target,
+                    $"map template specPath resolves outside project root: {specPath}");
+                return string.Empty;
+            }
+
+            if (!File.Exists(specPath))
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    template.Target,
+                    $"map template specPath was not found: {specPath}");
+                return string.Empty;
+            }
+
+            return specPath;
+        }
+
+        Directory.CreateDirectory(artifactDirectory);
+        var inlineSpecPath = Path.Combine(artifactDirectory, artifactBaseName + ".spec.json");
+        File.WriteAllText(inlineSpecPath, template.Spec.GetRawText(), Encoding.UTF8);
+        return inlineSpecPath;
+    }
+
+    private static string SafeFileName(string value)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(value) ? "map_template" : value.Trim();
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        var chars = trimmed
+            .Select(ch => invalid.Contains(ch) || ch is '/' or '\\' or ':' ? '_' : ch)
+            .ToArray();
+        var safe = new string(chars).Trim('.');
+        return string.IsNullOrWhiteSpace(safe) ? "map_template" : safe;
     }
 
     private static IEnumerable<string> EnumeratePluginPatchManifests(string pluginRoot, string manifestName)
@@ -244,6 +463,7 @@ internal sealed partial class RuntimeConfig
                 status,
                 candidate.Manifest.Enabled,
                 candidate.VirtualFileRuleCount,
+                candidate.MapTemplateRuleCount,
                 candidate.EventRuleCount,
                 candidate.FactEventRuleCount,
                 CleanCapabilityReferences(candidate.Manifest.Capabilities).ToArray(),

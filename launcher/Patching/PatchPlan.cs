@@ -53,7 +53,7 @@ internal sealed class PatchPlan
                 $"patch-manifest status={manifest.Status} order={manifest.LoadOrder} id={manifest.Id} " +
                 $"name={manifest.Name} version={manifest.Version} phase={manifest.Phase} " +
                 $"priority={manifest.Priority} capabilities={FormatLogList(manifest.Capabilities)} " +
-                $"virtualRules={manifest.VirtualFileRuleCount} eventRules={manifest.EventRuleCount} " +
+                $"virtualRules={manifest.VirtualFileRuleCount} mapTemplates={manifest.MapTemplateRuleCount} eventRules={manifest.EventRuleCount} " +
                 $"factEventRules={manifest.FactEventRuleCount} path={manifest.Path}");
         }
 
@@ -115,6 +115,7 @@ internal sealed class PatchPlan
                 $"patch-explain-manifest order={manifest.LoadOrder} status={manifest.Status} id={manifest.Id} " +
                 $"name={manifest.Name} phase={manifest.Phase} priority={manifest.Priority} " +
                 $"capabilities={FormatLogList(manifest.Capabilities)} virtualRules={manifest.VirtualFileRuleCount} " +
+                $"mapTemplates={manifest.MapTemplateRuleCount} " +
                 $"eventRules={manifest.EventRuleCount} factEventRules={manifest.FactEventRuleCount} " +
                 $"skipReason={QuoteLogValue(manifest.SkipReason)} path={manifest.Path}");
         }
@@ -297,6 +298,7 @@ internal sealed record PatchManifestInfo(
     string Status,
     bool Enabled,
     int VirtualFileRuleCount,
+    int MapTemplateRuleCount,
     int EventRuleCount,
     int FactEventRuleCount,
     string[] Capabilities,
@@ -358,6 +360,7 @@ internal sealed class PluginManifestCandidate
     public PluginPatchManifest Manifest { get; init; } = new();
     public int LoadOrder { get; set; } = -1;
     public int VirtualFileRuleCount => Manifest.VirtualFileRules.Length;
+    public int MapTemplateRuleCount => Manifest.MapTemplates.Length;
     public int EventRuleCount => Manifest.EventRules.Length;
     public int FactEventRuleCount => Manifest.FactEventRules.Length;
 

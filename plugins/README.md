@@ -8,7 +8,7 @@
 plugins/<plugin-id>/patches.json
 ```
 
-`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
 
 `eventRules` 可通过 `--emit-event` 执行已实现的安全动作，或为已识别的 managed 动作生成 sidecar artifact。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`；payload 支持有限的通用数组投影，例如 `where` 条件过滤、`whereIn` 成员过滤、展开、字符串化和去重。契约细节见 `docs/capability_rule_contract.md`。
 
@@ -43,6 +43,14 @@ plugins/<plugin-id>/patches.json
       "operations": []
     }
   ],
+  "mapTemplates": [
+    {
+      "id": "dd4_custom_finale",
+      "target": "maps/DD_map4.dm",
+      "source": "maps/DD_map4.dm",
+      "specPath": "maps/dd4_custom_finale.spec.json"
+    }
+  ],
   "factEventRules": [],
   "eventRules": [],
   "stateSchema": {}
@@ -65,6 +73,16 @@ plugins/<plugin-id>/patches.json
 - `when.capabilitiesPresent`：所有列出的能力都由最终启用插件声明时，规则才生效。
 - `when.capabilitiesAbsent`：所有列出的能力都未被最终启用插件声明时，规则才生效。
 - 条件不满足的规则只会出现在 explain 诊断里，不参与编译、验证、预览或运行时替换。
+
+固定地图模板：
+
+- `mapTemplates[].target` 是游戏内虚拟目标路径，例如 `maps/DD_map4.dm`。
+- `mapTemplates[].source` 是要复制修改的模板 `.dm`，相对路径优先按游戏目录解析；不存在时再按当前插件目录解析；省略时默认等于 `target`。
+- `mapTemplates[].specPath` 是模板改写 spec，相对路径按当前插件目录解析。
+- 也可以用 `mapTemplates[].spec` 内联 spec；`specPath` 和 `spec` 必须二选一。
+- 生成文件写入 `modStateDirectory/_map_templates/<plugin-id>/`，并自动加入最终 `sourcePath` overlay。
+- `mapTemplates[].when` 使用和 `virtualFileRules[].when` 相同的条件规则。
+- 当前只支持修改已存在的 `.dm` 标量字段，不能创建/删除 area、tile 或 door 对象。
 
 第一批能力命名：
 
@@ -93,6 +111,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 `--explain-patches` 会输出：
 
 - 每个插件的最终 `order`、`status`、`phase`、`priority`、`capabilities` 和跳过原因。
+- 每个插件声明的 `virtualRules` 和 `mapTemplates` 数量。
 - 每条排序边，例如 `mod.a -> mod.b reason=depends`。
 - 重复 id、缺依赖、声明冲突和顺序循环等加载诊断。
 - 每个 `target` 被哪些插件规则修改、哪些规则因 `when` 跳过，以及最终替换来源。

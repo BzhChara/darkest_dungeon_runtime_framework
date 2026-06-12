@@ -143,6 +143,37 @@ This writer is intentionally strict:
 - field type mismatches fail the run,
 - output is parsed again and every mutation is validated before success is reported.
 
+## Plugin Map Templates
+
+Enabled plugins can declare the same fixed-map template work directly in `patches.json`:
+
+```json
+{
+  "id": "author.fixed_map_example",
+  "enabled": true,
+  "capabilities": ["map.template.fixed"],
+  "mapTemplates": [
+    {
+      "id": "dd4_custom_finale",
+      "target": "maps/DD_map4.dm",
+      "source": "maps/DD_map4.dm",
+      "specPath": "maps/dd4_custom_finale.spec.json"
+    }
+  ]
+}
+```
+
+At patch-plan build time the launcher:
+
+- resolves `target` as the game path that will be virtually overlaid,
+- resolves relative `source` against the game working directory first, then the declaring plugin directory when the game-relative file does not exist; omitted `source` defaults to `target`,
+- resolves `specPath` relative to the declaring plugin directory,
+- writes generated artifacts under `modStateDirectory/_map_templates/<plugin-id>/`,
+- immediately parses and validates the generated `.dm`,
+- appends a normal `sourcePath` virtual file rule that serves the generated artifact for `target`.
+
+`mapTemplates[].spec` can be used instead of `specPath` for inline JSON. `specPath` and `spec` are mutually exclusive. `mapTemplates[].when` uses the same condition shape as `virtualFileRules[].when`.
+
 ## Static Topology
 
 The `.dm` files are binary DSON-like map files, not JSON text. They expose the same broad structure as `persist.map.json`:
@@ -241,7 +272,7 @@ Further live validation on 2026-06-13 proved selected scalar topology rewrites i
 - Moving the marker alone is not enough; the game still honors old corridor tile `door_to` entries as invisible W-key room-entry hotspots.
 - Rewriting `corA.tile17.door_to` with `disabled: true` removed the hidden middle-room entry hotspot and stopped the crash, while `corA.tile27 -> rooC` remained usable.
 
-This proves whole-file `.dm` replacement works in game. The template mutation writer now proves safe in-place mutation for selected existing scalar fields, including room door and corridor tile `door_to` topology fields. It still does not prove safe arbitrary map generation from a high-level layout; creating/removing areas, tiles, and door slots remains a future map-system milestone.
+This proves whole-file `.dm` replacement works in game. The template mutation writer now proves safe in-place mutation for selected existing scalar fields, including room door and corridor tile `door_to` topology fields. Plugin `mapTemplates` now turn those mutations into startup-generated artifacts and ordinary `sourcePath` overlays. It still does not prove safe arbitrary map generation from a high-level layout; creating/removing areas, tiles, and door slots remains a future map-system milestone.
 
 The virtual overlay syntax is intentionally whole-file and binary-safe:
 
