@@ -44,6 +44,7 @@ internal static class Program
                     !options.DumpModState &&
                     !options.InferSaveEvents &&
                     !options.ApplyManagedActions &&
+                    !options.InspectMapFile &&
                     !options.WatchSavesForMilliseconds.HasValue &&
                     string.IsNullOrWhiteSpace(options.EmitEvent))
                 {
@@ -137,6 +138,17 @@ internal static class Program
                     options.WriteManagedActions).Succeeded;
             }
 
+            if (options.InspectMapFile)
+            {
+                if (string.IsNullOrWhiteSpace(options.MapFilePath))
+                {
+                    throw new ArgumentException("--inspect-map-file requires a path.");
+                }
+
+                var outputPath = ResolveMapReportOutputPath(projectRoot, config.LogDirectory, options.MapFilePath, options.MapReportOutputPath);
+                SaveDirectoryWatcher.WriteMapFileInspectionReport(options.MapFilePath, outputPath, log);
+            }
+
             if (options.WatchSavesForMilliseconds.HasValue)
             {
                 using var diagnosticWatcher = SaveDirectoryWatcher.Start(config, patchPlan, projectRoot, log);
@@ -161,6 +173,7 @@ internal static class Program
                 options.DumpModState ||
                 options.InferSaveEvents ||
                 options.ApplyManagedActions ||
+                options.InspectMapFile ||
                 options.WatchSavesForMilliseconds.HasValue ||
                 !string.IsNullOrWhiteSpace(options.EmitEvent))
             {
@@ -317,6 +330,7 @@ internal static class Program
             !options.DumpModState &&
             !options.InferSaveEvents &&
             !options.ApplyManagedActions &&
+            !options.InspectMapFile &&
             !options.WatchSavesForMilliseconds.HasValue &&
             string.IsNullOrWhiteSpace(options.EmitEvent);
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))
@@ -353,5 +367,18 @@ internal static class Program
         }
 
         return fullPath;
+    }
+
+    private static string ResolveMapReportOutputPath(string projectRoot, string logDirectory, string mapFilePath, string? requestedPath)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedPath))
+        {
+            return ResolvePreviewOutputPath(projectRoot, requestedPath);
+        }
+
+        var mapName = Path.GetFileNameWithoutExtension(mapFilePath);
+        var safeMapName = string.Concat(mapName.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_'));
+        var fileName = $"{safeMapName}_{DateTimeOffset.Now:yyyyMMdd_HHmmss_fff}.json";
+        return Path.Combine(logDirectory, "map_file_reports", fileName);
     }
 }

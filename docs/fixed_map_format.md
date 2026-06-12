@@ -1,0 +1,139 @@
+# Fixed Map Format Notes
+
+This document records the current evidence for original fixed plot maps. It is a research note for future `map.*` and `encounter.*` capabilities, not a promise that map writing is stable yet.
+
+## Source Files
+
+Plot quests can point to fixed maps through `quest.map_name` in `campaign/quest/quest.plot_quests.json`.
+
+Original fixed map files live under:
+
+```text
+E:\Steam\steamapps\common\DarkestDungeon\maps\*.dm
+```
+
+Verified original maps:
+
+| Map | Areas | Rooms | Corridors | Tiles | Notes |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `crow_map1.dm` | 1 | 1 | 0 | 1 | single-room encounter map |
+| `DD_map1.dm` | 33 | 15 | 18 | 123 | Darkest Dungeon quest 1 |
+| `DD_map2.dm` | 40 | 18 | 22 | 159 | Darkest Dungeon quest 2 |
+| `DD_map3.dm` | 63 | 31 | 32 | 231 | Darkest Dungeon quest 3 |
+| `DD_map4.dm` | 4 | 3 | 1 | 31 | Darkest Dungeon finale |
+| `town_invasion_0.dm` | 15 | 8 | 7 | 56 | town invasion map |
+| `tutorial_crypts.dm` | 16 | 8 | 8 | 56 | tutorial map |
+
+All listed maps currently parse as DSON containers with zero inspection issues through the launcher map-file inspector.
+
+## Inspector
+
+The launcher can now inspect a single fixed map without starting the game:
+
+```powershell
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/default_config.json --inspect-map-file "E:\Steam\steamapps\common\DarkestDungeon\maps\DD_map4.dm" --no-inject
+```
+
+By default, reports are written under:
+
+```text
+logs/map_file_reports/
+```
+
+Use `--map-report-output <path>` to place the report at a project-local path.
+
+Regression check:
+
+```powershell
+.\tools\TestMapFileInspector.ps1
+```
+
+## Static Topology
+
+The `.dm` files are binary DSON-like map files, not JSON text. They expose the same broad structure as `persist.map.json`:
+
+```text
+base_root.version
+base_root.map.bounds
+base_root.map.populated
+base_root.map.entrance_id
+base_root.map.final_room_id
+base_root.map.static_dynamic.static_save
+base_root.map.static_dynamic.areas
+```
+
+The nested `static_save` payload defines the fixed topology:
+
+```text
+base_root.areas.<areaId>.id
+base_root.areas.<areaId>.kind
+base_root.areas.<areaId>.name
+base_root.areas.<areaId>.bounds
+base_root.areas.<areaId>.door0..door7.area_to
+base_root.areas.<areaId>.door0..door7.tile_to
+base_root.areas.<areaId>.door0..door7.type
+base_root.areas.<areaId>.door0..door7.implied
+base_root.areas.<areaId>.tiles.<tileId>.mappos
+base_root.areas.<areaId>.tiles.<tileId>.sidepos
+base_root.areas.<areaId>.tiles.<tileId>.type
+base_root.areas.<areaId>.tiles.<tileId>.obstacle
+base_root.areas.<areaId>.tiles.<tileId>.door_to.*
+```
+
+Area ids use the same practical convention seen in generated map saves:
+
+```text
+roo*  room
+cor*  corridor
+```
+
+Room-to-corridor connections are recoverable through area door slots. For example, `DD_map4.dm` has entrance `rooA`, final room `rooB`, one corridor `corA`, and room doors that target specific corridor tile indexes.
+
+This is enough evidence to model a future `map.define_fixed_layout` primitive as room/corridor graph data: areas, tiles, connections, entrance, final room, and per-tile coordinates.
+
+## Dynamic Tile State
+
+The top-level `base_root.map.static_dynamic.areas` tree carries initial dynamic tile state:
+
+```text
+light
+content
+curio_prop
+knowledge
+trap
+mash_index
+mash_type
+crit_scout
+```
+
+Across original fixed maps, non-empty patterns include:
+
+```text
+content=1,  mash_type=3, mash_index=0
+content=6,  mash_type=3, mash_index=0
+content=7,  mash_type=5, mash_index=-1
+content=8,  mash_type=5, mash_index=-1
+content=9,  mash_type=5, mash_index=-1
+content=13, mash_type=5, mash_index=-1
+```
+
+The exact gameplay meaning of every numeric `content` value still needs confirmation. The current strong inference is that values paired with `mash_type=3` and `mash_index=0` represent battle content. Values without mash data likely represent non-battle tile content such as obstacle, trap, curio, quest interaction, or special map markers.
+
+## Encounter Binding
+
+Enemy composition is not embedded as monster ids inside `.dm`. Fixed maps point at map content and mash indexes/types. The monster lineups are defined in dungeon mash files such as:
+
+```text
+dungeons/darkestdungeon/darkestdungeon.6.mash.darkest
+```
+
+Named entries such as `dd_quest_1_mash_01` and `dd_quest_2_miniboss_1` show the intended route for deterministic fights:
+
+```text
+encounter.define_mash
+map.place_named_encounter
+```
+
+## Current Conclusion
+
+The framework can now read original fixed map topology well enough to support a data model for straight-line or winding custom maps. It cannot yet write a new `.dm` safely. The next implementation step should be a project-local generated `.dm` prototype or a virtual-file overlay experiment that starts from a small original map such as `DD_map4.dm`, changes one low-risk structural value, and verifies whether the game accepts the file.

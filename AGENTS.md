@@ -43,6 +43,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 .\tools\TestRealtimeSaveBridge.ps1
 .\tools\TestManagedActionOverlay.ps1
 .\tools\TestManagedActionSaveApplier.ps1
+.\tools\TestMapFileInspector.ps1
 .\tools\TestChallengeRunDryRun.ps1 -AssertSample
 .\tools\TestSaveSampleFacts.ps1
 git -c safe.directory='E:/数据文件/SelfMod/DarkestDungeonRuntimeFramework' diff --check

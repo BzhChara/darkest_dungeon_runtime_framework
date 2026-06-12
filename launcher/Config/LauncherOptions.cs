@@ -22,6 +22,7 @@ internal sealed class LauncherOptions
     public bool InferSaveEvents { get; private set; }
     public bool ApplyManagedActions { get; private set; }
     public bool WriteManagedActions { get; private set; }
+    public bool InspectMapFile { get; private set; }
     public int? WatchSavesForMilliseconds { get; private set; }
     public string? ModStateId { get; private set; }
     public string? ModStateDirectory { get; private set; }
@@ -31,6 +32,8 @@ internal sealed class LauncherOptions
     public string? EventPayloadFile { get; private set; }
     public string? SaveStateReportPath { get; private set; }
     public string? PreviewOutputPath { get; private set; }
+    public string? MapFilePath { get; private set; }
+    public string? MapReportOutputPath { get; private set; }
 
     public static LauncherOptions Parse(string[] args)
     {
@@ -94,6 +97,10 @@ internal sealed class LauncherOptions
                 case "--write-managed-actions":
                     options.WriteManagedActions = true;
                     break;
+                case "--inspect-map-file":
+                    options.InspectMapFile = true;
+                    options.MapFilePath = RequireValue(args, ref i, "--inspect-map-file");
+                    break;
                 case "--watch-saves-for-ms":
                     options.WatchSavesForMilliseconds = RequirePositiveInt(args, ref i, "--watch-saves-for-ms");
                     break;
@@ -120,6 +127,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--preview-output":
                     options.PreviewOutputPath = RequireValue(args, ref i, "--preview-output");
+                    break;
+                case "--map-report-output":
+                    options.MapReportOutputPath = RequireValue(args, ref i, "--map-report-output");
                     break;
                 default:
                     throw new ArgumentException($"Unknown argument: {args[i]}");

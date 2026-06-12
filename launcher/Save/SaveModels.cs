@@ -85,6 +85,15 @@ internal sealed partial class SaveDirectoryWatcher
         string RelativePath,
         string Area);
 
+    private sealed record MapFileInspectionReport(
+        int Version,
+        DateTimeOffset GeneratedAt,
+        string MapFilePath,
+        string MapName,
+        SaveStateFileReport File,
+        SaveStateMapFacts Map,
+        IReadOnlyList<string> AccessIssues);
+
     private sealed record SaveStateFacts(
         IReadOnlyList<SaveStatePersistFileFacts> PersistFiles,
         SaveStateHashCatalogFacts HashCatalog,

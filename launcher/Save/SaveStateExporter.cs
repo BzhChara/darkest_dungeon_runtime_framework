@@ -257,6 +257,52 @@ internal sealed partial class SaveDirectoryWatcher
             return path;
         }
 
+        public static string WriteMapFileInspectionReport(string mapFilePath, string outputPath, LauncherLog log)
+        {
+            var fullPath = Path.GetFullPath(mapFilePath);
+            var fileName = Path.GetFileName(fullPath);
+            var generatedAt = DateTimeOffset.Now;
+            var fileReport = InspectFile(fullPath, fileName);
+            var mapFacts = BuildMapFacts(fileReport);
+            var accessIssues = fileReport.AccessIssues.ToList();
+            if (!fileReport.Exists)
+            {
+                accessIssues.Add($"Map file was not found: {fullPath}");
+            }
+
+            if (!fileReport.ParseStatus.Equals("dsonPartialDecoded", StringComparison.OrdinalIgnoreCase))
+            {
+                accessIssues.Add($"Map file did not parse as a DSON container: {fullPath}");
+            }
+
+            if (!mapFacts.HasStaticSave)
+            {
+                accessIssues.Add("Map file has no decoded base_root.map.static_dynamic.static_save payload.");
+            }
+
+            var report = new MapFileInspectionReport(
+                1,
+                generatedAt,
+                fullPath,
+                Path.GetFileNameWithoutExtension(fullPath),
+                fileReport,
+                mapFacts,
+                accessIssues);
+
+            var outputDirectory = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
+            }
+
+            File.WriteAllText(outputPath, JsonSerializer.Serialize(report, SessionJsonOptions), Encoding.UTF8);
+            log.Info(
+                $"event name=map.file_report_written path={Quote(outputPath)} map={Quote(fullPath)} " +
+                $"parseStatus={fileReport.ParseStatus} areas={mapFacts.AreaCount} rooms={mapFacts.RoomCount} " +
+                $"corridors={mapFacts.CorridorCount} tiles={mapFacts.TileCount} issues={accessIssues.Count}");
+            return outputPath;
+        }
+
         private static SaveStateFileReport InspectFile(string path, string fileName)
         {
             var accessIssues = new List<string>();
