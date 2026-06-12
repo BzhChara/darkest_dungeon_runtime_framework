@@ -230,6 +230,18 @@ internal static class Program
             }
 
             var managedOverlay = ManagedActionOverlayCompiler.Compile(config, log);
+            var questBoardPreview = QuestBoardPreviewReporter.Write(config, log);
+            var questBoardLaunchPreflight = QuestBoardLaunchPreflightReporter.Write(
+                config,
+                log,
+                questBoardPreview,
+                managedOverlay,
+                options.DryRun ? "dry-run" : "launch");
+            if (!questBoardLaunchPreflight.Succeeded)
+            {
+                return 3;
+            }
+
             var runtimeEnvironment = config.BuildRuntimeEnvironment(projectRoot, patchPlan);
             ManagedActionOverlayCompiler.ApplyEnvironment(runtimeEnvironment, managedOverlay);
 

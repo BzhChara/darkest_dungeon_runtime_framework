@@ -83,9 +83,17 @@ logs/quest_board_preview_report.json
 
 The report lists the final active board entries with stage metadata, content source path, dungeon, difficulty, length, and goal ids. If multiple quest-board artifacts exist, the preview follows the decoded-save applier's replace semantics: the last valid applicable artifact becomes the final board. Failed artifacts are reported as errors instead of silently falling back.
 
+Before `--dry-run` or a real game launch, the loader also writes:
+
+```text
+logs/quest_board_launch_preflight_report.json
+```
+
+This preflight report links the quest-board preview to `logs/managed_action_overlay_manifest.json`. It explicitly separates candidate board state from live runtime behavior. In the current implementation, `runtimeQuestBoardConsumerStatus` is `notImplemented` and `willRuntimeReplaceQuestBoard` is `false`; the report is there to show what the fixed board candidate would be and what content overlays the runtime will actually see before a future quest-board hook or decoded-save initialization path consumes it.
+
 Regression coverage:
 
-- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> quest-board preview -> decoded persist.quest.json` can preview, dry-run, write, and repeat idempotently without accumulating duplicate artifacts.
+- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> quest-board preview -> launch preflight -> decoded persist.quest.json` can preview, preflight, dry-run, write, and repeat idempotently without accumulating duplicate artifacts.
 
 ## Relationship To Map Layouts
 

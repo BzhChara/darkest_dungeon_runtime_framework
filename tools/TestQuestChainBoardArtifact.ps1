@@ -44,6 +44,12 @@ function Read-QuestBoardPreviewReport {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-QuestBoardLaunchPreflightReport {
+    $path = Join-Path $projectRoot.Path "logs\quest_board_launch_preflight_report.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Quest board launch preflight report was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Read-DecodedQuest {
     $path = Join-Path $saveRoot "persist.quest.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded quest file was not created: $path"
@@ -237,6 +243,21 @@ try {
     Assert-True ([int]$previewReport.finalActiveQuests[0].contentDifficulty -eq 5) "Quest board preview should preserve content-defined necromancer difficulty."
     Assert-True ($previewReport.finalActiveQuests[1].questId -eq "plot_kill_prophet_3") "Quest board preview second quest id mismatch."
     Assert-True ($previewReport.finalActiveQuests[1].stageId -eq "stage_prophet") "Quest board preview second stage id mismatch."
+
+    Invoke-Loader -LoaderArgs @("--config", $configPath, "--dry-run", "--no-inject")
+    $preflightReport = Read-QuestBoardLaunchPreflightReport
+    Assert-True ([bool]$preflightReport.succeeded) "Quest board launch preflight should succeed."
+    Assert-True ($preflightReport.mode -eq "dry-run") "Quest board launch preflight should record dry-run mode."
+    Assert-True ([bool]$preflightReport.questBoardPreviewSucceeded) "Quest board launch preflight should include a successful preview."
+    Assert-True ([bool]$preflightReport.hasQuestBoardCandidate) "Quest board launch preflight should detect a quest board candidate."
+    Assert-True ($preflightReport.candidateQuestBoardStatus -eq "previewOnly") "Quest board launch preflight should mark quest board as preview-only."
+    Assert-True ([int]$preflightReport.candidateQuestCount -eq 2) "Quest board launch preflight should report two candidate quests."
+    Assert-True ($preflightReport.runtimeQuestBoardConsumerStatus -eq "notImplemented") "Quest board launch preflight should not claim a live quest-board consumer exists."
+    Assert-True (-not [bool]$preflightReport.willRuntimeReplaceQuestBoard) "Quest board launch preflight must not claim runtime quest board replacement."
+    Assert-True (-not [bool]$preflightReport.willRuntimeForceQuestContentAvailable) "This test has no fixed-stage quest content overlay."
+    Assert-True ([int]$preflightReport.warningCount -eq 1) "Quest board launch preflight should warn that live quest-board consumer is not implemented."
+    Assert-True ([int]$preflightReport.errorCount -eq 0) "Quest board launch preflight should not report errors."
+    Assert-True ($preflightReport.candidateQuests[0].questId -eq "plot_kill_necromancer_3") "Quest board launch preflight first candidate quest id mismatch."
 
     Invoke-Loader -LoaderArgs @("--config", $configPath, "--apply-managed-actions", "--managed-action-save-dir", $saveRoot, "--no-inject")
     $dryRunReport = Read-ApplyReport

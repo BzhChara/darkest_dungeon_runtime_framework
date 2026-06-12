@@ -16,6 +16,7 @@ internal static class QuestBoardPreviewReporter
     public static QuestBoardPreviewReport Write(RuntimeConfig config, LauncherLog log)
     {
         var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
+        var reportPath = Path.Combine(config.LogDirectory, "quest_board_preview_report.json");
         var context = new PreviewContext(config.GameWorkingDirectory, config.ModStateDirectory);
         var artifactReports = new List<QuestBoardPreviewArtifactReport>();
         IReadOnlyList<QuestBoardPreviewQuestReport> finalActiveQuests = [];
@@ -39,6 +40,7 @@ internal static class QuestBoardPreviewReporter
         var report = new QuestBoardPreviewReport(
             ReportVersion,
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            reportPath,
             artifactDirectory,
             context.ArtifactCount,
             artifactReports.Count(report => report.Status is "wouldApply" or "failed"),
@@ -50,7 +52,6 @@ internal static class QuestBoardPreviewReporter
             finalActiveQuests,
             context.Issues);
 
-        var reportPath = Path.Combine(config.LogDirectory, "quest_board_preview_report.json");
         File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions), Encoding.UTF8);
         log.Info(
             $"quest-board-preview report path={Quote(reportPath)} artifacts={report.ArtifactCount} " +
@@ -369,6 +370,7 @@ internal static class QuestBoardPreviewReporter
 internal sealed record QuestBoardPreviewReport(
     int Version,
     string GeneratedAtUtc,
+    string ReportPath,
     string ArtifactDirectory,
     int ArtifactCount,
     int QuestBoardArtifactCount,
