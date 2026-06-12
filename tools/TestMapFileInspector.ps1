@@ -40,6 +40,30 @@ function Convert-ToArray {
     return @($Value)
 }
 
+function Assert-MapTopology {
+    param(
+        [object]$MapFacts,
+        [string]$MapName,
+        [int]$ExpectedAreas,
+        [bool]$ExpectFinalRoom,
+        [int]$ExpectedReachableAreas = -1
+    )
+
+    if ($ExpectedReachableAreas -lt 0) {
+        $ExpectedReachableAreas = $ExpectedAreas
+    }
+
+    Assert-True ($null -ne $MapFacts.topology) "$MapName topology facts were not exported."
+    Assert-True ([bool]$MapFacts.topology.hasEntranceArea) "$MapName topology entrance area did not resolve."
+    Assert-True ($MapFacts.topology.reachableAreaCount -eq $ExpectedReachableAreas) "$MapName topology reachable area count mismatch."
+    Assert-True ($MapFacts.topology.invalidDoorTargetCount -eq 0) "$MapName topology reported invalid door targets."
+    Assert-True ((Convert-ToArray $MapFacts.topology.issues).Count -eq 0) "$MapName topology reported issues."
+    if ($ExpectFinalRoom) {
+        Assert-True ([bool]$MapFacts.topology.hasFinalRoom) "$MapName topology final room did not resolve."
+        Assert-True ([bool]$MapFacts.topology.entranceCanReachFinal) "$MapName topology final room was not reachable from entrance."
+    }
+}
+
 function Test-MapReport {
     param(
         [string]$MapName,
@@ -80,6 +104,7 @@ function Test-MapReport {
     }
     Assert-True ((Convert-ToArray $report.map.areas).Count -eq $ExpectedAreas) "$MapName areas were not exported."
     Assert-True ((Convert-ToArray $report.map.dynamicAreas).Count -eq $ExpectedAreas) "$MapName dynamic areas were not exported."
+    Assert-MapTopology -MapFacts $report.map -MapName $MapName -ExpectedAreas $ExpectedAreas -ExpectFinalRoom (-not [string]::IsNullOrEmpty($ExpectedFinal))
 }
 
 function Test-MapFinalRoomPrototype {
@@ -110,6 +135,7 @@ function Test-MapFinalRoomPrototype {
     Assert-True ($report.outputMap.roomCount -eq 3) "Prototype output room count changed."
     Assert-True ($report.outputMap.corridorCount -eq 1) "Prototype output corridor count changed."
     Assert-True ($report.outputMap.tileCount -eq 31) "Prototype output tile count changed."
+    Assert-MapTopology -MapFacts $report.outputMap -MapName "DD_map4 final-room prototype output" -ExpectedAreas 4 -ExpectFinalRoom $true
 
     $script:PrototypeMapPath = $outputMapPath
 }
@@ -200,6 +226,7 @@ function Test-MapTemplatePrototype {
     Assert-True ($report.outputMap.roomCount -eq 3) "Template prototype output room count changed."
     Assert-True ($report.outputMap.corridorCount -eq 1) "Template prototype output corridor count changed."
     Assert-True ($report.outputMap.tileCount -eq 31) "Template prototype output tile count changed."
+    Assert-MapTopology -MapFacts $report.outputMap -MapName "DD_map4 template prototype output" -ExpectedAreas 4 -ExpectFinalRoom $true -ExpectedReachableAreas 3
 
     $rooC = Convert-ToArray $report.outputMap.dynamicAreas | Where-Object { $_.areaId -eq "rooC" } | Select-Object -First 1
     Assert-True ($null -ne $rooC) "Template prototype output dynamic area rooC was not found."
@@ -421,6 +448,7 @@ function Test-PluginMapTemplateOverlay {
     $artifactReport = Get-Content -LiteralPath $artifactReportPath -Raw | ConvertFrom-Json
     Assert-True ([bool]$artifactReport.succeeded) "Plugin map template report did not succeed."
     Assert-True ($artifactReport.outputMap.finalRoomId -eq "rooC") "Plugin map template output final room was not updated."
+    Assert-MapTopology -MapFacts $artifactReport.outputMap -MapName "plugin map template output" -ExpectedAreas 4 -ExpectFinalRoom $true -ExpectedReachableAreas 3
     $corA = Convert-ToArray $artifactReport.outputMap.areas | Where-Object { $_.areaId -eq "corA" } | Select-Object -First 1
     Assert-True ($null -ne $corA) "Plugin map template output static area corA was not found."
     $corATile17 = Convert-ToArray $corA.tileSamples | Where-Object { $_.tileId -eq "tile17" } | Select-Object -First 1

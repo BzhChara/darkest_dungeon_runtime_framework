@@ -6,6 +6,7 @@ This document defines the generic runtime rule model. It is intentionally not a 
 
 - `virtualFileRules` are implemented and executable. They support ordered text replacements/operations for text-like game data, and whole-file `sourcePath` overlays for project-local generated binary or data files.
 - `mapTemplates` are implemented as a plugin-declared fixed-map compiler. They mutate existing scalar fields in a source `.dm` template, validate the generated `.dm`, write it under `modStateDirectory/_map_templates/`, and append a normal `sourcePath` virtual file rule for the declared game target. This keeps fixed-map customization on the same overlay path as other generated assets.
+- Map inspection and template reports now expose `map.topology` facts for entrance/final reachability, reachable and unreachable areas, door edge counts, invalid door targets, and hard topology issues. High-level layout authoring is still a draft capability documented in `docs/map_layout_templates.md`.
 - `eventRules` are parsed, explained, and can be exercised through `--emit-event` for implemented safe actions and selected materialized managed action artifacts.
 - `factEventRules` are parsed, explained, and can be exercised through `--infer-save-events` to convert save/content/runtime facts into ordinary framework events.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.

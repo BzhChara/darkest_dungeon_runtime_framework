@@ -672,8 +672,21 @@ internal sealed partial class SaveDirectoryWatcher
         int ActiveDoorCount,
         int DynamicAreaCount,
         int DynamicTileCount,
+        SaveStateMapTopologyFacts Topology,
         IReadOnlyList<SaveStateMapDynamicAreaFacts> DynamicAreas,
         IReadOnlyList<SaveStateMapAreaFacts> Areas);
+
+    private sealed record SaveStateMapTopologyFacts(
+        bool HasEntranceArea,
+        bool HasFinalRoom,
+        bool EntranceCanReachFinal,
+        int ReachableAreaCount,
+        IReadOnlyList<string> ReachableAreaIds,
+        IReadOnlyList<string> UnreachableAreaIds,
+        int AreaDoorEdgeCount,
+        int TileDoorEdgeCount,
+        int InvalidDoorTargetCount,
+        IReadOnlyList<string> Issues);
 
     private sealed record SaveStateEmbeddedDsonFacts(
         int Length,

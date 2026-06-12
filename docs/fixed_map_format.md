@@ -174,6 +174,24 @@ At patch-plan build time the launcher:
 
 `mapTemplates[].spec` can be used instead of `specPath` for inline JSON. `specPath` and `spec` are mutually exclusive. `mapTemplates[].when` uses the same condition shape as `virtualFileRules[].when`.
 
+## Topology Validation
+
+Map inspection and template mutation reports include a `map.topology` or `outputMap.topology` object. It is a read-only diagnostic layer over decoded static map facts.
+
+Current topology facts:
+
+- `hasEntranceArea`: the decoded entrance hash resolves to a known area.
+- `hasFinalRoom`: the decoded final-room hash resolves to a known area. A final-room hash of `0` is treated as "no final room".
+- `entranceCanReachFinal`: the entrance and final room are connected by the decoded area-door and tile-door graph.
+- `reachableAreaIds`: areas connected to the entrance through decoded doors.
+- `unreachableAreaIds`: decoded areas not connected to the entrance. These are facts, not automatic hard errors, because template-derived maps may intentionally leave unused source-template rooms disconnected.
+- `areaDoorEdgeCount`: active room/area door edges.
+- `tileDoorEdgeCount`: active tile `door_to` edges.
+- `invalidDoorTargetCount`: doors that point outside decoded target areas or target tile ranges.
+- `issues`: hard topology problems such as unresolved entrance/final hashes, invalid door targets, or a declared final room that is not reachable from the entrance.
+
+This validation is intentionally generic. It does not know about a specific mod's desired route; it only reports whether the decoded topology is structurally coherent enough for a compiler or plugin rule to make a policy decision.
+
 ## Static Topology
 
 The `.dm` files are binary DSON-like map files, not JSON text. They expose the same broad structure as `persist.map.json`:
@@ -272,7 +290,7 @@ Further live validation on 2026-06-13 proved selected scalar topology rewrites i
 - Moving the marker alone is not enough; the game still honors old corridor tile `door_to` entries as invisible W-key room-entry hotspots.
 - Rewriting `corA.tile17.door_to` with `disabled: true` removed the hidden middle-room entry hotspot and stopped the crash, while `corA.tile27 -> rooC` remained usable.
 
-This proves whole-file `.dm` replacement works in game. The template mutation writer now proves safe in-place mutation for selected existing scalar fields, including room door and corridor tile `door_to` topology fields. Plugin `mapTemplates` now turn those mutations into startup-generated artifacts and ordinary `sourcePath` overlays. It still does not prove safe arbitrary map generation from a high-level layout; creating/removing areas, tiles, and door slots remains a future map-system milestone.
+This proves whole-file `.dm` replacement works in game. The template mutation writer now proves safe in-place mutation for selected existing scalar fields, including room door and corridor tile `door_to` topology fields. Plugin `mapTemplates` now turn those mutations into startup-generated artifacts and ordinary `sourcePath` overlays. Map reports now include generic topology validation for entrance/final reachability, unreachable source-template areas, and invalid door targets. It still does not prove safe arbitrary map generation from a high-level layout; creating/removing areas, tiles, and door slots remains a future map-system milestone.
 
 The virtual overlay syntax is intentionally whole-file and binary-safe:
 
@@ -283,4 +301,4 @@ The virtual overlay syntax is intentionally whole-file and binary-safe:
 }
 ```
 
-The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. The next implementation step is extending the template writer toward controlled creation/removal of rooms, corridors, tiles, and door slots.
+The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. The next implementation step is described in `docs/map_layout_templates.md`: a high-level layout description that first compiles only to supported `mapTemplates` mutations, then later grows into controlled creation/removal of rooms, corridors, tiles, and door slots.

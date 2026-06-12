@@ -8,7 +8,7 @@ internal sealed partial class SaveDirectoryWatcher
         {
             if (map is null || !map.Exists)
             {
-                return new SaveStateMapFacts(false, [], false, null, null, null, null, null, null, 0, 0, 0, 0, 0, 0, 0, [], []);
+                return new SaveStateMapFacts(false, [], false, null, null, null, null, null, null, 0, 0, 0, 0, 0, 0, 0, EmptyMapTopologyFacts(), [], []);
             }
 
             var staticSave = FindDsonScalar(map, "base_root.map.static_dynamic.static_save")?.EmbeddedDson;
@@ -25,6 +25,9 @@ internal sealed partial class SaveDirectoryWatcher
             var dynamicAreas = BuildMapDynamicAreaFacts(map, areaIdToHash);
             var entranceAreaHash = TryGetInt(map, "base_root.map.entrance_id");
             var finalRoomHash = TryGetInt(map, "base_root.map.final_room_id");
+            var entranceAreaId = ResolveMapAreaId(areaHashToId, entranceAreaHash);
+            var finalRoomId = ResolveMapAreaId(areaHashToId, finalRoomHash);
+            var topology = BuildMapTopologyFacts(areas, entranceAreaHash, entranceAreaId, finalRoomHash, finalRoomId);
 
             return new SaveStateMapFacts(
                 true,
@@ -33,9 +36,9 @@ internal sealed partial class SaveDirectoryWatcher
                 staticSaveFacts,
                 TryGetBool(map, "base_root.map.populated"),
                 entranceAreaHash,
-                ResolveMapAreaId(areaHashToId, entranceAreaHash),
+                entranceAreaId,
                 finalRoomHash,
-                ResolveMapAreaId(areaHashToId, finalRoomHash),
+                finalRoomId,
                 areas.Count,
                 areas.Count(area => area.InferredRole.Equals("room", StringComparison.OrdinalIgnoreCase)),
                 areas.Count(area => area.InferredRole.Equals("corridor", StringComparison.OrdinalIgnoreCase)),
@@ -43,8 +46,151 @@ internal sealed partial class SaveDirectoryWatcher
                 areas.Sum(area => area.ActiveDoorCount),
                 dynamicAreas.Count,
                 dynamicAreas.Sum(area => area.TileCount),
+                topology,
                 dynamicAreas,
                 areas);
+        }
+
+        private static SaveStateMapTopologyFacts EmptyMapTopologyFacts()
+        {
+            return new SaveStateMapTopologyFacts(false, false, false, 0, [], [], 0, 0, 0, []);
+        }
+
+        private static SaveStateMapTopologyFacts BuildMapTopologyFacts(
+            IReadOnlyList<SaveStateMapAreaFacts> areas,
+            int? entranceAreaHash,
+            string? entranceAreaId,
+            int? finalRoomHash,
+            string? finalRoomId)
+        {
+            var issues = new List<string>();
+            var areaById = areas.ToDictionary(area => area.AreaId, StringComparer.OrdinalIgnoreCase);
+            var adjacency = areas.ToDictionary(
+                area => area.AreaId,
+                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+            var areaDoorEdgeCount = 0;
+            var tileDoorEdgeCount = 0;
+            var invalidDoorTargetCount = 0;
+
+            foreach (var area in areas)
+            {
+                foreach (var door in area.Doors)
+                {
+                    areaDoorEdgeCount++;
+                    AddMapTopologyEdge(area, door, "areaDoor", areaById, adjacency, issues, ref invalidDoorTargetCount);
+                }
+
+                foreach (var tile in area.TileSamples)
+                {
+                    if (tile.DoorTo is null)
+                    {
+                        continue;
+                    }
+
+                    tileDoorEdgeCount++;
+                    AddMapTopologyEdge(area, tile.DoorTo, $"tileDoor:{tile.TileId}", areaById, adjacency, issues, ref invalidDoorTargetCount);
+                }
+            }
+
+            var hasEntranceArea = entranceAreaId is not null && areaById.ContainsKey(entranceAreaId);
+            if (entranceAreaHash.HasValue && !hasEntranceArea)
+            {
+                issues.Add($"entrance area hash {entranceAreaHash.Value} did not resolve to a decoded area.");
+            }
+            else if (!entranceAreaHash.HasValue && areas.Count > 0)
+            {
+                issues.Add("map has decoded areas but no entrance area hash.");
+            }
+
+            var hasFinalRoom = finalRoomHash is > 0 && finalRoomId is not null && areaById.ContainsKey(finalRoomId);
+            if (finalRoomHash is > 0 && !hasFinalRoom)
+            {
+                issues.Add($"final room hash {finalRoomHash.Value} did not resolve to a decoded area.");
+            }
+
+            var reachableAreaIds = hasEntranceArea
+                ? TraverseMapTopology(entranceAreaId!, adjacency)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var unreachableAreaIds = areas
+                .Select(area => area.AreaId)
+                .Where(areaId => !reachableAreaIds.Contains(areaId))
+                .OrderBy(areaId => areaId, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var entranceCanReachFinal = hasEntranceArea && hasFinalRoom && reachableAreaIds.Contains(finalRoomId!);
+            if (hasEntranceArea && hasFinalRoom && !entranceCanReachFinal)
+            {
+                issues.Add($"final room {finalRoomId} is not connected to entrance area {entranceAreaId}.");
+            }
+
+            return new SaveStateMapTopologyFacts(
+                hasEntranceArea,
+                hasFinalRoom,
+                entranceCanReachFinal,
+                reachableAreaIds.Count,
+                reachableAreaIds.OrderBy(areaId => areaId, StringComparer.OrdinalIgnoreCase).ToArray(),
+                unreachableAreaIds,
+                areaDoorEdgeCount,
+                tileDoorEdgeCount,
+                invalidDoorTargetCount,
+                issues);
+        }
+
+        private static void AddMapTopologyEdge(
+            SaveStateMapAreaFacts sourceArea,
+            SaveStateMapDoorFacts door,
+            string sourceSlot,
+            IReadOnlyDictionary<string, SaveStateMapAreaFacts> areaById,
+            IReadOnlyDictionary<string, HashSet<string>> adjacency,
+            List<string> issues,
+            ref int invalidDoorTargetCount)
+        {
+            if (string.IsNullOrWhiteSpace(door.TargetAreaId) || !areaById.TryGetValue(door.TargetAreaId, out var targetArea))
+            {
+                invalidDoorTargetCount++;
+                issues.Add($"{sourceArea.AreaId}.{sourceSlot} targets unresolved area hash {door.TargetAreaHash?.ToString() ?? "<null>"}.");
+                return;
+            }
+
+            if (door.TargetTileIndex.HasValue &&
+                (door.TargetTileIndex.Value < 0 || door.TargetTileIndex.Value >= targetArea.TileCount))
+            {
+                invalidDoorTargetCount++;
+                issues.Add($"{sourceArea.AreaId}.{sourceSlot} targets {door.TargetAreaId} tile index {door.TargetTileIndex}, outside tile count {targetArea.TileCount}.");
+                return;
+            }
+
+            adjacency[sourceArea.AreaId].Add(door.TargetAreaId);
+            adjacency[door.TargetAreaId].Add(sourceArea.AreaId);
+        }
+
+        private static HashSet<string> TraverseMapTopology(
+            string startAreaId,
+            IReadOnlyDictionary<string, HashSet<string>> adjacency)
+        {
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!adjacency.ContainsKey(startAreaId))
+            {
+                return visited;
+            }
+
+            var queue = new Queue<string>();
+            queue.Enqueue(startAreaId);
+            visited.Add(startAreaId);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                foreach (var next in adjacency[current])
+                {
+                    if (visited.Add(next))
+                    {
+                        queue.Enqueue(next);
+                    }
+                }
+            }
+
+            return visited;
         }
 
         private static SaveStateEmbeddedDsonFacts BuildEmbeddedDsonFacts(
@@ -104,7 +250,6 @@ internal sealed partial class SaveDirectoryWatcher
                         doors.Count,
                         doors,
                         tileIds
-                            .Take(40)
                             .Select(tileId => BuildMapTileFacts(scalars, areaPath, tileId, areaHashToId))
                             .ToArray());
                 })
@@ -217,7 +362,6 @@ internal sealed partial class SaveDirectoryWatcher
                         TryGetBool(map, $"{areaPath}.reversed"),
                         tileIds.Length,
                         tileIds
-                            .Take(40)
                             .Select(tileId => BuildMapDynamicTileFacts(map, areaPath, tileId))
                             .ToArray());
                 })
