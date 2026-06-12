@@ -409,6 +409,7 @@ internal static class RuntimeEventExecutor
             "roster.ensureClassInstances" => BuildGenericManagedActionPlan(action, document, payload, "ensureClassInstances", "profile.roster"),
             "roster.setProgression" => BuildGenericManagedActionPlan(action, document, payload, "setProgression", "profile.roster"),
             "roster.setSkillUnlocks" => BuildGenericManagedActionPlan(action, document, payload, "setSkillUnlocks", "profile.roster"),
+            "upgrade.ensurePurchases" => BuildGenericManagedActionPlan(action, document, payload, "ensurePurchases", "profile.upgrades"),
             "stagecoach.suppressRecruits" => BuildGenericManagedActionPlan(action, document, payload, "suppressRecruits", "profile.stagecoach"),
             "estate.ensureInventoryCounts" => BuildGenericManagedActionPlan(action, document, payload, "ensureInventoryCounts", "profile.estate.inventory"),
             "wallet.setCurrencyAmount" => BuildGenericManagedActionPlan(action, document, payload, "setCurrencyAmount", "profile.wallet"),
@@ -1292,6 +1293,7 @@ internal static class RuntimeEventExecutor
             "roster.ensureClassInstances" or
             "roster.setProgression" or
             "roster.setSkillUnlocks" or
+            "upgrade.ensurePurchases" or
             "stagecoach.suppressRecruits" or
             "estate.ensureInventoryCounts" or
             "wallet.setCurrencyAmount" or

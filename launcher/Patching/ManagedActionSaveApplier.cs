@@ -105,6 +105,9 @@ internal static partial class ManagedActionSaveApplier
                 case "roster.setSkillUnlocks":
                     ApplyRosterSetSkillUnlocks(context, artifactPath, artifact);
                     break;
+                case "upgrade.ensurePurchases":
+                    ApplyUpgradeEnsurePurchases(context, artifactPath, artifact);
+                    break;
                 default:
                     AddUnsupportedAction(context, artifactPath, artifact, actionType);
                     break;
@@ -400,6 +403,7 @@ internal static partial class ManagedActionSaveApplier
         var targetFile = actionType switch
         {
             "roster.ensureClassInstances" or "roster.setProgression" or "roster.setSkillUnlocks" => "persist.roster.json",
+            "upgrade.ensurePurchases" => "persist.upgrades.json",
             "stagecoach.suppressRecruits" or "town.unlockAllBuildings" or "town.setBuildingLevels" => "persist.town.json",
             "estate.ensureInventoryCounts" or "inventory.disableItemSale" => "persist.estate.json",
             "townEvent.overrideCurrent" => "persist.town_event.json",

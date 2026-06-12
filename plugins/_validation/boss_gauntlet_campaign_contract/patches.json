@@ -10,6 +10,7 @@
     "roster.ensure_class_instances",
     "roster.set_progression",
     "roster.set_skill_unlocks",
+    "upgrade.ensure_purchases",
     "stagecoach.suppress_recruits",
     "estate.ensure_inventory_counts",
     "wallet.set_currency_amount",
@@ -50,6 +51,7 @@
         "roster.ensure_class_instances",
         "roster.set_progression",
         "roster.set_skill_unlocks",
+        "upgrade.ensure_purchases",
         "stagecoach.suppress_recruits",
         "estate.ensure_inventory_counts",
         "wallet.set_currency_amounts",
@@ -115,6 +117,19 @@
           "args": {
             "target": "profile.roster",
             "skills": "state.bossGauntlet.skills"
+          }
+        },
+        {
+          "type": "upgrade.ensurePurchases",
+          "capability": "upgrade.ensure_purchases",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.upgrades",
+            "source": "state.bossGauntlet.upgrades.source",
+            "mode": "state.bossGauntlet.upgrades.mode",
+            "categories": "state.bossGauntlet.upgrades.categories",
+            "instanceSource": "state.bossGauntlet.upgrades.instanceSource"
           }
         },
         {

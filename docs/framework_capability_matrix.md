@@ -55,7 +55,8 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Wallet/resources | `wallet.setCurrencyAmounts`, `wallet.modifyCurrency` | live original-save write policy and reward identity coverage |
 | Estate inventory | `estate.ensureInventoryCounts` | item sale/use restrictions and item identity tracking |
 | Roster generation | `roster.ensureClassInstances` clean hero blueprint | richer hero blueprint arguments and class-specific defaults |
-| Roster skills | `roster.setSkillUnlocks` skill id lists | per-skill training levels through `persist.upgrades.json` |
+| Roster skills | `roster.setSkillUnlocks` skill id lists | live enforcement and richer skill selection policies |
+| Upgrade purchases | `upgrade.ensurePurchases` for content-defined building, hero skill, weapon, and armour requirements | original-save write policy and narrower per-tree/per-level selection modes |
 | Selection state | `selection.lock`, `selection.consumeHeroes`, `selection.consumeTrinkets` | live UI/game enforcement instead of sidecar-only observation |
 | Quest board | `questBoard.replaceWithFixedSet` materialized plan | decoded save writer or runtime board intercept |
 | Quest overlays | `quest.injectFixedStage` virtual file consumer | full quest list/availability control |

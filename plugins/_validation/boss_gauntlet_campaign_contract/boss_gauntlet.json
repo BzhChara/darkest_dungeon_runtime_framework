@@ -15,6 +15,18 @@
   "heroCopiesPerClass": 2,
   "heroLevel": "max",
   "skills": "all_unlocked_and_maxed",
+  "upgrades": {
+    "source": "content.upgrades.enabled",
+    "mode": "all_requirements",
+    "categories": [
+      "building",
+      "combat_skill",
+      "camping_skill",
+      "weapon",
+      "armour"
+    ],
+    "instanceSource": "profile.roster.heroes"
+  },
   "heroQuirks": {
     "positive": "full_random",
     "negative": "one_random"

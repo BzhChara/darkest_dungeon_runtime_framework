@@ -138,7 +138,7 @@ Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necroma
 Assert-True ([bool]$state.finaleDoesNotReviveDeadHeroes) "Definition should record that finale unlock does not revive dead heroes."
 
 $initializationReport = Read-RuntimeEventReport
-Assert-True ([int]$initializationReport.materializedActionCount -eq 11) "Initialization should materialize eleven managed profile-normalization actions."
+Assert-True ([int]$initializationReport.materializedActionCount -eq 12) "Initialization should materialize twelve managed profile-normalization actions."
 
 $rosterAction = Get-ActionReport -Report $initializationReport -Type "roster.ensureClassInstances"
 $rosterArtifact = Read-ManagedActionArtifact -Action $rosterAction -ExpectedType "roster.ensureClassInstances"
@@ -146,6 +146,14 @@ Assert-True ([int]$rosterArtifact.plan.arguments.copiesPerClass -eq 2) "Roster n
 Assert-True ($rosterArtifact.plan.arguments.level -eq "max") "Roster normalization should request max-level heroes."
 Assert-True ($rosterArtifact.plan.arguments.positiveQuirks -eq "full_random") "Roster normalization should request full random positive quirks."
 Assert-True ($rosterArtifact.plan.arguments.negativeQuirks -eq "one_random") "Roster normalization should request one random negative quirk."
+
+$upgradeAction = Get-ActionReport -Report $initializationReport -Type "upgrade.ensurePurchases"
+$upgradeArtifact = Read-ManagedActionArtifact -Action $upgradeAction -ExpectedType "upgrade.ensurePurchases"
+Assert-True ($upgradeArtifact.plan.arguments.source -eq "content.upgrades.enabled") "Upgrade normalization should use the generic content upgrade source."
+Assert-True ($upgradeArtifact.plan.arguments.mode -eq "all_requirements") "Upgrade normalization should request all requirements."
+Assert-True ((Convert-ToArray $upgradeArtifact.plan.arguments.categories) -contains "combat_skill") "Upgrade normalization should include combat skill purchases."
+Assert-True ((Convert-ToArray $upgradeArtifact.plan.arguments.categories) -contains "building") "Upgrade normalization should include building purchases."
+Assert-True ($upgradeArtifact.plan.arguments.instanceSource -eq "profile.roster.heroes") "Upgrade normalization should derive instanced purchases from roster heroes."
 
 $walletAction = Get-ActionReport -Report $initializationReport -Type "wallet.setCurrencyAmounts"
 $walletArtifact = Read-ManagedActionArtifact -Action $walletAction -ExpectedType "wallet.setCurrencyAmounts"
