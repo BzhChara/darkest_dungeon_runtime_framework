@@ -59,7 +59,7 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Upgrade purchases | `upgrade.ensurePurchases` for content-defined building, hero skill, weapon, and armour requirements | original-save write policy and narrower per-tree/per-level selection modes |
 | Town runtime | `stagecoach.suppressRecruits` and district-scoped `town.unlockAllBuildings` decoded-save writers | ordinary building unlock UI verification and `town.setBuildingLevels` semantics |
 | Selection state | `selection.lock`, `selection.consumeHeroes`, `selection.consumeTrinkets` | live UI/game enforcement instead of sidecar-only observation |
-| Quest board | `questBoard.replaceWithFixedSet` materialized plan | decoded save writer or runtime board intercept |
+| Quest board | `questBoard.replaceWithFixedSet` decoded-save writer from enabled plot quest content | runtime board intercept and broader availability modes |
 | Quest overlays | `quest.injectFixedStage` virtual file consumer | full quest list/availability control |
 | Save-to-event bridge | plugin-declared `factEventRules` and payload projections | more fact extractors and reusable projection operators |
 | Sidecar state | plugin namespaced state schema/actions | reset/backup policy and campaign scoping |

@@ -27,7 +27,7 @@ internal static partial class ManagedActionSaveApplier
             throw new DirectoryNotFoundException($"Managed action save directory was not found: {resolvedSaveDirectory}");
         }
 
-        var context = new ApplyContext(config.GameWorkingDirectory, resolvedSaveDirectory, writeChanges);
+        var context = new ApplyContext(config.GameWorkingDirectory, config.ModStateDirectory, resolvedSaveDirectory, writeChanges);
         if (Directory.Exists(artifactDirectory))
         {
             foreach (var artifactPath in Directory.EnumerateFiles(artifactDirectory, "*.json")
@@ -113,6 +113,9 @@ internal static partial class ManagedActionSaveApplier
                     break;
                 case "town.unlockAllBuildings":
                     ApplyTownUnlockAllBuildings(context, artifactPath, artifact);
+                    break;
+                case "questBoard.replaceWithFixedSet":
+                    ApplyQuestBoardReplaceWithFixedSet(context, artifactPath, artifact);
                     break;
                 default:
                     AddUnsupportedAction(context, artifactPath, artifact, actionType);
@@ -556,9 +559,10 @@ internal static partial class ManagedActionSaveApplier
 
     private static string Quote(string value) => '"' + value.Replace("\"", "\\\"", StringComparison.Ordinal) + '"';
 
-    private sealed class ApplyContext(string gameWorkingDirectory, string saveDirectory, bool writeChanges)
+    private sealed class ApplyContext(string gameWorkingDirectory, string modStateDirectory, string saveDirectory, bool writeChanges)
     {
         public string GameWorkingDirectory { get; } = gameWorkingDirectory;
+        public string ModStateDirectory { get; } = modStateDirectory;
         public string SaveDirectory { get; } = saveDirectory;
         public bool WriteChanges { get; } = writeChanges;
         public int ArtifactCount { get; set; }

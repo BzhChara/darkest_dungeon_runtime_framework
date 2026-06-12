@@ -89,6 +89,12 @@ function Read-DecodedTown {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json -AsHashtable
 }
 
+function Read-DecodedQuest {
+    $path = Join-Path $saveRoot "persist.quest.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded quest file was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Write-DecodedRosterFixture {
     $path = Join-Path $saveRoot "persist.roster.json"
     @'
@@ -366,6 +372,67 @@ function Write-DecodedTownFixture {
 '@ | Set-Content -LiteralPath $path -Encoding UTF8
 }
 
+function Write-DecodedQuestFixture {
+    $path = Join-Path $saveRoot "persist.quest.json"
+    @'
+{
+  "base_root": {
+    "version": 41,
+    "quests": {
+      "0": {
+        "id": "plot_tutorial_crypts",
+        "map_name": "tutorial_crypts",
+        "torch_setting": "",
+        "raid_rules_override": "",
+        "is_plot_quest": true,
+        "type": "explore",
+        "dungeon": "crypts",
+        "difficulty": 1,
+        "length": 1,
+        "counted_in_generation": true,
+        "goal_ids": [
+          "explore_all_rooms"
+        ],
+        "progression_goal_ids": 0,
+        "use_default_progression_goals": true,
+        "completion_reward": {
+          "resolve_xp": 2,
+          "resolve_xp_per_wave_kill": 0,
+          "items_definition": {
+            "items": {
+              "0": {
+                "id": "",
+                "type": "gold",
+                "amount": 3000
+              }
+            }
+          },
+          "additional_threshold_trinket_rewards": {},
+          "trinket_retention_ids": [],
+          "max_times_dungeon_xp_awarded": 0
+        },
+        "threshold_rewards": {},
+        "completion_threshold": 0,
+        "is_from_town_event": false
+      }
+    },
+    "trinket_retention_ids": [],
+    "plot_quest_total": 44
+  }
+}
+'@ | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
+function Write-CompletedQuestStateFixture {
+    param([string[]]$QuestIds)
+
+    $path = Join-Path $stateRoot "$pluginId.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Plugin state file was not created: $path"
+    $json = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    $json.state.bossGauntlet.completedQuestIds = @($QuestIds)
+    $json | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
 function Get-WalletAmount {
     param(
         [object]$Estate,
@@ -496,6 +563,43 @@ function Get-DistrictBuilt {
     return [bool]$Town["base_root"]["districts"]["buildings"][$DistrictId]["built"]
 }
 
+function Get-QuestIds {
+    param([object]$Quest)
+
+    return @($Quest.base_root.quests.PSObject.Properties |
+        Sort-Object { [int]$_.Name } |
+        ForEach-Object { [string]$_.Value.id })
+}
+
+function Get-QuestById {
+    param(
+        [object]$Quest,
+        [string]$Id
+    )
+
+    $entry = @($Quest.base_root.quests.PSObject.Properties |
+        ForEach-Object { $_.Value } |
+        Where-Object { $_.id -eq $Id }) | Select-Object -First 1
+    Assert-True ($null -ne $entry) "Expected quest board entry: $Id"
+    return $entry
+}
+
+function Test-QuestRewardItem {
+    param(
+        [object]$QuestEntry,
+        [string]$Type,
+        [string]$Id,
+        [int]$Amount
+    )
+
+    $items = @($QuestEntry.completion_reward.items_definition.items.PSObject.Properties | ForEach-Object { $_.Value })
+    return @($items | Where-Object {
+        [string]$_.type -eq $Type -and
+        [string]$_.id -eq $Id -and
+        [int]$_.amount -eq $Amount
+    }).Count -gt 0
+}
+
 Assert-True (Test-Path -LiteralPath (Join-Path $sourceSaveRoot "persist.estate.json") -PathType Leaf) "Decoded current save fixture is missing persist.estate.json."
 New-Item -ItemType Directory -Force -Path $testRoot, $saveRoot | Out-Null
 Get-ChildItem -LiteralPath $sourceSaveRoot -Filter "*.json" |
@@ -503,6 +607,7 @@ Get-ChildItem -LiteralPath $sourceSaveRoot -Filter "*.json" |
 Write-DecodedRosterFixture
 Write-DecodedUpgradesFixture
 Write-DecodedTownFixture
+Write-DecodedQuestFixture
 
 $baseArgs = @(
     "--config", (Resolve-ProjectPath $ConfigPath),
@@ -528,17 +633,21 @@ $town = Read-DecodedTown
 Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 2) "Fixture should start with two generated stagecoach recruits."
 Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "bank")) "Fixture should start with bank district unbuilt."
 Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "granary")) "Fixture should start with granary district unbuilt."
+$quest = Read-DecodedQuest
+Assert-True ((Get-QuestIds -Quest $quest).Count -eq 1) "Fixture should start with one quest board entry."
+Assert-True ((Get-QuestIds -Quest $quest) -contains "plot_tutorial_crypts") "Fixture should start with tutorial quest."
+Assert-True (-not ((Get-QuestIds -Quest $quest) -contains "plot_kill_necromancer_3")) "Fixture should start without fixed boss quests."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--managed-action-save-dir", $saveRoot))
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
 Assert-True ([int]$dryRunReport.artifactCount -eq 12) "Dry-run should inspect twelve boss gauntlet initialization artifacts."
-Assert-True ([int]$dryRunReport.supportedActionCount -eq 7) "Dry-run should recognize seven currently supported decoded-save actions."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 7) "Dry-run should report seven dry-run actions."
+Assert-True ([int]$dryRunReport.supportedActionCount -eq 8) "Dry-run should recognize eight currently supported decoded-save actions."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 8) "Dry-run should report eight dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
-Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 5) "Dry-run should report the remaining profile-normalization actions as unsupported."
+Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 4) "Dry-run should report the remaining profile-normalization actions as unsupported."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
-Assert-True ([int]$dryRunReport.changedFileCount -eq 4) "Dry-run should report four would-change decoded save files."
+Assert-True ([int]$dryRunReport.changedFileCount -eq 5) "Dry-run should report five would-change decoded save files."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
@@ -555,15 +664,19 @@ $town = Read-DecodedTown
 Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 2) "Dry-run must not remove generated stagecoach recruits."
 Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "bank")) "Dry-run must not mark bank district built."
 Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "granary")) "Dry-run must not mark granary district built."
+$quest = Read-DecodedQuest
+Assert-True ((Get-QuestIds -Quest $quest).Count -eq 1) "Dry-run must not replace quest board entries."
+Assert-True ((Get-QuestIds -Quest $quest) -contains "plot_tutorial_crypts") "Dry-run must keep tutorial quest."
+Assert-True (-not ((Get-QuestIds -Quest $quest) -contains "plot_kill_necromancer_3")) "Dry-run must not add fixed boss quests."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
-Assert-True ([int]$writeReport.supportedActionCount -eq 7) "Write pass should recognize seven currently supported decoded-save actions."
+Assert-True ([int]$writeReport.supportedActionCount -eq 8) "Write pass should recognize eight currently supported decoded-save actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 7) "Write pass should apply seven currently supported decoded-save actions."
-Assert-True ([int]$writeReport.changedFileCount -eq 4) "Write pass should change four decoded save files."
-Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 4) "Write pass should mark four files as written."
+Assert-True ([int]$writeReport.appliedActionCount -eq 8) "Write pass should apply eight currently supported decoded-save actions."
+Assert-True ([int]$writeReport.changedFileCount -eq 5) "Write pass should change five decoded save files."
+Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 5) "Write pass should mark five files as written."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq 20000) "Write pass should set starting gold to 20000."
@@ -605,8 +718,27 @@ Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 0) "Write pas
 Assert-True (Get-DistrictBuilt -Town $town -DistrictId "bank") "Write pass should mark bank district built."
 Assert-True (Get-DistrictBuilt -Town $town -DistrictId "granary") "Write pass should mark granary district built."
 Assert-True (Get-DistrictBuilt -Town $town -DistrictId "library") "Write pass should keep already-built district built."
+$quest = Read-DecodedQuest
+$questIds = @(Get-QuestIds -Quest $quest)
+Assert-True ($questIds.Count -eq 2) "Write pass should replace the quest board with two fixed quests."
+Assert-True ($questIds[0] -eq "plot_kill_necromancer_3") "Write pass should keep fixed quest order from the action plan."
+Assert-True ($questIds[1] -eq "plot_kill_prophet_3") "Write pass should keep fixed quest order from the action plan."
+$necroQuest = Get-QuestById -Quest $quest -Id "plot_kill_necromancer_3"
+Assert-True ([string]$necroQuest.dungeon -eq "crypts") "Fixed quest should preserve content-defined dungeon."
+Assert-True ([int]$necroQuest.difficulty -eq 5) "Fixed quest should preserve content-defined difficulty."
+Assert-True (@($necroQuest.goal_ids)[0] -eq "kill_necromancer_C") "Fixed quest should preserve content-defined goal id."
+Assert-True (Test-QuestRewardItem -QuestEntry $necroQuest -Type "trinket" -Id "boss_necromancer" -Amount 1) "Fixed quest should preserve concrete boss trinket reward."
+Assert-True ($null -eq $necroQuest.completion_reward.items_definition.system_config_type) "Decoded quest writer should remove static-only system_config_type from save items_definition."
+Write-CompletedQuestStateFixture -QuestIds @("plot_kill_necromancer_3")
+Write-DecodedQuestFixture
+Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
+$quest = Read-DecodedQuest
+$questIds = @(Get-QuestIds -Quest $quest)
+Assert-True ($questIds.Count -eq 1) "Completed fixed quests should be filtered out when removeCompleted is enabled."
+Assert-True ($questIds[0] -eq "plot_kill_prophet_3") "Quest board should keep only uncompleted fixed quests after sidecar completion state changes."
 Invoke-DDSaveEditorEncodeProbe -FileName "persist.roster.json"
 Invoke-DDSaveEditorEncodeProbe -FileName "persist.upgrades.json"
 Invoke-DDSaveEditorEncodeProbe -FileName "persist.town.json"
+Invoke-DDSaveEditorEncodeProbe -FileName "persist.quest.json"
 
-Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster/skill/upgrade/town write assertions passed."
+Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster/skill/upgrade/town/quest write assertions passed."
