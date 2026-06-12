@@ -24,6 +24,7 @@ internal sealed class LauncherOptions
     public bool WriteManagedActions { get; private set; }
     public bool InspectMapFile { get; private set; }
     public bool PrototypeMapFinalRoom { get; private set; }
+    public bool PrototypeMapTemplate { get; private set; }
     public int? WatchSavesForMilliseconds { get; private set; }
     public string? ModStateId { get; private set; }
     public string? ModStateDirectory { get; private set; }
@@ -39,6 +40,7 @@ internal sealed class LauncherOptions
     public string? MapPrototypeOutputPath { get; private set; }
     public string? MapPrototypeReportOutputPath { get; private set; }
     public string? MapFinalRoomId { get; private set; }
+    public string? MapTemplateSpecPath { get; private set; }
 
     public static LauncherOptions Parse(string[] args)
     {
@@ -110,6 +112,10 @@ internal sealed class LauncherOptions
                     options.PrototypeMapFinalRoom = true;
                     options.MapPrototypeSourcePath = RequireValue(args, ref i, "--prototype-map-final-room");
                     break;
+                case "--prototype-map-template":
+                    options.PrototypeMapTemplate = true;
+                    options.MapPrototypeSourcePath = RequireValue(args, ref i, "--prototype-map-template");
+                    break;
                 case "--watch-saves-for-ms":
                     options.WatchSavesForMilliseconds = RequirePositiveInt(args, ref i, "--watch-saves-for-ms");
                     break;
@@ -148,6 +154,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--map-final-room-id":
                     options.MapFinalRoomId = RequireValue(args, ref i, "--map-final-room-id");
+                    break;
+                case "--map-template-spec":
+                    options.MapTemplateSpecPath = RequireValue(args, ref i, "--map-template-spec");
                     break;
                 default:
                     throw new ArgumentException($"Unknown argument: {args[i]}");

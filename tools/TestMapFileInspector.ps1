@@ -114,6 +114,63 @@ function Test-MapFinalRoomPrototype {
     $script:PrototypeMapPath = $outputMapPath
 }
 
+function Test-MapTemplatePrototype {
+    $sourcePath = Join-Path $GameDirectory "maps\DD_map4.dm"
+    $specPath = Join-Path $testRoot "DD_map4_template_spec.json"
+    $outputMapPath = Join-Path $testRoot "DD_map4_template_rooC_tile.dm"
+    $reportPath = Join-Path $testRoot "DD_map4_template_rooC_tile.prototype.json"
+    Assert-True (Test-Path -LiteralPath $sourcePath -PathType Leaf) "Map file missing: $sourcePath"
+
+    $spec = [ordered]@{
+        version = 1
+        name = "dd4_rooC_dynamic_tile_probe"
+        finalRoomId = "rooC"
+        dynamicTiles = @(
+            [ordered]@{
+                areaId = "rooC"
+                tileId = "tile0"
+                content = 8
+                knowledge = 1
+                critScout = $true
+            }
+        )
+    }
+    $spec | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $specPath -Encoding UTF8
+
+    Invoke-Loader @(
+        "--config", $ConfigPath,
+        "--prototype-map-template", $sourcePath,
+        "--map-template-spec", $specPath,
+        "--map-prototype-output", $outputMapPath,
+        "--map-prototype-report-output", $reportPath,
+        "--no-inject"
+    )
+
+    Assert-True (Test-Path -LiteralPath $outputMapPath -PathType Leaf) "Template prototype map was not created: $outputMapPath"
+    Assert-True (Test-Path -LiteralPath $reportPath -PathType Leaf) "Template prototype report was not created: $reportPath"
+    $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+
+    Assert-True ([bool]$report.succeeded) "Template prototype report did not succeed."
+    Assert-True ((Convert-ToArray $report.accessIssues).Count -eq 0) "Template prototype report had access issues."
+    Assert-True ($report.specName -eq "dd4_rooC_dynamic_tile_probe") "Template prototype spec name mismatch."
+    Assert-True ((Convert-ToArray $report.mutations).Count -eq 4) "Template prototype mutation count mismatch."
+    Assert-True ($report.outputMap.finalRoomId -eq "rooC") "Template prototype output final room was not updated."
+    Assert-True ($report.outputMap.areaCount -eq 4) "Template prototype output area count changed."
+    Assert-True ($report.outputMap.roomCount -eq 3) "Template prototype output room count changed."
+    Assert-True ($report.outputMap.corridorCount -eq 1) "Template prototype output corridor count changed."
+    Assert-True ($report.outputMap.tileCount -eq 31) "Template prototype output tile count changed."
+
+    $rooC = Convert-ToArray $report.outputMap.dynamicAreas | Where-Object { $_.areaId -eq "rooC" } | Select-Object -First 1
+    Assert-True ($null -ne $rooC) "Template prototype output dynamic area rooC was not found."
+    $tile0 = Convert-ToArray $rooC.tileSamples | Where-Object { $_.tileId -eq "tile0" } | Select-Object -First 1
+    Assert-True ($null -ne $tile0) "Template prototype output dynamic tile rooC.tile0 was not found."
+    Assert-True ($tile0.content -eq 8) "Template prototype output dynamic tile content was not updated."
+    Assert-True ($tile0.knowledge -eq 1) "Template prototype output dynamic tile knowledge was not updated."
+    Assert-True ([bool]$tile0.critScout) "Template prototype output dynamic tile critScout was not updated."
+
+    $script:PrototypeMapPath = $outputMapPath
+}
+
 function Test-MapVirtualSourceOverlay {
     Assert-True (-not [string]::IsNullOrWhiteSpace($script:PrototypeMapPath)) "Prototype map path was not captured."
     Assert-True (Test-Path -LiteralPath $script:PrototypeMapPath -PathType Leaf) "Prototype map was not found: $script:PrototypeMapPath"
@@ -179,6 +236,7 @@ function Test-MapVirtualSourceOverlay {
 Test-MapReport -MapName "tutorial_crypts" -ExpectedAreas 16 -ExpectedRooms 8 -ExpectedCorridors 8 -ExpectedTiles 56 -ExpectedEntrance "rooH" -ExpectedFinal $null
 Test-MapReport -MapName "DD_map4" -ExpectedAreas 4 -ExpectedRooms 3 -ExpectedCorridors 1 -ExpectedTiles 31 -ExpectedEntrance "rooA" -ExpectedFinal "rooB"
 Test-MapFinalRoomPrototype
+Test-MapTemplatePrototype
 Test-MapVirtualSourceOverlay
 
 Write-Host "Map file inspector test passed. Output: $testRoot"

@@ -66,6 +66,43 @@ This is intentionally narrow:
 
 Use `--map-prototype-output <path>` and `--map-prototype-report-output <path>` to choose project-local output paths.
 
+## Template Mutation Prototype
+
+The launcher also has a stricter template-driven prototype writer. It copies an existing `.dm` file, applies a small JSON spec to already-decoded scalar fields, writes a project-local `.dm`, and immediately parses the output again.
+
+```powershell
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/default_config.json --prototype-map-template "E:\Steam\steamapps\common\DarkestDungeon\maps\DD_map4.dm" --map-template-spec ".\logs\map_templates\dd4_spec.json" --map-prototype-output ".\logs\map_templates\DD_map4_template.dm" --map-prototype-report-output ".\logs\map_templates\DD_map4_template.report.json" --no-inject
+```
+
+First supported spec shape:
+
+```json
+{
+  "version": 1,
+  "name": "dd4_rooC_dynamic_tile_probe",
+  "entranceAreaId": "rooA",
+  "finalRoomId": "rooC",
+  "dynamicTiles": [
+    {
+      "areaId": "rooC",
+      "tileId": "tile0",
+      "content": 8,
+      "knowledge": 1,
+      "critScout": true
+    }
+  ]
+}
+```
+
+Supported dynamic tile fields are `content`, `light`, `knowledge`, `mashIndex`, `mashType`, `curioPropHash`, `trapHash`, and `critScout`.
+
+This writer is intentionally strict:
+
+- it only mutates scalar fields that already exist in the template,
+- `entranceAreaId` and `finalRoomId` must resolve to existing room areas,
+- field type mismatches fail the run,
+- output is parsed again and every mutation is validated before success is reported.
+
 ## Static Topology
 
 The `.dm` files are binary DSON-like map files, not JSON text. They expose the same broad structure as `persist.map.json`:
@@ -158,7 +195,7 @@ The framework can now read original fixed map topology well enough to support a 
 
 Live validation on 2026-06-13 proved the runtime overlay reaches the actual game map screen. The test launched the game with `maps/DD_map4.dm` virtually backed by a project-local copy of `DD_map1.dm`; RuntimeHook logged `mode=sourcePath` with `sourceBytes=125348` and `virtualBytes=125348`, and the user visually confirmed that the DD4 map screen became the larger DD1-style topology instead of the original 4-area finale map.
 
-This proves whole-file `.dm` replacement works in game. It still does not prove safe arbitrary map generation from a high-level layout; that remains the next map-system milestone.
+This proves whole-file `.dm` replacement works in game. The template mutation writer now proves safe in-place mutation for selected existing scalar fields. It still does not prove safe arbitrary map generation from a high-level layout; static graph rewiring and full map construction remain future map-system milestones.
 
 The virtual overlay syntax is intentionally whole-file and binary-safe:
 
@@ -169,4 +206,4 @@ The virtual overlay syntax is intentionally whole-file and binary-safe:
 }
 ```
 
-The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. The next implementation step is a small template-based map writer that can change graph-level fields under strict validation before attempting full arbitrary map generation.
+The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. The next implementation step is extending the template writer from scalar mutations into static topology mutations, such as room/corridor connection rewiring, before attempting full arbitrary map generation.
