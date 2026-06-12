@@ -189,6 +189,13 @@ try {
     Assert-True ($trinketRules.Count -eq $positiveTrinketEntryFiles.Count) "Expected one trinket sale-value sourcePath rule per positive-price trinket file."
     Assert-True (($trinketRules | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.sourcePath) }).Count -eq 0) "Trinket sale-value overlays should use generated sourcePath files."
     Assert-True (($trinketRules | Where-Object { [int]$_.affectedEntryCount -le 0 }).Count -eq 0) "Trinket sale-value overlays should affect at least one entry each."
+    $baseTrinketRule = @($trinketRules | Where-Object { $_.target -eq "trinkets/base.entries.trinkets.json" })[0]
+    Assert-True ($null -ne $baseTrinketRule) "Expected a generated sourcePath overlay for base trinkets."
+    $baseTrinketOverlayBytes = [System.IO.File]::ReadAllBytes([string]$baseTrinketRule.sourcePath)
+    Assert-True ($baseTrinketOverlayBytes.Length -gt 3) "Base trinket sourcePath overlay should not be empty."
+    $baseTrinketOverlayHasBom = $baseTrinketOverlayBytes[0] -eq 0xEF -and $baseTrinketOverlayBytes[1] -eq 0xBB -and $baseTrinketOverlayBytes[2] -eq 0xBF
+    Assert-True (-not $baseTrinketOverlayHasBom) "Base trinket sourcePath overlay must be UTF-8 without BOM for the DD JSON parser."
+    Assert-True ($baseTrinketOverlayBytes[0] -eq 123 -or $baseTrinketOverlayBytes[0] -eq 91) "Base trinket sourcePath overlay should start with a JSON object or array root byte."
 
     $previewRoot = Join-Path $projectRoot.Path "logs\managed_action_overlay_preview"
     $previewPath = Join-Path $previewRoot "campaign_quest_quest.plot_quests.json.preview.txt"

@@ -13,6 +13,7 @@ internal static partial class ManagedActionOverlayCompiler
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
+    private static readonly UTF8Encoding Utf8NoBom = new(false);
 
     public static ManagedActionOverlayReport Compile(RuntimeConfig config, LauncherLog log)
     {
@@ -122,7 +123,7 @@ internal static partial class ManagedActionOverlayCompiler
             ["issues"] = issues
         };
 
-        File.WriteAllText(reportPath, report.ToJsonString(JsonOptions), Encoding.UTF8);
+        File.WriteAllText(reportPath, report.ToJsonString(JsonOptions), Utf8NoBom);
         log.Info(
             $"managed-action-overlay manifest path={Quote(reportPath)} artifacts={artifactCount} " +
             $"overlays={overlays.Count} virtualRules={virtualRules.Count} " +

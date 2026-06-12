@@ -177,7 +177,7 @@ internal static partial class ManagedActionOverlayCompiler
         if (affectedEntryCount > 0)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
-            File.WriteAllText(outputPath, root.ToJsonString(JsonOptions), Encoding.UTF8);
+            File.WriteAllText(outputPath, root.ToJsonString(JsonOptions), Utf8NoBom);
         }
 
         return new TrinketSaleValueSuppressionResult(entryCount, affectedEntryCount);
