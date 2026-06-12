@@ -18,7 +18,7 @@ internal sealed class SuspendedProcess : IDisposable
 
     public int ProcessId { get; }
 
-    public static SuspendedProcess Start(string executablePath, string workingDirectory)
+    public static SuspendedProcess Start(string executablePath, string workingDirectory, IReadOnlyList<string> arguments)
     {
         var startupInfo = new STARTUPINFO
         {
@@ -26,6 +26,17 @@ internal sealed class SuspendedProcess : IDisposable
         };
 
         var commandLine = new StringBuilder($"\"{executablePath}\"");
+        foreach (var argument in arguments)
+        {
+            if (string.IsNullOrWhiteSpace(argument))
+            {
+                continue;
+            }
+
+            commandLine.Append(' ');
+            commandLine.Append(QuoteCommandLineArgument(argument));
+        }
+
         if (!CreateProcessW(
                 executablePath,
                 commandLine,
@@ -45,6 +56,47 @@ internal sealed class SuspendedProcess : IDisposable
             processInformation.hProcess,
             processInformation.hThread,
             (int)processInformation.dwProcessId);
+    }
+
+    private static string QuoteCommandLineArgument(string argument)
+    {
+        if (argument.Length == 0)
+        {
+            return "\"\"";
+        }
+
+        if (!argument.Any(ch => char.IsWhiteSpace(ch) || ch is '"'))
+        {
+            return argument;
+        }
+
+        var builder = new StringBuilder();
+        builder.Append('"');
+        var backslashes = 0;
+        foreach (var ch in argument)
+        {
+            if (ch == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                builder.Append('\\', backslashes * 2 + 1);
+                builder.Append('"');
+                backslashes = 0;
+                continue;
+            }
+
+            builder.Append('\\', backslashes);
+            builder.Append(ch);
+            backslashes = 0;
+        }
+
+        builder.Append('\\', backslashes * 2);
+        builder.Append('"');
+        return builder.ToString();
     }
 
     public void Resume()

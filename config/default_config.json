@@ -1,6 +1,7 @@
 {
   "gameExecutablePath": "E:/Steam/steamapps/common/DarkestDungeon/_windows/win64/Darkest.exe",
   "gameWorkingDirectory": "E:/Steam/steamapps/common/DarkestDungeon",
+  "gameArguments": [],
   "runtimeDllPath": "./runtime/bin/x64/Release/RuntimeHook.dll",
   "logDirectory": "./logs",
   "modStateDirectory": "./state/mod_state",

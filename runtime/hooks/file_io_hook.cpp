@@ -1012,6 +1012,9 @@ std::wstring BuildVirtualTempFilePath()
     wchar_t fileName[MAX_PATH] = {};
     if (GetTempFileNameW(directory.c_str(), L"ddr", 0, fileName) == 0)
     {
+        Logger::Warn(
+            L"virtual-file failed to create temp path directory=" + directory +
+            L" error=" + std::to_wstring(GetLastError()));
         return {};
     }
 
@@ -1026,6 +1029,11 @@ HANDLE CreateVirtualBackingFile(const std::vector<std::uint8_t>& bytes)
     CloseHandleFn closeHandle = OriginalCloseHandle();
     if (createFile == nullptr || writeFile == nullptr || setFilePointerEx == nullptr || closeHandle == nullptr)
     {
+        Logger::Warn(
+            L"virtual-file backing file API unavailable createFile=" + std::to_wstring(createFile != nullptr) +
+            L" writeFile=" + std::to_wstring(writeFile != nullptr) +
+            L" setFilePointerEx=" + std::to_wstring(setFilePointerEx != nullptr) +
+            L" closeHandle=" + std::to_wstring(closeHandle != nullptr));
         return nullptr;
     }
 
@@ -1045,6 +1053,9 @@ HANDLE CreateVirtualBackingFile(const std::vector<std::uint8_t>& bytes)
         nullptr);
     if (file == INVALID_HANDLE_VALUE)
     {
+        Logger::Warn(
+            L"virtual-file failed to open backing temp file path=" + tempPath +
+            L" error=" + std::to_wstring(GetLastError()));
         DeleteFileW(tempPath.c_str());
         return nullptr;
     }
@@ -1056,6 +1067,11 @@ HANDLE CreateVirtualBackingFile(const std::vector<std::uint8_t>& bytes)
         DWORD bytesWritten = 0;
         if (!writeFile(file, bytes.data() + offset, chunk, &bytesWritten, nullptr) || bytesWritten != chunk)
         {
+            Logger::Warn(
+                L"virtual-file failed to write backing temp file path=" + tempPath +
+                L" requested=" + std::to_wstring(chunk) +
+                L" written=" + std::to_wstring(bytesWritten) +
+                L" error=" + std::to_wstring(GetLastError()));
             closeHandle(file);
             return nullptr;
         }
@@ -1065,6 +1081,9 @@ HANDLE CreateVirtualBackingFile(const std::vector<std::uint8_t>& bytes)
     LARGE_INTEGER zero = {};
     if (!setFilePointerEx(file, zero, nullptr, FILE_BEGIN))
     {
+        Logger::Warn(
+            L"virtual-file failed to rewind backing temp file path=" + tempPath +
+            L" error=" + std::to_wstring(GetLastError()));
         closeHandle(file);
         return nullptr;
     }
@@ -1915,10 +1934,16 @@ void FileIoHook::InitializeObserveOnly()
     createdAny |= CreateApiHook(L"KernelBase.dll", "CreateFileA", reinterpret_cast<LPVOID>(&DetourKernelBaseCreateFileA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseCreateFileA));
     createdAny |= CreateApiHook(L"kernel32.dll", "ReadFile", reinterpret_cast<LPVOID>(&DetourKernel32ReadFile), reinterpret_cast<LPVOID*>(&g_originalKernel32ReadFile));
     createdAny |= CreateApiHook(L"KernelBase.dll", "ReadFile", reinterpret_cast<LPVOID>(&DetourKernelBaseReadFile), reinterpret_cast<LPVOID*>(&g_originalKernelBaseReadFile));
-    if (g_eventProbeEnabled && g_eventProbeLogFileWrite)
+    bool needsWriteHook = (g_eventProbeEnabled && g_eventProbeLogFileWrite) ||
+        (g_virtualFileEnabled && !g_virtualRules.empty());
+    if (needsWriteHook)
     {
         createdAny |= CreateApiHook(L"kernel32.dll", "WriteFile", reinterpret_cast<LPVOID>(&DetourKernel32WriteFile), reinterpret_cast<LPVOID*>(&g_originalKernel32WriteFile));
         createdAny |= CreateApiHook(L"KernelBase.dll", "WriteFile", reinterpret_cast<LPVOID>(&DetourKernelBaseWriteFile), reinterpret_cast<LPVOID*>(&g_originalKernelBaseWriteFile));
+    }
+
+    if (g_eventProbeEnabled && g_eventProbeLogFileWrite)
+    {
         createdAny |= CreateApiHook(L"kernel32.dll", "MoveFileW", reinterpret_cast<LPVOID>(&DetourKernel32MoveFileW), reinterpret_cast<LPVOID*>(&g_originalKernel32MoveFileW));
         createdAny |= CreateApiHook(L"kernel32.dll", "MoveFileA", reinterpret_cast<LPVOID>(&DetourKernel32MoveFileA), reinterpret_cast<LPVOID*>(&g_originalKernel32MoveFileA));
         createdAny |= CreateApiHook(L"KernelBase.dll", "MoveFileW", reinterpret_cast<LPVOID>(&DetourKernelBaseMoveFileW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseMoveFileW));

@@ -8,6 +8,9 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("gameWorkingDirectory")]
     public string GameWorkingDirectory { get; set; } = string.Empty;
 
+    [JsonPropertyName("gameArguments")]
+    public string[] GameArguments { get; set; } = [];
+
     [JsonPropertyName("runtimeDllPath")]
     public string RuntimeDllPath { get; set; } = string.Empty;
 

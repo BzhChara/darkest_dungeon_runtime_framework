@@ -19,6 +19,7 @@ internal static class Program
             log.Info($"Project root: {projectRoot}");
             log.Info($"Game executable: {config.GameExecutablePath}");
             log.Info($"Game working directory: {config.GameWorkingDirectory}");
+            log.Info($"Game arguments: {string.Join(' ', config.GameArguments.Where(argument => !string.IsNullOrWhiteSpace(argument)))}");
             log.Info($"Runtime DLL: {config.RuntimeDllPath}");
             log.Info($"Mod state directory: {config.ModStateDirectory}");
             log.Info($"Allow non-atomic state writes: {config.AllowNonAtomicStateWrites}");
@@ -216,7 +217,10 @@ internal static class Program
             if (config.EnableInjection && !options.NoInject && config.StartSuspendedForInjection)
             {
                 using var environmentScope = ProcessEnvironmentScope.Apply(runtimeEnvironment);
-                using var suspendedProcess = SuspendedProcess.Start(config.GameExecutablePath, config.GameWorkingDirectory);
+                using var suspendedProcess = SuspendedProcess.Start(
+                    config.GameExecutablePath,
+                    config.GameWorkingDirectory,
+                    config.GameArguments);
                 gameProcessId = suspendedProcess.ProcessId;
                 log.Info($"Game process started suspended. PID={suspendedProcess.ProcessId}");
 
@@ -251,6 +255,14 @@ internal static class Program
                     WorkingDirectory = config.GameWorkingDirectory,
                     UseShellExecute = false
                 };
+                foreach (var argument in config.GameArguments)
+                {
+                    if (!string.IsNullOrWhiteSpace(argument))
+                    {
+                        startInfo.ArgumentList.Add(argument);
+                    }
+                }
+
                 foreach (var (key, value) in runtimeEnvironment)
                 {
                     startInfo.Environment[key] = value;

@@ -30,6 +30,8 @@ E:/Steam/steamapps/common/DarkestDungeon/_windows/win64/Darkest.exe
 
 如果要测试 32 位版本，需要同时编译 32 位启动器和 32 位 DLL。当前骨架优先支持 x64。
 
+`gameArguments` 可用于传递游戏启动参数，例如测试时使用 `["-forcetown"]` 强制回到城镇。默认值为空数组。
+
 ## 目录结构
 
 ```text
