@@ -158,6 +158,25 @@ logs/save_file_maps/<sessionId>.json
 
 文件地图会扫描 active profile 下 live/backup 的所有 `persist*.json`，标出是否属于当前核心候选、优先级、类别、mod 相关性、当前覆盖程度、DSON 摘要和访问问题。它用于决定后续解码顺序，不代表对应文件已经有完整语义模型。
 
+## Decoded profile 工作区
+
+真实 `profile_*` 仍然默认只读。需要验证 profile 初始化或 managed action 写入时，先把存档解码到项目内工作区：
+
+```powershell
+.\tools\PrepareDecodedProfileWorkspace.ps1
+.\tools\PrepareDecodedProfileWorkspace.ps1 -Initialize
+.\tools\PrepareDecodedProfileWorkspace.ps1 -Initialize -WriteManagedActions
+```
+
+默认源是测试档 `E:\Steam\userdata\1097809614\262060\remote\profile_3`。脚本只读取该目录下的 top-level `persist*.json`，使用 `.research\DDSaveEditor-v0.0.70\DDSaveEditor.jar` 解码到：
+
+```text
+state/decoded_profiles/<session>/decoded_save
+state/decoded_profiles/<session>/mod_state
+```
+
+报告会同时写入工作区和 `logs/decoded_profile_workspaces/<session>.json`。`-Initialize` 会调用 `--initialize-decoded-profile`，默认仍是 dry-run；只有再加 `-WriteManagedActions` 才会写项目内 decoded JSON 副本。这个流程不会写回 Steam userdata 里的原始存档。
+
 ## 存档事件桥
 
 存档事件桥把只读 save state facts 转换成框架事件，再交给普通 `eventRules` 执行。转换规则由启用插件的 `factEventRules` 声明，不在 C# 里写死某一种玩法。它不写原版 `profile_*`，也不直接修改游戏 UI、任务列表或战斗流程；当前只作为 observe-first 到 sidecar state 的桥接层。
