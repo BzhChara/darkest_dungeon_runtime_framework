@@ -223,7 +223,7 @@ docs/boss_gauntlet_campaign_spec.md
 Goal:
 
 - Automatically initialize a newly created eligible save into a fixed-resource campaign on first entry. The initialized profile then saves normally and is not rebuilt on later entries.
-- Normalize the new save into two max-level heroes per class, all skills unlocked and upgraded, two of every trinket, data-driven starting wallet resources including gold and heirlooms, fully unlocked and upgraded town, empty stage coach, disabled trinket selling, and fixed or suppressed town events.
+- Normalize the new save into two max-level heroes per class, all skills unlocked and upgraded, two of every trinket, data-driven starting wallet resources including gold and heirlooms, fully unlocked and upgraded town for this scenario, empty stage coach, disabled trinket selling, and fixed or suppressed town events. The underlying town primitive should also support campaigns that start with selected buildings locked.
 - Replace normal quest generation with a fixed simultaneous board of highest-difficulty non-Darkest boss quests.
 - Consume selected heroes and selected trinkets on any terminal boss attempt result, success or failure.
 - Add 10000 gold after each successful pre-finale boss quest.
@@ -264,6 +264,7 @@ capability wallet.set_currency_amounts
 capability wallet.modify_currency
 capability inventory.disable_item_sale
 capability town.unlock_all_buildings
+capability town.set_building_availability
 capability town.set_building_levels
 capability town_event.override_current
 capability quest_board.replace_with_fixed_set
@@ -293,8 +294,8 @@ Acceptance ladder:
 3. The rule engine can simulate `quest.attempt_resolved` and consume selected heroes/trinkets on both success and failure.
 4. The rule engine can add the 10000 gold victory reward exactly once for each successful pre-finale boss attempt.
 5. The rule engine can mark only successful boss attempts as completed and transition to `darkest_finale` when all fixed boss quests are completed.
-6. Save/content facts can report enough data for roster, wallet, trinket inventory, trinket sale UI/actions, town state, quest board, campaign log, and Darkest Dungeon participation decisions.
-7. Managed action artifacts can describe the normalized roster, wallet, trinket inventory, town maxing, fixed quest board, trinket-sale lockout, and town-event override without mutating original saves.
+6. Save/content facts can report enough data for roster, wallet, trinket inventory, trinket sale UI/actions, town building availability, town state, quest board, campaign log, and Darkest Dungeon participation decisions.
+7. Managed action artifacts can describe the normalized roster, wallet, trinket inventory, town maxing, per-building town availability, fixed quest board, trinket-sale lockout, and town-event override without mutating original saves.
 8. Decoded-save managed action application can dry-run and apply supported profile-normalization actions against a project-local decoded save copy before any original-save writer exists.
 9. Runtime consumers enforce the fixed quest board, disabled trinket selling, wallet reward, and pre-finale hero/trinket availability.
 10. Managed original-save initialization, if introduced, is schema-verified, logged, idempotent, and does not restore later campaign failures.
@@ -323,8 +324,12 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Add gold after selected victories | `wallet.add_currency_on_event` with idempotent attempt identity |
 | Prevent selling fixed trinket resources | `inventory.disable_item_sale` or an equivalent economy intercept |
 | Normalize roster/trinkets/town | managed profile-normalization actions |
+| Start with selected buildings locked or unlocked | `town.set_building_availability` |
 | Unlock finale without reviving dead heroes | phase-scoped filter clearing, not roster rebuilding |
 | Reuse original DD participation rule | phase-scoped filters and original quest entry rules |
+| Define a straight or winding custom dungeon route | `map.define_fixed_layout` with room/hall graph data |
+| Put fixed content in a specific map cell | `map.place_cell_content` and `map.place_named_encounter` |
+| Define exact enemy quantity, type, and order | `encounter.define_mash` |
 | Queue upgrades | sidecar state object-list actions |
 | Move time forward | `campaign.week_advanced` event |
 | Stop original upgrade | `building.intercept_upgrade_request` capability |

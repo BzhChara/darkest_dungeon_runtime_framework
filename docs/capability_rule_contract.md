@@ -272,6 +272,9 @@ roster.*         hero pool, hero status, party filtering
 town.*           town building, store, activity, recruit state
 upgrade.*        upgrade purchase tree and completion state
 campaign.*       campaign progression, week, ending, region gates
+map.*            dungeon topology, room/hall cell content, fixed layout state
+encounter.*      dungeon mash entries, named fights, monster lineup definitions
+region.*         dungeon region visibility, chapter routing, region-level gates
 event.*          emit or suppress framework events
 ui.*             overlay or game UI mutation
 native.*         explicitly risky hook or patch wrapper
@@ -376,11 +379,13 @@ When a mod idea cannot be expressed, classify the missing piece:
 | Needs one-time setup in a normal save | idempotent profile initialization capability with an initialized marker |
 | Needs controlled economy changes | wallet or inventory capability with idempotent event identity |
 | Needs visual feedback | overlay or UI capability |
+| Needs a custom dungeon route | map topology capability plus quest/map content binding |
+| Needs exact enemy composition | encounter mash capability plus named encounter placement |
 | Needs unsupported engine behavior | risky native capability with exe-hash gating |
 
 This is the rule that keeps the framework general: new gameplay ideas should expand reusable primitives, not become hardcoded modules.
 
-Current target scenario: `docs/boss_gauntlet_campaign_spec.md`. Use it as a validation pressure test for generic primitives such as idempotent profile initialization, normal-save consequence preservation, fixed quest-board replacement, wallet/inventory economy controls, terminal-attempt observation, selection consumption, phase transitions, and phase-scoped availability filters. Do not add launcher or native-hook branches that only know this specific boss-gauntlet campaign.
+Current target scenario: `docs/boss_gauntlet_campaign_spec.md`. Use it as a validation pressure test for generic primitives such as idempotent profile initialization, normal-save consequence preservation, fixed quest-board replacement, wallet/inventory economy controls, town building availability, terminal-attempt observation, selection consumption, phase transitions, fixed map topology, named encounter definitions, and phase-scoped availability filters. Do not add launcher or native-hook branches that only know this specific boss-gauntlet campaign.
 
 ## Anti-Hardcoding Audit
 
@@ -394,6 +399,7 @@ Current narrow slices to keep visible:
 | `RuntimeEventExecutor` challenge actions | Implements `challenge.initializeRunState`, `challenge.lockStageSelection`, `challenge.recordFailedAttempt`, and `challenge.advanceStage` directly | They are safe sidecar-state primitives used to validate stateful stage-chain behavior | Keep only if treated as reusable `challenge.*` primitives; otherwise factor repeated behavior into generic `state.*`, `event.*`, and definition-driven actions |
 | `plugins/_validation` and test scripts | Contain concrete boss quest ids, stage ids, selected hero ids, and trinket ids | They are acceptance fixtures, not user-facing framework behavior | Leave concrete data in fixtures, but do not move fixture assumptions into launcher/runtime logic |
 | Boss gauntlet target spec | Names a concrete fixed-resource campaign design | It is a pressure test for missing reusable primitives | Add `profile.*`, `quest_board.*`, `selection.*`, `wallet.*`, `inventory.*`, `town.*`, `stagecoach.*`, and phase-scoped availability primitives before attempting live behavior |
+| Post-ending expansion map sketch | Names the post-Ancestor new-map idea | It is a pressure test for chapter chains, fixed map topology, per-cell content, and named encounters | Add `quest_chain.*`, `map.*`, `encounter.*`, and `region.*` primitives before attempting a live custom map |
 
 Before adding a new gameplay feature, ask: can another mod with different content reuse the same primitive without changing C# or native hook code? If not, the design is still too hardcoded.
 

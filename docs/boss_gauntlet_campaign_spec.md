@@ -11,7 +11,7 @@ The mod turns a normal Darkest Dungeon campaign into a fixed-resource boss gaunt
 3. The estate owns every available trinket with a count of two for each trinket id.
 4. Wallet resources are initialized from a data-driven currency map. The current target sets gold to `20000` and explicitly records heirloom resources such as busts, portraits, deeds, crests, and shards so the values can be tuned without adding new framework code.
 5. Trinkets cannot be sold. This prevents the fixed trinket pool from becoming a repeatable or front-loaded gold source.
-6. Town buildings are unlocked and fully upgraded. Town events are either suppressed or replaced with a fixed event message such as `Enjoy the inferno`.
+6. Town buildings are unlocked and fully upgraded. Town events are either suppressed or replaced with a fixed event message such as `Enjoy the inferno`. This is the boss-gauntlet configuration, not the only town state the framework should support; other campaigns may intentionally leave selected buildings locked at start.
 7. The quest board shows only the highest-difficulty boss quests for each non-Darkest region, all at the same time.
 8. Defeating a boss removes that fixed boss quest from the board and does not generate a replacement quest.
 9. Winning a pre-finale boss quest grants `10000` gold after the result is observed.
@@ -78,11 +78,14 @@ Required generic capabilities:
 | Gold reward after boss victory | `wallet.add_currency_on_event` |
 | Disable trinket selling | `inventory.disable_item_sale` |
 | Fully unlocked town | `town.unlock_all_buildings` |
+| Per-building town access | `town.set_building_availability` |
 | Fully upgraded town | `town.set_building_levels` |
 | Fixed or suppressed event | `town_event.override_current` or `town_event.suppress_rotation` |
 | Fixed quest board | `quest_board.replace_with_fixed_set` |
 
 The first implementation should materialize these as managed action artifacts and diagnostics. The final gameplay target likely needs managed original-save initialization so the game can keep saving normally afterward. Any original-save write path must remain explicitly documented, reversible before first commit where practical, schema-verified, and guarded by an idempotent initialized marker.
+
+The town primitive should be able to express both "unlock everything" and "lock or hide specific buildings until a condition is met." Some original campaigns start with unavailable buildings, and custom campaigns may use that state as progression. A mod should not need to fake a locked building through unrelated upgrade or event fields.
 
 ### Boss Gauntlet
 
@@ -172,6 +175,24 @@ Required generic capabilities:
 | Observe DD completion | `progression.observe_plot_completion` |
 | Complete run | `state.set_phase` |
 
+## Post-Ending Expansion Maps
+
+The earlier post-Ancestor expansion idea is a separate pressure test from the boss-gauntlet loop, but it should use the same rule model. It needs a quest or chapter chain that can unlock after the Ancestor, then point to custom map and encounter content.
+
+Required generic capabilities:
+
+| Need | Reusable primitive |
+| --- | --- |
+| Unlock a new chapter after a plot quest | `quest_chain.transition_on_completion` |
+| Show only the chapter's available quests | `quest_board.replace_with_fixed_set` or `quest_board.filter_by_phase` |
+| Define a deterministic room/hall graph | `map.define_fixed_layout` |
+| Place content in a specific room or hall tile | `map.place_cell_content` |
+| Define a specific monster lineup | `encounter.define_mash` |
+| Reuse a lineup from a map cell | `map.place_named_encounter` |
+| Select background or special room art | `map.set_room_visuals` or content overlay assets |
+
+The map primitive should describe topology as data: rooms, corridors, connections, entrance, final room, and per-cell content. A straight-line dungeon and a winding dungeon should differ only in layout data, not in framework code. The first implementation should verify the original fixed plot-map format before promising exact per-cell runtime behavior.
+
 ## Rule Sketch
 
 The validation plugin should eventually express the boss gauntlet without special C# branches:
@@ -214,6 +235,8 @@ Current implementation status: steps 1-3 are represented in the validation plugi
 ## Open Design Points
 
 - Exact boss quest set should be content-derived, but fixtures may start with explicit original quest ids.
+- Town initialization should support explicit locked, unlocked, and upgraded states per building. The boss-gauntlet scenario chooses all unlocked and maxed, but the primitive must not be limited to that case.
+- Fixed map layout support still needs original-format research. Current save facts can inspect generated raid maps, and original mash files show deterministic enemy lineups are feasible, but exact fixed room/hall authoring needs a focused prototype.
 - Trinket consumption should prefer instance ids if the game exposes stable instances. If only trinket ids and counts are available, consuming one copy must decrement a sidecar count and later map that count to UI/equipment enforcement.
 - DLC hero classes and DLC trinkets should be included only if their content exists in the active install and is enabled by the profile or plugin configuration.
 - Finale availability should not bypass original death or missing-roster constraints unless the mod explicitly adds a revival/rebuild rule.

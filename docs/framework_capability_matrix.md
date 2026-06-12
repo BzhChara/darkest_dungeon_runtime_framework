@@ -19,6 +19,9 @@ When an idea cannot be expressed by existing rules, classify the missing primiti
 | The framework cannot create or normalize heroes | `roster.*` action driven by class/content facts | copying a fixed hero object from a sample save |
 | The framework cannot express skill training | `upgrade.*` or town upgrade-tree writer | setting a boss-gauntlet-only flag in roster |
 | The framework cannot control available quests | `quest_board.*` or `quest.*` action | hardcoding one campaign's quest ids in launcher code |
+| The framework cannot control town access state | `town.*` building availability and level actions | only supporting "unlock everything" initialization |
+| The framework cannot define dungeon shape | `map.*` fixed-layout or generated-layout actions | a special post-Ancestor map branch |
+| The framework cannot define deterministic fights | `encounter.*` mash or named-encounter actions | putting monster lineups in quest-chain code |
 | The framework cannot restrict selection | `selection.*`, `roster.filter*`, or `equipment.filter*` | special casing one stage chain |
 | The framework cannot replace original behavior safely | managed intercept capability with diagnostics | silent memory patch or broad fallback |
 | The framework needs unsupported engine behavior | risky native capability gated by exe hash | treating risky hook behavior as a normal safe action |
@@ -44,7 +47,7 @@ If the answer to question 3 is weak, keep the behavior in a validation plugin or
 | Fixed boss gauntlet campaign | profile initialization, roster generation, skill unlock lists, wallet/resource setup, trinket inventory setup, fixed quest board, selection consumption, phase transition | launcher code that knows the boss-gauntlet stage ids |
 | Delayed building upgrades | upgrade request observation, cost handling, sidecar queue, week advance event, completion action | hardcoded blacksmith-only delay logic |
 | Fixed-stage challenge run | stage-chain state, quest injection artifact, party selection observation, completion/failure events | a single built-in challenge mode path |
-| Post-ending expansion | progression facts, quest/region unlocks, narration/content overlays, phase-gated quest board | hardcoded "after ancestor" script branch |
+| Post-ending expansion | progression facts, quest/region unlocks, narration/content overlays, phase-gated quest board, fixed map topology, named encounters | hardcoded "after ancestor" script branch |
 
 These tests should continue to be concrete enough to catch real gaps, but their reusable results should be named as framework primitives.
 
@@ -57,10 +60,12 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Roster generation | `roster.ensureClassInstances` clean hero blueprint | richer hero blueprint arguments and class-specific defaults |
 | Roster skills | `roster.setSkillUnlocks` skill id lists | live enforcement and richer skill selection policies |
 | Upgrade purchases | `upgrade.ensurePurchases` for content-defined building, hero skill, weapon, and armour requirements | original-save write policy and narrower per-tree/per-level selection modes |
-| Town runtime | `stagecoach.suppressRecruits` and district-scoped `town.unlockAllBuildings` decoded-save writers | ordinary building unlock UI verification and `town.setBuildingLevels` semantics |
+| Town runtime | `stagecoach.suppressRecruits` and district-scoped `town.unlockAllBuildings` decoded-save writers | ordinary building unlock UI verification, `town.setBuildingAvailability`, and `town.setBuildingLevels` semantics |
 | Selection state | `selection.lock`, `selection.consumeHeroes`, `selection.consumeTrinkets` | live UI/game enforcement instead of sidecar-only observation |
 | Quest board | `questBoard.replaceWithFixedSet` decoded-save writer from enabled plot quest content | runtime board intercept and broader availability modes |
 | Quest overlays | `quest.injectFixedStage` virtual file consumer | full quest list/availability control |
+| Map topology | save/content map facts can describe generated raid maps | fixed-layout writer or content overlay for room/hall graph, entrance/final room, and per-cell content |
+| Encounters | original mash content can be indexed from dungeon files | `encounter.defineMash` and named encounter placement tied to fixed layouts |
 | Save-to-event bridge | plugin-declared `factEventRules` and payload projections | more fact extractors and reusable projection operators |
 | Sidecar state | plugin namespaced state schema/actions | reset/backup policy and campaign scoping |
 
