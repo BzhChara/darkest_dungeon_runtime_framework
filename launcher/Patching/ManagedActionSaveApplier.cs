@@ -108,6 +108,12 @@ internal static partial class ManagedActionSaveApplier
                 case "upgrade.ensurePurchases":
                     ApplyUpgradeEnsurePurchases(context, artifactPath, artifact);
                     break;
+                case "stagecoach.suppressRecruits":
+                    ApplyStagecoachSuppressRecruits(context, artifactPath, artifact);
+                    break;
+                case "town.unlockAllBuildings":
+                    ApplyTownUnlockAllBuildings(context, artifactPath, artifact);
+                    break;
                 default:
                     AddUnsupportedAction(context, artifactPath, artifact, actionType);
                     break;

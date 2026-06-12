@@ -10,6 +10,7 @@ $testRoot = Join-Path $projectRoot.Path "logs\managed_action_save_applier_test\$
 $stateRoot = Join-Path $projectRoot.Path "state\managed_action_save_applier_test\$sessionId"
 $saveRoot = Join-Path $stateRoot "decoded_save"
 $sourceSaveRoot = Join-Path $projectRoot.Path ".research\DDSaveEditor-v0.0.70\decoded_current"
+$saveEditorJar = Join-Path $projectRoot.Path ".research\DDSaveEditor-v0.0.70\DDSaveEditor.jar"
 $pluginId = "validation.boss_gauntlet_campaign_contract"
 
 function Assert-True {
@@ -42,6 +43,22 @@ function Invoke-Loader {
     }
 }
 
+function Invoke-DDSaveEditorEncodeProbe {
+    param([string]$FileName)
+
+    Assert-True (Test-Path -LiteralPath $saveEditorJar -PathType Leaf) "DDSaveEditor jar is missing: $saveEditorJar"
+    $inputPath = Join-Path $saveRoot $FileName
+    Assert-True (Test-Path -LiteralPath $inputPath -PathType Leaf) "Decoded file missing for encode probe: $inputPath"
+    $outputPath = Join-Path $stateRoot ("encoded_" + $FileName + ".bin")
+    & java -jar $saveEditorJar encode --output $outputPath $inputPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDSaveEditor encode failed for $FileName with exit code $LASTEXITCODE"
+    }
+
+    Assert-True (Test-Path -LiteralPath $outputPath -PathType Leaf) "DDSaveEditor encode did not create output: $outputPath"
+    Assert-True ((Get-Item -LiteralPath $outputPath).Length -gt 0) "DDSaveEditor encode output was empty: $outputPath"
+}
+
 function Read-ApplyReport {
     $path = Join-Path $projectRoot.Path "logs\managed_action_apply_report.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Managed action apply report was not created: $path"
@@ -64,6 +81,12 @@ function Read-DecodedUpgrades {
     $path = Join-Path $saveRoot "persist.upgrades.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded upgrades file was not created: $path"
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
+function Read-DecodedTown {
+    $path = Join-Path $saveRoot "persist.town.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded town file was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json -AsHashtable
 }
 
 function Write-DecodedRosterFixture {
@@ -277,6 +300,72 @@ function Write-DecodedUpgradesFixture {
 "@ | Set-Content -LiteralPath $path -Encoding UTF8
 }
 
+function Write-DecodedTownFixture {
+    $path = Join-Path $saveRoot "persist.town.json"
+    @'
+{
+  "base_root": {
+    "version": 513,
+    "buildings": {
+      "stage_coach": {
+        "activities": {},
+        "store": {
+          "hero_recruit": {
+            "generated": {
+              "10": {
+                "heroClass": "crusader",
+                "actor": {
+                  "name": "Recruit A",
+                  "current_hp": 33.0
+                }
+              },
+              "11": {
+                "heroClass": "highwayman",
+                "actor": {
+                  "name": "Recruit B",
+                  "current_hp": 23.0
+                }
+              }
+            }
+          },
+          "bonus_recruit": {
+            "generated": {}
+          }
+        }
+      },
+      "blacksmith": {},
+      "guild": {},
+      "tavern": {}
+    },
+    "districts": {
+      "buildings": {
+        "bank": {
+          "built": false,
+          "buffs": {
+            "estate": {}
+          }
+        },
+        "granary": {
+          "built": false,
+          "buffs": {
+            "provision": {
+              "count": 0
+            }
+          }
+        },
+        "library": {
+          "built": true,
+          "buffs": {
+            "hero_buff0": {}
+          }
+        }
+      }
+    }
+  }
+}
+'@ | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
 function Get-WalletAmount {
     param(
         [object]$Estate,
@@ -384,12 +473,36 @@ function Test-UpgradePurchase {
     }).Count -gt 0
 }
 
+function Get-StagecoachGeneratedRecruitCount {
+    param([hashtable]$Town)
+
+    $stagecoach = $Town["base_root"]["buildings"]["stage_coach"]
+    $count = 0
+    foreach ($store in $stagecoach["store"].Values) {
+        if ($store.ContainsKey("generated")) {
+            $count += $store["generated"].Count
+        }
+    }
+
+    return $count
+}
+
+function Get-DistrictBuilt {
+    param(
+        [hashtable]$Town,
+        [string]$DistrictId
+    )
+
+    return [bool]$Town["base_root"]["districts"]["buildings"][$DistrictId]["built"]
+}
+
 Assert-True (Test-Path -LiteralPath (Join-Path $sourceSaveRoot "persist.estate.json") -PathType Leaf) "Decoded current save fixture is missing persist.estate.json."
 New-Item -ItemType Directory -Force -Path $testRoot, $saveRoot | Out-Null
 Get-ChildItem -LiteralPath $sourceSaveRoot -Filter "*.json" |
     Copy-Item -Destination $saveRoot -Force
 Write-DecodedRosterFixture
 Write-DecodedUpgradesFixture
+Write-DecodedTownFixture
 
 $baseArgs = @(
     "--config", (Resolve-ProjectPath $ConfigPath),
@@ -411,17 +524,21 @@ Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Fi
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Fixture should start without arbalest so roster write assertions are meaningful."
 $upgrades = Read-DecodedUpgrades
 Assert-True (-not (Test-UpgradePurchase -Upgrades $upgrades -TreeName "blacksmith.weapon" -RequirementCode "d" -InstanceNumber 0)) "Fixture should start without max blacksmith weapon upgrade."
+$town = Read-DecodedTown
+Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 2) "Fixture should start with two generated stagecoach recruits."
+Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "bank")) "Fixture should start with bank district unbuilt."
+Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "granary")) "Fixture should start with granary district unbuilt."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--managed-action-save-dir", $saveRoot))
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
 Assert-True ([int]$dryRunReport.artifactCount -eq 12) "Dry-run should inspect twelve boss gauntlet initialization artifacts."
-Assert-True ([int]$dryRunReport.supportedActionCount -eq 5) "Dry-run should recognize five currently supported decoded-save actions."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 5) "Dry-run should report five dry-run actions."
+Assert-True ([int]$dryRunReport.supportedActionCount -eq 7) "Dry-run should recognize seven currently supported decoded-save actions."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 7) "Dry-run should report seven dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
-Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 7) "Dry-run should report the remaining profile-normalization actions as unsupported."
+Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 5) "Dry-run should report the remaining profile-normalization actions as unsupported."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
-Assert-True ([int]$dryRunReport.changedFileCount -eq 3) "Dry-run should report three would-change decoded save files."
+Assert-True ([int]$dryRunReport.changedFileCount -eq 4) "Dry-run should report four would-change decoded save files."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
@@ -434,15 +551,19 @@ Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_sk
 Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_camping_skills) -eq 0) "Dry-run must not fill existing hero camping skills."
 $upgrades = Read-DecodedUpgrades
 Assert-True (-not (Test-UpgradePurchase -Upgrades $upgrades -TreeName "blacksmith.weapon" -RequirementCode "d" -InstanceNumber 0)) "Dry-run must not add upgrade purchases."
+$town = Read-DecodedTown
+Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 2) "Dry-run must not remove generated stagecoach recruits."
+Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "bank")) "Dry-run must not mark bank district built."
+Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "granary")) "Dry-run must not mark granary district built."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
-Assert-True ([int]$writeReport.supportedActionCount -eq 5) "Write pass should recognize five currently supported decoded-save actions."
+Assert-True ([int]$writeReport.supportedActionCount -eq 7) "Write pass should recognize seven currently supported decoded-save actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 5) "Write pass should apply five currently supported decoded-save actions."
-Assert-True ([int]$writeReport.changedFileCount -eq 3) "Write pass should change three decoded save files."
-Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 3) "Write pass should mark three files as written."
+Assert-True ([int]$writeReport.appliedActionCount -eq 7) "Write pass should apply seven currently supported decoded-save actions."
+Assert-True ([int]$writeReport.changedFileCount -eq 4) "Write pass should change four decoded save files."
+Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 4) "Write pass should mark four files as written."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq 20000) "Write pass should set starting gold to 20000."
@@ -479,5 +600,13 @@ Assert-True (Test-UpgradePurchase -Upgrades $upgrades -TreeName "blacksmith.weap
 Assert-True (Test-UpgradePurchase -Upgrades $upgrades -TreeName "blacksmith.weapon" -RequirementCode "d" -InstanceNumber 0) "Write pass should add max building upgrade purchase."
 Assert-True (Test-UpgradePurchase -Upgrades $upgrades -TreeName "crusader.smite" -RequirementCode "4" -InstanceNumber $crusaderId) "Write pass should max an existing hero combat skill upgrade."
 Assert-True (Test-UpgradePurchase -Upgrades $upgrades -TreeName "arbalest.sniper_shot" -RequirementCode "4" -InstanceNumber $arbalestId) "Write pass should max a generated hero combat skill upgrade."
+$town = Read-DecodedTown
+Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 0) "Write pass should remove generated stagecoach recruits."
+Assert-True (Get-DistrictBuilt -Town $town -DistrictId "bank") "Write pass should mark bank district built."
+Assert-True (Get-DistrictBuilt -Town $town -DistrictId "granary") "Write pass should mark granary district built."
+Assert-True (Get-DistrictBuilt -Town $town -DistrictId "library") "Write pass should keep already-built district built."
+Invoke-DDSaveEditorEncodeProbe -FileName "persist.roster.json"
+Invoke-DDSaveEditorEncodeProbe -FileName "persist.upgrades.json"
+Invoke-DDSaveEditorEncodeProbe -FileName "persist.town.json"
 
-Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster/skill/upgrade write assertions passed."
+Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster/skill/upgrade/town write assertions passed."

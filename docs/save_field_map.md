@@ -232,6 +232,7 @@ Semantic now:
 - generated recruits: name, class, resolve XP, HP, stress, weapon/armour rank, event flags, quirks, skills, trinkets
 - quirk treatments: building, activity, slot, bucket, quirk id, action
 - deck history: building, store, deck version, entry id, count
+- districts: district id and `built` flag. This is separate from ordinary town building upgrade levels, which are represented through `persist.upgrades.json` purchase trees rather than a verified direct `persist.town.json` scalar.
 
 Visible field patterns:
 
@@ -254,6 +255,7 @@ Visible field patterns:
 - `base_root.buildings.stage_coach.store.<store>.generated.[].skills.selected_combat_skills.*`
 - `base_root.buildings.stage_coach.store.<store>.generated.[].skills.selected_camping_skills.*`
 - `base_root.buildings.stage_coach.store.<store>.generated.[].trinkets.items.*`
+- `base_root.districts.buildings.<district>.built`
 
 ### `persist.progression.json`
 
