@@ -477,7 +477,7 @@ function Test-PluginMapLayoutTemplateValidation {
         name = "Validation - Map Layout Template"
         version = "0.1.0"
         enabled = $true
-        capabilities = @("map.layout.template")
+        capabilities = @("map.layout.template", "quest.chain.define")
         virtualFileRules = @()
         mapTemplates = @()
         mapLayoutTemplates = @(
@@ -536,6 +536,30 @@ function Test-PluginMapLayoutTemplateValidation {
                 encounters = @()
             }
         )
+        questChains = @(
+            [ordered]@{
+                id = "post_ancestor_probe_chain"
+                name = "Post Ancestor Probe Chain"
+                mode = "fixed_order"
+                unlock = [ordered]@{
+                    type = "afterQuest"
+                    questId = "plot_final_boss"
+                }
+                stages = @(
+                    [ordered]@{
+                        id = "stage_01_layout_probe"
+                        name = "Layout Probe"
+                        order = 0
+                        sourceQuestId = "plot_dd_4"
+                        targetQuestId = "probe_stage_01"
+                        mapLayoutTemplateId = "dd4_high_level_layout_probe"
+                        region = "darkestdungeon"
+                        difficulty = 6
+                        tags = @("boss", "post_ancestor")
+                    }
+                )
+            }
+        )
         eventRules = @()
         factEventRules = @()
         stateSchema = [ordered]@{}
@@ -580,10 +604,12 @@ function Test-PluginMapLayoutTemplateValidation {
     $specPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.compiled.spec.json"
     $artifactPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.dm"
     $templateReportPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.template.report.json"
+    $questChainReportPath = Join-Path $stateRoot "_quest_chains\validation.map_layout_template\001_post_ancestor_probe_chain.validation.json"
     Assert-True (Test-Path -LiteralPath $reportPath -PathType Leaf) "Plugin map layout validation report was not created: $reportPath"
     Assert-True (Test-Path -LiteralPath $specPath -PathType Leaf) "Plugin map layout compiled spec was not created: $specPath"
     Assert-True (Test-Path -LiteralPath $artifactPath -PathType Leaf) "Plugin map layout artifact was not created: $artifactPath"
     Assert-True (Test-Path -LiteralPath $templateReportPath -PathType Leaf) "Plugin map layout template report was not created: $templateReportPath"
+    Assert-True (Test-Path -LiteralPath $questChainReportPath -PathType Leaf) "Plugin quest chain validation report was not created: $questChainReportPath"
 
     $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
     Assert-True ([bool]$report.succeeded) "Plugin map layout validation report did not succeed."
@@ -617,6 +643,16 @@ function Test-PluginMapLayoutTemplateValidation {
     Assert-True ($tile0.content -eq 8) "Plugin map layout output dynamic tile content was not updated."
     Assert-True ($tile0.knowledge -eq 1) "Plugin map layout output dynamic tile knowledge was not updated."
     Assert-True ([bool]$tile0.critScout) "Plugin map layout output dynamic tile critScout was not updated."
+
+    $questChainReport = Get-Content -LiteralPath $questChainReportPath -Raw | ConvertFrom-Json
+    Assert-True ([bool]$questChainReport.succeeded) "Plugin quest chain validation report did not succeed."
+    Assert-True ($questChainReport.stageCount -eq 1) "Plugin quest chain stage count mismatch."
+    $stage = Convert-ToArray $questChainReport.orderedStages | Select-Object -First 1
+    Assert-True ($stage.id -eq "stage_01_layout_probe") "Plugin quest chain stage id mismatch."
+    Assert-True ($stage.sourceQuestId -eq "plot_dd_4") "Plugin quest chain source quest mismatch."
+    Assert-True ($stage.mapReference.type -eq "mapLayoutTemplate") "Plugin quest chain map reference type mismatch."
+    Assert-True ($stage.mapReference.id -eq "dd4_high_level_layout_probe") "Plugin quest chain map layout reference mismatch."
+    Assert-True ($stage.mapReference.tileRuleCount -eq 1) "Plugin quest chain map reference tile rule count mismatch."
 
     $previewPath = Join-Path $previewRoot "maps_DD_map4.dm.preview.bin"
     $diffPath = Join-Path $previewRoot "maps_DD_map4.dm.diff.txt"

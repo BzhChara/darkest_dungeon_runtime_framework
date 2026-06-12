@@ -54,7 +54,7 @@ internal sealed class PatchPlan
                 $"name={manifest.Name} version={manifest.Version} phase={manifest.Phase} " +
                 $"priority={manifest.Priority} capabilities={FormatLogList(manifest.Capabilities)} " +
                 $"virtualRules={manifest.VirtualFileRuleCount} mapTemplates={manifest.MapTemplateRuleCount} " +
-                $"mapLayoutTemplates={manifest.MapLayoutTemplateRuleCount} eventRules={manifest.EventRuleCount} " +
+                $"mapLayoutTemplates={manifest.MapLayoutTemplateRuleCount} questChains={manifest.QuestChainRuleCount} eventRules={manifest.EventRuleCount} " +
                 $"factEventRules={manifest.FactEventRuleCount} path={manifest.Path}");
         }
 
@@ -117,6 +117,7 @@ internal sealed class PatchPlan
                 $"name={manifest.Name} phase={manifest.Phase} priority={manifest.Priority} " +
                 $"capabilities={FormatLogList(manifest.Capabilities)} virtualRules={manifest.VirtualFileRuleCount} " +
                 $"mapTemplates={manifest.MapTemplateRuleCount} mapLayoutTemplates={manifest.MapLayoutTemplateRuleCount} " +
+                $"questChains={manifest.QuestChainRuleCount} " +
                 $"eventRules={manifest.EventRuleCount} factEventRules={manifest.FactEventRuleCount} " +
                 $"skipReason={QuoteLogValue(manifest.SkipReason)} path={manifest.Path}");
         }
@@ -301,6 +302,7 @@ internal sealed record PatchManifestInfo(
     int VirtualFileRuleCount,
     int MapTemplateRuleCount,
     int MapLayoutTemplateRuleCount,
+    int QuestChainRuleCount,
     int EventRuleCount,
     int FactEventRuleCount,
     string[] Capabilities,
@@ -364,6 +366,7 @@ internal sealed class PluginManifestCandidate
     public int VirtualFileRuleCount => Manifest.VirtualFileRules.Length;
     public int MapTemplateRuleCount => Manifest.MapTemplates.Length;
     public int MapLayoutTemplateRuleCount => Manifest.MapLayoutTemplates.Length;
+    public int QuestChainRuleCount => Manifest.QuestChains.Length;
     public int EventRuleCount => Manifest.EventRules.Length;
     public int FactEventRuleCount => Manifest.FactEventRules.Length;
 

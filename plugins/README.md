@@ -8,7 +8,7 @@
 plugins/<plugin-id>/patches.json
 ```
 
-`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、关卡/章节顺序 `questChains`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。`questChains` 会校验固定顺序 stage、解锁条件和地图模板引用，并写出 sidecar 验证报告；第一版不直接改任务板或 UI。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
 
 `eventRules` 可通过 `--emit-event` 执行已实现的安全动作，或为已识别的 managed 动作生成 sidecar artifact。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`；payload 支持有限的通用数组投影，例如 `where` 条件过滤、`whereIn` 成员过滤、展开、字符串化和去重。契约细节见 `docs/capability_rule_contract.md`。
 
@@ -77,6 +77,30 @@ plugins/<plugin-id>/patches.json
       "encounters": []
     }
   ],
+  "questChains": [
+    {
+      "id": "post_ancestor_probe_chain",
+      "name": "Post Ancestor Probe Chain",
+      "mode": "fixed_order",
+      "unlock": {
+        "type": "afterQuest",
+        "questId": "plot_final_boss"
+      },
+      "stages": [
+        {
+          "id": "stage_01_layout_probe",
+          "name": "Layout Probe",
+          "order": 0,
+          "sourceQuestId": "plot_dd_4",
+          "targetQuestId": "probe_stage_01",
+          "mapLayoutTemplateId": "dd4_layout_probe",
+          "region": "darkestdungeon",
+          "difficulty": 6,
+          "tags": ["boss", "post_ancestor"]
+        }
+      ]
+    }
+  ],
   "factEventRules": [],
   "eventRules": [],
   "stateSchema": {}
@@ -120,12 +144,22 @@ plugins/<plugin-id>/patches.json
 - 生成的报告、编译 spec、`.dm` artifact 和低层模板报告写入 `modStateDirectory/_map_layout_templates/<plugin-id>/`。
 - 报告里的 `compileReady=true` 表示已通过受限编译并生成 runtime overlay；遇到创建/删除 area、tile、door，或命名 encounter 物化时仍会失败。
 
+关卡链：
+
+- `questChains[]` 描述固定顺序或阶段式 quest/chapter chain，可用于 boss gauntlet、打完老祖后的新章节、或其他自定义关卡流程。
+- `questChains[].unlock.type="afterQuest"` 时必须提供 `unlock.questId`，表示该 chain 预期在某个 plot quest 完成后开放。
+- `stages[].order` 可显式控制顺序；不写时按数组顺序。重复 order 或重复 stage id 会作为编译错误报告。
+- `stages[].sourceQuestId` 是当前可实现切片的原版 quest 模板来源。后续真正自定义 quest writer 成熟后，可以扩展为非原版来源。
+- 每个 stage 可以引用 `mapLayoutTemplateId` 或 `mapTemplateId`，但不能同时引用。引用不存在会作为编译错误报告。
+- 验证报告写入 `modStateDirectory/_quest_chains/<plugin-id>/`。报告只证明声明结构、顺序和地图引用有效；第一版不直接写任务板、存档或 UI。
+
 第一批能力命名：
 
 - `file.virtualize`
 - `content.patch`
 - `content.app_config`
 - `content.quest`
+- `quest.chain.define`
 - `content.region`
 - `content.localization`
 - `asset.replace`

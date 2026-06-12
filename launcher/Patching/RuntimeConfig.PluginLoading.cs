@@ -57,8 +57,14 @@ internal sealed partial class RuntimeConfig
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
                 $"virtualRules={plugin.VirtualFileRuleCount} mapTemplates={plugin.MapTemplateRuleCount} " +
-                $"mapLayoutTemplates={plugin.MapLayoutTemplateRuleCount} eventRules={plugin.EventRuleCount} " +
+                $"mapLayoutTemplates={plugin.MapLayoutTemplateRuleCount} questChains={plugin.QuestChainRuleCount} eventRules={plugin.EventRuleCount} " +
                 $"factEventRules={plugin.FactEventRuleCount} path={plugin.Path}");
+            AddQuestChainReports(
+                compileIssues,
+                plugin,
+                activePluginIds,
+                activeCapabilities,
+                log);
             AddMapTemplateVirtualRules(
                 projectRoot,
                 sourceRules,
@@ -119,6 +125,56 @@ internal sealed partial class RuntimeConfig
             skippedFactEventRules,
             BuildEffectiveVirtualRules(projectRoot, sourceRules, compileIssues, log),
             compileIssues);
+    }
+
+    private void AddQuestChainReports(
+        List<PatchCompileIssue> compileIssues,
+        PluginManifestCandidate plugin,
+        IReadOnlySet<string> activePluginIds,
+        IReadOnlySet<string> activeCapabilities,
+        LauncherLog log)
+    {
+        var reportDirectory = Path.Combine(ModStateDirectory, "_quest_chains", SafeFileName(plugin.Id));
+        for (var index = 0; index < plugin.Manifest.QuestChains.Length; index++)
+        {
+            var chain = plugin.Manifest.QuestChains[index];
+            var ruleIndex = index + 1;
+            var condition = EvaluatePatchCondition(chain.When, activePluginIds, activeCapabilities);
+            if (!condition.Matched)
+            {
+                log.Info(
+                    $"quest-chain-skipped source={plugin.SourceName} rule={ruleIndex} " +
+                    $"id={QuoteLogValue(chain.Id)} reason={QuoteLogValue(condition.Reason)}");
+                continue;
+            }
+
+            var reportBaseName = $"{ruleIndex:000}_{SafeFileName(string.IsNullOrWhiteSpace(chain.Id) ? "quest_chain" : chain.Id)}";
+            var reportPath = Path.Combine(reportDirectory, reportBaseName + ".validation.json");
+            var report = QuestChainValidator.WriteValidationReport(
+                chain,
+                ruleIndex,
+                plugin.Manifest.MapLayoutTemplates,
+                plugin.Manifest.MapTemplates,
+                reportPath);
+
+            log.Info(
+                $"quest-chain-rule source={plugin.SourceName} rule={ruleIndex} " +
+                $"id={QuoteLogValue(chain.Id)} stages={report.StageCount} succeeded={report.Succeeded} " +
+                $"issues={report.Issues.Count} report={QuoteLogValue(reportPath)}");
+
+            foreach (var issue in report.Issues.Where(issue => issue.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)))
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    $"questChains/{chain.Id}",
+                    $"{issue.Code} at {issue.Path}: {issue.Message}");
+            }
+        }
     }
 
     private IEnumerable<PluginManifestCandidate> DiscoverPluginPatchManifests(string projectRoot, string manifestName, LauncherLog log)
@@ -570,6 +626,7 @@ internal sealed partial class RuntimeConfig
                 candidate.VirtualFileRuleCount,
                 candidate.MapTemplateRuleCount,
                 candidate.MapLayoutTemplateRuleCount,
+                candidate.QuestChainRuleCount,
                 candidate.EventRuleCount,
                 candidate.FactEventRuleCount,
                 CleanCapabilityReferences(candidate.Manifest.Capabilities).ToArray(),

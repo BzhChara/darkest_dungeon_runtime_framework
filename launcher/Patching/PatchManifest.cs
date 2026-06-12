@@ -47,6 +47,9 @@ internal sealed class PluginPatchManifest
     [JsonPropertyName("mapLayoutTemplates")]
     public MapLayoutTemplateRule[] MapLayoutTemplates { get; set; } = [];
 
+    [JsonPropertyName("questChains")]
+    public QuestChainRule[] QuestChains { get; set; } = [];
+
     [JsonPropertyName("eventRules")]
     public RuntimeEventRule[] EventRules { get; set; } = [];
 
@@ -81,6 +84,7 @@ internal sealed class PluginPatchManifest
             manifest.VirtualFileRules ??= [];
             manifest.MapTemplates ??= [];
             manifest.MapLayoutTemplates ??= [];
+            manifest.QuestChains ??= [];
             manifest.EventRules ??= [];
             manifest.FactEventRules ??= [];
             manifest.StateSchema ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
@@ -104,6 +108,29 @@ internal sealed class PluginPatchManifest
                 {
                     encounter.Id ??= string.Empty;
                     encounter.Mash ??= string.Empty;
+                }
+            }
+
+            foreach (var chain in manifest.QuestChains)
+            {
+                chain.Id ??= string.Empty;
+                chain.Name ??= string.Empty;
+                chain.Mode ??= string.Empty;
+                chain.Unlock ??= new QuestChainUnlockRule();
+                chain.Unlock.Type ??= string.Empty;
+                chain.Unlock.QuestId ??= string.Empty;
+                chain.Unlock.Phase ??= string.Empty;
+                chain.Stages ??= [];
+                foreach (var stage in chain.Stages)
+                {
+                    stage.Id ??= string.Empty;
+                    stage.Name ??= string.Empty;
+                    stage.SourceQuestId ??= string.Empty;
+                    stage.TargetQuestId ??= string.Empty;
+                    stage.MapLayoutTemplateId ??= string.Empty;
+                    stage.MapTemplateId ??= string.Empty;
+                    stage.Region ??= string.Empty;
+                    stage.Tags ??= [];
                 }
             }
 
@@ -347,6 +374,72 @@ internal sealed class MapLayoutEncounterRule
 
     [JsonPropertyName("mash")]
     public string Mash { get; set; } = string.Empty;
+}
+
+internal sealed class QuestChainRule
+{
+    [JsonPropertyName("when")]
+    public PatchCondition? When { get; set; }
+
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("mode")]
+    public string Mode { get; set; } = string.Empty;
+
+    [JsonPropertyName("unlock")]
+    public QuestChainUnlockRule Unlock { get; set; } = new();
+
+    [JsonPropertyName("stages")]
+    public QuestChainStageRule[] Stages { get; set; } = [];
+}
+
+internal sealed class QuestChainUnlockRule
+{
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = string.Empty;
+
+    [JsonPropertyName("questId")]
+    public string QuestId { get; set; } = string.Empty;
+
+    [JsonPropertyName("phase")]
+    public string Phase { get; set; } = string.Empty;
+}
+
+internal sealed class QuestChainStageRule
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("order")]
+    public int? Order { get; set; }
+
+    [JsonPropertyName("sourceQuestId")]
+    public string SourceQuestId { get; set; } = string.Empty;
+
+    [JsonPropertyName("targetQuestId")]
+    public string TargetQuestId { get; set; } = string.Empty;
+
+    [JsonPropertyName("mapLayoutTemplateId")]
+    public string MapLayoutTemplateId { get; set; } = string.Empty;
+
+    [JsonPropertyName("mapTemplateId")]
+    public string MapTemplateId { get; set; } = string.Empty;
+
+    [JsonPropertyName("region")]
+    public string Region { get; set; } = string.Empty;
+
+    [JsonPropertyName("difficulty")]
+    public int? Difficulty { get; set; }
+
+    [JsonPropertyName("tags")]
+    public string[] Tags { get; set; } = [];
 }
 
 internal sealed class PatchCondition
