@@ -57,13 +57,14 @@ docs/architecture.md            架构说明
 `config/default_config.json` 中的这些字段控制文件读取日志：
 
 ```json
+"fileIoHookEnabled": true,
 "fileIoObserveOnly": true,
 "fileIoLogExtensions": [".darkest", ".loc", ".json", ".xml", ".png", ".atlas", ".skel", ".font", ".ttf", ".otf", ".shader", ".txt"],
 "fileIoMaxLogEntries": 2000,
 "fileIoDeduplicate": true
 ```
 
-如果需要完全关闭文件 IO Hook，把 `fileIoObserveOnly` 改成 `false`。如果需要完全关闭注入，把 `enableInjection` 改成 `false`。
+`fileIoHookEnabled` 是文件 API hook 的总开关。`fileIoObserveOnly` 只控制普通文件打开观察日志；即使它为 `false`，只要启用了事件探针或虚拟文件规则，RuntimeHook 仍会安装必要的文件 hook。需要完全关闭文件 IO Hook 时，把 `fileIoHookEnabled` 改成 `false`。如果需要完全关闭注入，把 `enableInjection` 改成 `false`。
 
 默认启动器会使用 `startSuspendedForInjection: true`：先挂起启动游戏，注入并安装 Hook 后再恢复主线程。这样能观察游戏启动早期的资源读取。
 

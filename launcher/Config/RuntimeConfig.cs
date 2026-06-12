@@ -32,6 +32,9 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("startSuspendedForInjection")]
     public bool StartSuspendedForInjection { get; set; } = true;
 
+    [JsonPropertyName("fileIoHookEnabled")]
+    public bool FileIoHookEnabled { get; set; } = true;
+
     [JsonPropertyName("fileIoObserveOnly")]
     public bool FileIoObserveOnly { get; set; } = true;
 
@@ -161,6 +164,8 @@ internal sealed partial class RuntimeConfig
         {
             ["DD_RUNTIME_FRAMEWORK_ROOT"] = projectRoot,
             ["DD_RUNTIME_LOG_DIR"] = LogDirectory,
+            ["DD_RUNTIME_FILE_IO_HOOK_ENABLED"] = FileIoHookEnabled ? "1" : "0",
+            ["DD_RUNTIME_FILE_IO_OBSERVER_ENABLED"] = FileIoObserveOnly ? "1" : "0",
             ["DD_RUNTIME_FILE_IO_OBSERVE_ONLY"] = FileIoObserveOnly ? "1" : "0",
             ["DD_RUNTIME_FILE_IO_LOG_EXTENSIONS"] = string.Join(';', FileIoLogExtensions),
             ["DD_RUNTIME_FILE_IO_MAX_ENTRIES"] = FileIoMaxLogEntries.ToString(),

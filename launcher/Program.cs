@@ -25,6 +25,8 @@ internal static class Program
             log.Info($"Allow non-atomic state writes: {config.AllowNonAtomicStateWrites}");
             log.Info($"Save event bridge enabled: {config.SaveEventBridgeEnabled}");
             log.Info($"Save event bridge debounce milliseconds: {config.SaveEventBridgeDebounceMilliseconds}");
+            log.Info($"File IO hook enabled: {config.FileIoHookEnabled}");
+            log.Info($"File IO observer enabled: {config.FileIoObserveOnly}");
             log.Info($"Injection enabled: {config.EnableInjection && !options.NoInject}");
             log.Info($"Start suspended for injection: {config.StartSuspendedForInjection && config.EnableInjection && !options.NoInject}");
 

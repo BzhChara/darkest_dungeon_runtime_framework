@@ -96,6 +96,8 @@ unsigned long g_maxEntries = 2000;
 bool g_deduplicate = true;
 bool g_limitLogged = false;
 
+bool g_fileIoHookEnabled = true;
+bool g_fileIoObserverEnabled = false;
 bool g_eventProbeEnabled = true;
 bool g_eventProbeLogFileOpen = true;
 bool g_eventProbeLogFileWrite = true;
@@ -772,6 +774,10 @@ std::wstring DescribeManagedOverlayManifest()
 
 void LoadSettings()
 {
+    g_fileIoHookEnabled = GetEnvironmentBool(L"DD_RUNTIME_FILE_IO_HOOK_ENABLED", true);
+    g_fileIoObserverEnabled = GetEnvironmentBool(
+        L"DD_RUNTIME_FILE_IO_OBSERVER_ENABLED",
+        GetEnvironmentBool(L"DD_RUNTIME_FILE_IO_OBSERVE_ONLY", false));
     g_extensions = SplitExtensions(GetEnvironmentString(L"DD_RUNTIME_FILE_IO_LOG_EXTENSIONS"));
     g_maxEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_FILE_IO_MAX_ENTRIES", 2000);
     g_deduplicate = GetEnvironmentBool(L"DD_RUNTIME_FILE_IO_DEDUPLICATE", true);
@@ -825,9 +831,16 @@ void LoadSettings()
     }
 }
 
+bool NeedsFileIoHooks()
+{
+    return g_fileIoObserverEnabled ||
+        (g_eventProbeEnabled && (g_eventProbeLogFileOpen || g_eventProbeLogFileWrite)) ||
+        (g_virtualFileEnabled && !g_virtualRules.empty());
+}
+
 void LogFileOpen(const std::wstring& path, DWORD desiredAccess, DWORD creationDisposition)
 {
-    if (path.empty() || !ExtensionMatches(path))
+    if (!g_fileIoObserverEnabled || path.empty() || !ExtensionMatches(path))
     {
         return;
     }
@@ -1910,15 +1923,21 @@ bool CreateApiHook(const wchar_t* moduleName, const char* procName, LPVOID detou
 }
 }
 
-void FileIoHook::InitializeObserveOnly()
+void FileIoHook::InitializeFromEnvironment()
 {
-    if (!GetEnvironmentBool(L"DD_RUNTIME_FILE_IO_OBSERVE_ONLY", false))
+    LoadSettings();
+
+    if (!g_fileIoHookEnabled)
     {
-        Logger::Warn(L"File IO observe-only is disabled. No file API hook was installed.");
+        Logger::Info(L"File IO hooks disabled by DD_RUNTIME_FILE_IO_HOOK_ENABLED.");
         return;
     }
 
-    LoadSettings();
+    if (!NeedsFileIoHooks())
+    {
+        Logger::Info(L"File IO hooks not installed; observer, event probe, and virtual file rules are inactive.");
+        return;
+    }
 
     MH_STATUS initStatus = MH_Initialize();
     if (initStatus != MH_OK && initStatus != MH_ERROR_ALREADY_INITIALIZED)
@@ -1982,7 +2001,7 @@ void FileIoHook::InitializeObserveOnly()
 
     if (!createdAny)
     {
-        Logger::Warn(L"File IO observe-only hook did not create any hooks.");
+        Logger::Warn(L"File IO hook initialization did not create any hooks.");
         return;
     }
 
@@ -1994,7 +2013,9 @@ void FileIoHook::InitializeObserveOnly()
     }
 
     Logger::Info(
-        L"File IO hooks enabled. Extensions=" +
+        std::wstring(L"File IO hooks enabled. hookEnabled=") + (g_fileIoHookEnabled ? L"true" : L"false") +
+        L" observer=" + (g_fileIoObserverEnabled ? L"enabled" : L"disabled") +
+        L" extensions=" +
         GetEnvironmentString(L"DD_RUNTIME_FILE_IO_LOG_EXTENSIONS") +
         L" maxEntries=" + std::to_wstring(g_maxEntries) +
         L" deduplicate=" + (g_deduplicate ? L"true" : L"false") +

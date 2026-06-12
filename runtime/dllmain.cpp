@@ -16,7 +16,7 @@ DWORD WINAPI RuntimeThread(LPVOID parameter)
     RuntimeHook::Logger::Info(std::wstring(L"Module path: ") + modulePath);
     RuntimeHook::Logger::Info(L"Process ID: " + std::to_wstring(GetCurrentProcessId()));
 
-    RuntimeHook::FileIoHook::InitializeObserveOnly();
+    RuntimeHook::FileIoHook::InitializeFromEnvironment();
 
     RuntimeHook::Logger::Info(L"RuntimeHook initialization complete");
     return 0;

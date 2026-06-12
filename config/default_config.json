@@ -9,6 +9,7 @@
   "enableInjection": true,
   "killGameOnInjectionFailure": false,
   "startSuspendedForInjection": true,
+  "fileIoHookEnabled": true,
   "fileIoObserveOnly": true,
   "fileIoLogExtensions": [
     ".darkest",
