@@ -398,7 +398,36 @@ internal static class Program
     private static string GetProjectRoot(string configPath)
     {
         var configDir = Directory.GetParent(Path.GetFullPath(configPath));
+        var projectRoot = FindProjectRoot(configDir);
+        if (projectRoot is not null)
+        {
+            return projectRoot.FullName;
+        }
+
         return configDir?.Parent?.FullName ?? Directory.GetCurrentDirectory();
+    }
+
+    private static DirectoryInfo? FindProjectRoot(DirectoryInfo? start)
+    {
+        var dir = start;
+        while (dir is not null)
+        {
+            if (HasProjectMarkers(dir.FullName))
+            {
+                return dir;
+            }
+
+            dir = dir.Parent;
+        }
+
+        return null;
+    }
+
+    private static bool HasProjectMarkers(string path)
+    {
+        return File.Exists(Path.Combine(path, "launcher", "DDRuntimeLoader.csproj")) &&
+            Directory.Exists(Path.Combine(path, "config")) &&
+            Directory.Exists(Path.Combine(path, "plugins"));
     }
 
     private static void ValidateConfig(RuntimeConfig config, LauncherOptions options, LauncherLog log)

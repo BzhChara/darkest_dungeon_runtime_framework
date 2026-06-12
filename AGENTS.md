@@ -37,6 +37,7 @@ Run the narrowest useful checks for the change. For framework code, these are th
 ```powershell
 dotnet build launcher/DDRuntimeLoader.csproj -c Release
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
+.\tools\TestProjectRootResolution.ps1
 .\tools\TestRuntimeEventExecutor.ps1
 .\tools\TestBossGauntletContract.ps1
 .\tools\TestSaveEventBridge.ps1
