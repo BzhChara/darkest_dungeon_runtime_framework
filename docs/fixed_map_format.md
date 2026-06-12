@@ -91,16 +91,26 @@ First supported spec shape:
       "critScout": true
     }
   ],
+  "staticTiles": [
+    {
+      "areaId": "rooC",
+      "tileId": "tile0",
+      "mapPosition": [20, 2]
+    }
+  ],
   "staticDoors": [
     {
       "areaId": "rooB",
       "doorSlot": "door4",
-      "targetTileId": "tile17",
-      "doorType": 2,
-      "implied": false
+      "disabled": true
     }
   ],
   "staticTileDoors": [
+    {
+      "areaId": "corA",
+      "tileId": "tile17",
+      "disabled": true
+    },
     {
       "areaId": "corA",
       "tileId": "tile27",
@@ -117,15 +127,19 @@ Supported dynamic tile fields are `content`, `light`, `knowledge`, `mashIndex`, 
 
 Supported static topology scalar fields:
 
+- `staticTiles[]` mutates `base_root.areas.<areaId>.tiles.<tileId>.*`.
 - `staticDoors[]` mutates `base_root.areas.<areaId>.<doorSlot>.*`.
 - `staticTileDoors[]` mutates `base_root.areas.<areaId>.tiles.<tileId>.door_to.*`.
-- Both support `targetAreaId`, `targetTileIndex` or `targetTileId`, `doorType`, and `implied`.
+- `staticTiles[]` supports `mapPosition` and `sidePosition`; these are fixed-width float arrays and the requested value count must match the existing field.
+- Door entries support `targetAreaId`, `targetTileIndex` or `targetTileId`, `doorType`, and `implied`.
+- Door entries also support `disabled: true`, which rewrites the existing door to the original empty-door pattern: `area_to=hash("none")`, `tile_to=0`, `type=0`, and `implied=true`.
 
 This writer is intentionally strict:
 
 - it only mutates scalar fields that already exist in the template,
 - `entranceAreaId` and `finalRoomId` must resolve to existing room areas,
 - `staticDoors` and `staticTileDoors` cannot create missing door slots or missing tile `door_to` objects,
+- `disabled: true` cannot be combined with target fields for the same door entry,
 - field type mismatches fail the run,
 - output is parsed again and every mutation is validated before success is reported.
 
@@ -221,6 +235,12 @@ The framework can now read original fixed map topology well enough to support a 
 
 Live validation on 2026-06-13 proved the runtime overlay reaches the actual game map screen. The test launched the game with `maps/DD_map4.dm` virtually backed by a project-local copy of `DD_map1.dm`; RuntimeHook logged `mode=sourcePath` with `sourceBytes=125348` and `virtualBytes=125348`, and the user visually confirmed that the DD4 map screen became the larger DD1-style topology instead of the original 4-area finale map.
 
+Further live validation on 2026-06-13 proved selected scalar topology rewrites in game:
+
+- Rewriting `finalRoomId`, room/corridor door targets, and `staticTiles[].mapPosition` can move the DD4 final room marker and its usable entrance to the far-right room.
+- Moving the marker alone is not enough; the game still honors old corridor tile `door_to` entries as invisible W-key room-entry hotspots.
+- Rewriting `corA.tile17.door_to` with `disabled: true` removed the hidden middle-room entry hotspot and stopped the crash, while `corA.tile27 -> rooC` remained usable.
+
 This proves whole-file `.dm` replacement works in game. The template mutation writer now proves safe in-place mutation for selected existing scalar fields, including room door and corridor tile `door_to` topology fields. It still does not prove safe arbitrary map generation from a high-level layout; creating/removing areas, tiles, and door slots remains a future map-system milestone.
 
 The virtual overlay syntax is intentionally whole-file and binary-safe:
@@ -232,4 +252,4 @@ The virtual overlay syntax is intentionally whole-file and binary-safe:
 }
 ```
 
-The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. The next implementation step is testing live-game behavior for scalar topology rewrites, then extending the template writer toward controlled creation/removal of rooms, corridors, tiles, and door slots.
+The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. The next implementation step is extending the template writer toward controlled creation/removal of rooms, corridors, tiles, and door slots.

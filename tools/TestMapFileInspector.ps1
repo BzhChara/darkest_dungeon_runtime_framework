@@ -134,16 +134,38 @@ function Test-MapTemplatePrototype {
                 critScout = $true
             }
         )
+        staticTiles = @(
+            [ordered]@{
+                areaId = "rooB"
+                tileId = "tile0"
+                mapPosition = @(12, 5)
+            },
+            [ordered]@{
+                areaId = "rooC"
+                tileId = "tile0"
+                mapPosition = @(20, 2)
+            }
+        )
         staticDoors = @(
             [ordered]@{
                 areaId = "rooB"
                 doorSlot = "door4"
-                targetTileId = "tile17"
-                doorType = 2
-                implied = $false
+                disabled = $true
+            },
+            [ordered]@{
+                areaId = "rooC"
+                doorSlot = "door0"
+                targetTileId = "tile27"
+                doorType = 0
+                implied = $true
             }
         )
         staticTileDoors = @(
+            [ordered]@{
+                areaId = "corA"
+                tileId = "tile17"
+                disabled = $true
+            },
             [ordered]@{
                 areaId = "corA"
                 tileId = "tile27"
@@ -172,7 +194,7 @@ function Test-MapTemplatePrototype {
     Assert-True ([bool]$report.succeeded) "Template prototype report did not succeed."
     Assert-True ((Convert-ToArray $report.accessIssues).Count -eq 0) "Template prototype report had access issues."
     Assert-True ($report.specName -eq "dd4_rooC_dynamic_tile_probe") "Template prototype spec name mismatch."
-    Assert-True ((Convert-ToArray $report.mutations).Count -eq 11) "Template prototype mutation count mismatch."
+    Assert-True ((Convert-ToArray $report.mutations).Count -eq 21) "Template prototype mutation count mismatch."
     Assert-True ($report.outputMap.finalRoomId -eq "rooC") "Template prototype output final room was not updated."
     Assert-True ($report.outputMap.areaCount -eq 4) "Template prototype output area count changed."
     Assert-True ($report.outputMap.roomCount -eq 3) "Template prototype output room count changed."
@@ -190,14 +212,27 @@ function Test-MapTemplatePrototype {
     $rooB = Convert-ToArray $report.outputMap.areas | Where-Object { $_.areaId -eq "rooB" } | Select-Object -First 1
     Assert-True ($null -ne $rooB) "Template prototype output static area rooB was not found."
     $door4 = Convert-ToArray $rooB.doors | Where-Object { $_.slotId -eq "door4" } | Select-Object -First 1
-    Assert-True ($null -ne $door4) "Template prototype output static door rooB.door4 was not found."
-    Assert-True ($door4.targetAreaId -eq "corA") "Template prototype output static door target area changed unexpectedly."
-    Assert-True ($door4.targetTileIndex -eq 17) "Template prototype output static door tile_to was not updated."
-    Assert-True ($door4.doorType -eq 2) "Template prototype output static door type was not updated."
-    Assert-True (-not [bool]$door4.implied) "Template prototype output static door implied was not updated."
+    $rooBTile0 = Convert-ToArray $rooB.tileSamples | Where-Object { $_.tileId -eq "tile0" } | Select-Object -First 1
+    Assert-True ($null -ne $rooBTile0) "Template prototype output static tile rooB.tile0 was not found."
+    Assert-True (($rooBTile0.mapPosition -join ",") -eq "12,5") "Template prototype output static tile rooB.tile0 mapPosition was not updated."
+    Assert-True ($null -eq $door4) "Template prototype output static door rooB.door4 was not disabled."
 
     $corA = Convert-ToArray $report.outputMap.areas | Where-Object { $_.areaId -eq "corA" } | Select-Object -First 1
     Assert-True ($null -ne $corA) "Template prototype output static area corA was not found."
+    $rooCStatic = Convert-ToArray $report.outputMap.areas | Where-Object { $_.areaId -eq "rooC" } | Select-Object -First 1
+    Assert-True ($null -ne $rooCStatic) "Template prototype output static area rooC was not found."
+    $rooCTile0 = Convert-ToArray $rooCStatic.tileSamples | Where-Object { $_.tileId -eq "tile0" } | Select-Object -First 1
+    Assert-True ($null -ne $rooCTile0) "Template prototype output static tile rooC.tile0 was not found."
+    Assert-True (($rooCTile0.mapPosition -join ",") -eq "20,2") "Template prototype output static tile rooC.tile0 mapPosition was not updated."
+    $door0 = Convert-ToArray $rooCStatic.doors | Where-Object { $_.slotId -eq "door0" } | Select-Object -First 1
+    Assert-True ($null -ne $door0) "Template prototype output static door rooC.door0 was not found."
+    Assert-True ($door0.targetAreaId -eq "corA") "Template prototype output static door rooC.door0 target area changed unexpectedly."
+    Assert-True ($door0.targetTileIndex -eq 27) "Template prototype output static door rooC.door0 tile_to was not updated."
+    Assert-True ($door0.doorType -eq 0) "Template prototype output static door rooC.door0 type was not updated."
+    Assert-True ([bool]$door0.implied) "Template prototype output static door rooC.door0 implied was not updated."
+    $corATile17 = Convert-ToArray $corA.tileSamples | Where-Object { $_.tileId -eq "tile17" } | Select-Object -First 1
+    Assert-True ($null -ne $corATile17) "Template prototype output static tile corA.tile17 was not found."
+    Assert-True ($null -eq $corATile17.doorTo) "Template prototype output static tile corA.tile17 door_to was not disabled."
     $corATile27 = Convert-ToArray $corA.tileSamples | Where-Object { $_.tileId -eq "tile27" } | Select-Object -First 1
     Assert-True ($null -ne $corATile27) "Template prototype output static tile corA.tile27 was not found."
     Assert-True ($null -ne $corATile27.doorTo) "Template prototype output static tile corA.tile27 door_to was not found."

@@ -4,6 +4,8 @@ internal sealed partial class SaveDirectoryWatcher
 {
     private static partial class SaveStateExporter
     {
+        private static readonly int DisabledMapDoorTargetHash = DsonHash.HashNameSigned("none");
+
         public static string WriteMapTemplatePrototype(
             string sourceMapFilePath,
             string specFilePath,
@@ -128,6 +130,7 @@ internal sealed partial class SaveDirectoryWatcher
                         SessionJsonOptions)
                     ?? throw new InvalidOperationException($"Map template spec was empty: {specFullPath}");
                 spec.DynamicTiles ??= [];
+                spec.StaticTiles ??= [];
                 spec.StaticDoors ??= [];
                 spec.StaticTileDoors ??= [];
                 return spec;
@@ -178,6 +181,11 @@ internal sealed partial class SaveDirectoryWatcher
             foreach (var tile in spec.DynamicTiles)
             {
                 AddDynamicTileMutations(sourceFile, sourceMap, tile, byteLength, mutations, accessIssues);
+            }
+
+            foreach (var tile in spec.StaticTiles)
+            {
+                AddStaticTileMutations(sourceFile, sourceMap, tile, byteLength, mutations, accessIssues);
             }
 
             foreach (var door in spec.StaticDoors)
@@ -336,6 +344,7 @@ internal sealed partial class SaveDirectoryWatcher
                 door.TargetTileId,
                 door.DoorType,
                 door.Implied,
+                door.Disabled,
                 byteLength,
                 mutations,
                 accessIssues);
@@ -382,6 +391,7 @@ internal sealed partial class SaveDirectoryWatcher
                 door.TargetTileId,
                 door.DoorType,
                 door.Implied,
+                door.Disabled,
                 byteLength,
                 mutations,
                 accessIssues);
@@ -399,10 +409,30 @@ internal sealed partial class SaveDirectoryWatcher
             string? targetTileId,
             int? doorType,
             bool? implied,
+            bool? disabled,
             int byteLength,
             List<PlannedMapTemplateMutation> mutations,
             List<string> accessIssues)
         {
+            if (disabled == true)
+            {
+                if (!string.IsNullOrWhiteSpace(targetAreaId)
+                    || targetTileIndex.HasValue
+                    || !string.IsNullOrWhiteSpace(targetTileId)
+                    || doorType.HasValue
+                    || implied.HasValue)
+                {
+                    accessIssues.Add($"{subject} disabled=true cannot be combined with targetAreaId, targetTileIndex, targetTileId, doorType, or implied.");
+                    return;
+                }
+
+                AddInt32Mutation(sourceFile, $"disable_{subject.Replace(' ', '_')}_area_to", $"{doorPath}.area_to", DisabledMapDoorTargetHash, areaId, tileId, byteLength, mutations, accessIssues);
+                AddInt32Mutation(sourceFile, $"disable_{subject.Replace(' ', '_')}_tile_to", $"{doorPath}.tile_to", 0, areaId, tileId, byteLength, mutations, accessIssues);
+                AddInt32Mutation(sourceFile, $"disable_{subject.Replace(' ', '_')}_type", $"{doorPath}.type", 0, areaId, tileId, byteLength, mutations, accessIssues);
+                AddBoolMutation(sourceFile, $"disable_{subject.Replace(' ', '_')}_implied", $"{doorPath}.implied", true, areaId, tileId, byteLength, mutations, accessIssues);
+                return;
+            }
+
             if (!string.IsNullOrWhiteSpace(targetAreaId))
             {
                 var targetArea = sourceMap.Areas.FirstOrDefault(item => item.AreaId.Equals(targetAreaId, StringComparison.OrdinalIgnoreCase));
@@ -432,6 +462,39 @@ internal sealed partial class SaveDirectoryWatcher
             }
         }
 
+        private static void AddStaticTileMutations(
+            SaveStateFileReport sourceFile,
+            SaveStateMapFacts sourceMap,
+            MapTemplateStaticTileSpec tile,
+            int byteLength,
+            List<PlannedMapTemplateMutation> mutations,
+            List<string> accessIssues)
+        {
+            if (string.IsNullOrWhiteSpace(tile.AreaId))
+            {
+                accessIssues.Add("staticTiles entry requires areaId.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(tile.TileId))
+            {
+                accessIssues.Add($"staticTiles entry for area={tile.AreaId} requires tileId.");
+                return;
+            }
+
+            var tileId = NormalizeMapTileId(tile.TileId);
+            var area = sourceMap.Areas.FirstOrDefault(item => item.AreaId.Equals(tile.AreaId, StringComparison.OrdinalIgnoreCase));
+            if (area is null)
+            {
+                accessIssues.Add($"static tile area was not found: {tile.AreaId}");
+                return;
+            }
+
+            var tilePath = $"base_root.areas.{area.AreaId}.tiles.{tileId}";
+            AddOptionalFloatArrayMutation(sourceFile, tile.MapPosition, "set_static_tile_mappos", $"{tilePath}.mappos", area.AreaId, tileId, byteLength, mutations, accessIssues);
+            AddOptionalFloatArrayMutation(sourceFile, tile.SidePosition, "set_static_tile_sidepos", $"{tilePath}.sidepos", area.AreaId, tileId, byteLength, mutations, accessIssues);
+        }
+
         private static void AddOptionalDynamicTileIntMutation(
             SaveStateFileReport sourceFile,
             int? value,
@@ -449,6 +512,25 @@ internal sealed partial class SaveDirectoryWatcher
             }
 
             AddInt32Mutation(sourceFile, mutation, scalarPath, value.Value, areaId, tileId, byteLength, mutations, accessIssues);
+        }
+
+        private static void AddOptionalFloatArrayMutation(
+            SaveStateFileReport sourceFile,
+            IReadOnlyList<double>? values,
+            string mutation,
+            string scalarPath,
+            string? areaId,
+            string? tileId,
+            int byteLength,
+            List<PlannedMapTemplateMutation> mutations,
+            List<string> accessIssues)
+        {
+            if (values is null)
+            {
+                return;
+            }
+
+            AddFloatArrayMutation(sourceFile, mutation, scalarPath, values, areaId, tileId, byteLength, mutations, accessIssues);
         }
 
         private static void AddInt32Mutation(
@@ -491,6 +573,7 @@ internal sealed partial class SaveDirectoryWatcher
                 scalar.Value,
                 value.ToString(CultureInfo.InvariantCulture),
                 value,
+                null,
                 null,
                 scalar.Offset,
                 valueOffset));
@@ -537,6 +620,73 @@ internal sealed partial class SaveDirectoryWatcher
                 value ? "true" : "false",
                 null,
                 value,
+                null,
+                scalar.Offset,
+                valueOffset));
+        }
+
+        private static void AddFloatArrayMutation(
+            SaveStateFileReport sourceFile,
+            string mutation,
+            string scalarPath,
+            IReadOnlyList<double> values,
+            string? areaId,
+            string? tileId,
+            int byteLength,
+            List<PlannedMapTemplateMutation> mutations,
+            List<string> accessIssues)
+        {
+            var scalar = FindMapTemplateScalar(sourceFile, scalarPath);
+            if (scalar is null)
+            {
+                accessIssues.Add($"{mutation} target scalar was not found: {scalarPath}");
+                return;
+            }
+
+            if (!scalar.Type.Equals("floatArray", StringComparison.OrdinalIgnoreCase))
+            {
+                accessIssues.Add($"{mutation} target scalar is not floatArray: {scalarPath} type={scalar.Type}");
+                return;
+            }
+
+            if (values.Count == 0 || values.Any(value => !double.IsFinite(value)))
+            {
+                accessIssues.Add($"{mutation} requires one or more finite numeric values: {scalarPath}");
+                return;
+            }
+
+            if (values.Any(value => value < float.MinValue || value > float.MaxValue))
+            {
+                accessIssues.Add($"{mutation} contains values outside float32 range: {scalarPath}");
+                return;
+            }
+
+            var valueOffset = GetDsonScalarValueOffset(scalar);
+            var valueByteLength = scalar.Offset + scalar.Size - valueOffset;
+            if (valueOffset < 0 || valueOffset > byteLength || valueOffset + valueByteLength > byteLength)
+            {
+                accessIssues.Add($"{mutation} value offset is outside the source file: {scalarPath} offset={valueOffset} bytes={valueByteLength}");
+                return;
+            }
+
+            if (valueByteLength != values.Count * sizeof(float))
+            {
+                accessIssues.Add($"{mutation} value count does not match existing field width: {scalarPath} existingBytes={valueByteLength} requestedValues={values.Count}");
+                return;
+            }
+
+            var serializedValue = JsonSerializer.Serialize(values.Select(value => (double)(float)value).ToArray());
+            mutations.Add(new PlannedMapTemplateMutation(
+                mutation,
+                scalarPath,
+                "floatArray",
+                areaId,
+                tileId,
+                scalar.Value,
+                serializedValue,
+                null,
+                null,
+                values.Select(value => (double)(float)value).ToArray(),
                 scalar.Offset,
                 valueOffset));
         }
@@ -552,6 +702,15 @@ internal sealed partial class SaveDirectoryWatcher
             if (mutation.BoolValue.HasValue)
             {
                 bytes[mutation.ValueOffset] = mutation.BoolValue.Value ? (byte)1 : (byte)0;
+                return;
+            }
+
+            if (mutation.FloatArrayValue is not null)
+            {
+                for (var i = 0; i < mutation.FloatArrayValue.Count; i++)
+                {
+                    BitConverter.TryWriteBytes(bytes.AsSpan(mutation.ValueOffset + i * sizeof(float), sizeof(float)), (float)mutation.FloatArrayValue[i]);
+                }
             }
         }
 
@@ -711,6 +870,7 @@ internal sealed partial class SaveDirectoryWatcher
             public string? EntranceAreaId { get; set; }
             public string? FinalRoomId { get; set; }
             public List<MapTemplateDynamicTileSpec> DynamicTiles { get; set; } = [];
+            public List<MapTemplateStaticTileSpec> StaticTiles { get; set; } = [];
             public List<MapTemplateStaticDoorSpec> StaticDoors { get; set; } = [];
             public List<MapTemplateStaticTileDoorSpec> StaticTileDoors { get; set; } = [];
         }
@@ -729,6 +889,14 @@ internal sealed partial class SaveDirectoryWatcher
             public bool? CritScout { get; set; }
         }
 
+        private sealed class MapTemplateStaticTileSpec
+        {
+            public string? AreaId { get; set; }
+            public string? TileId { get; set; }
+            public List<double>? MapPosition { get; set; }
+            public List<double>? SidePosition { get; set; }
+        }
+
         private sealed class MapTemplateStaticDoorSpec
         {
             public string? AreaId { get; set; }
@@ -738,6 +906,7 @@ internal sealed partial class SaveDirectoryWatcher
             public string? TargetTileId { get; set; }
             public int? DoorType { get; set; }
             public bool? Implied { get; set; }
+            public bool? Disabled { get; set; }
         }
 
         private sealed class MapTemplateStaticTileDoorSpec
@@ -749,6 +918,7 @@ internal sealed partial class SaveDirectoryWatcher
             public string? TargetTileId { get; set; }
             public int? DoorType { get; set; }
             public bool? Implied { get; set; }
+            public bool? Disabled { get; set; }
         }
 
         private sealed record PlannedMapTemplateMutation(
@@ -761,6 +931,7 @@ internal sealed partial class SaveDirectoryWatcher
             string NewValue,
             int? Int32Value,
             bool? BoolValue,
+            IReadOnlyList<double>? FloatArrayValue,
             int FieldOffset,
             int ValueOffset)
         {
