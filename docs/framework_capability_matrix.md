@@ -64,7 +64,7 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Selection state | `selection.lock`, `selection.consumeHeroes`, `selection.consumeTrinkets` | live UI/game enforcement instead of sidecar-only observation |
 | Quest board | `questBoard.replaceWithFixedSet` decoded-save writer from enabled plot quest content | runtime board intercept and broader availability modes |
 | Quest overlays | `quest.injectFixedStage` virtual file consumer | full quest list/availability control |
-| Map topology | fixed map facts, topology validation, scalar `mapTemplates`, generated `.dm` sourcePath overlays, and validate-only `mapLayoutTemplates` room/corridor graph diagnostics | high-level `mapLayoutTemplates` compiler for room/hall graph, entrance/final room, and per-cell content |
+| Map topology | fixed map facts, topology validation, scalar `mapTemplates`, generated `.dm` sourcePath overlays, and `mapLayoutTemplates` room/corridor graph compiler for existing area/tile/door templates | generated map objects, encounter placement, and controlled creation/removal of rooms, corridors, tiles, and door slots |
 | Encounters | original mash content can be indexed from dungeon files | `encounter.defineMash` and named encounter placement tied to fixed layouts |
 | Save-to-event bridge | plugin-declared `factEventRules` and payload projections | more fact extractors and reusable projection operators |
 | Sidecar state | plugin namespaced state schema/actions | reset/backup policy and campaign scoping |

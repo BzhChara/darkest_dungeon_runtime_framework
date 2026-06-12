@@ -96,7 +96,6 @@ internal sealed class PluginPatchManifest
                 {
                     tile.Area ??= string.Empty;
                     tile.TileId ??= string.Empty;
-                    tile.Content ??= string.Empty;
                     tile.Encounter ??= string.Empty;
                 }
 
@@ -314,7 +313,28 @@ internal sealed class MapLayoutTileRule
     public string TileId { get; set; } = string.Empty;
 
     [JsonPropertyName("content")]
-    public string Content { get; set; } = string.Empty;
+    public JsonElement Content { get; set; }
+
+    [JsonPropertyName("light")]
+    public int? Light { get; set; }
+
+    [JsonPropertyName("knowledge")]
+    public int? Knowledge { get; set; }
+
+    [JsonPropertyName("mashIndex")]
+    public int? MashIndex { get; set; }
+
+    [JsonPropertyName("mashType")]
+    public int? MashType { get; set; }
+
+    [JsonPropertyName("curioPropHash")]
+    public int? CurioPropHash { get; set; }
+
+    [JsonPropertyName("trapHash")]
+    public int? TrapHash { get; set; }
+
+    [JsonPropertyName("critScout")]
+    public bool? CritScout { get; set; }
 
     [JsonPropertyName("encounter")]
     public string Encounter { get; set; } = string.Empty;

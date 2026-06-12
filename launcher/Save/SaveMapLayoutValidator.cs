@@ -45,6 +45,9 @@ internal sealed partial class SaveDirectoryWatcher
                 succeeded,
                 false,
                 "validateOnly",
+                null,
+                null,
+                null,
                 sourceMap,
                 layoutFacts,
                 issues,
@@ -67,6 +70,606 @@ internal sealed partial class SaveDirectoryWatcher
             }
 
             return reportFullPath;
+        }
+
+        public static string WriteMapLayoutTemplatePrototype(
+            string sourceMapFilePath,
+            MapLayoutTemplateRule template,
+            string compiledSpecOutputPath,
+            string outputMapFilePath,
+            string validationReportOutputPath,
+            string mapTemplateReportOutputPath,
+            LauncherLog log)
+        {
+            var sourceFullPath = Path.GetFullPath(sourceMapFilePath);
+            var specFullPath = Path.GetFullPath(compiledSpecOutputPath);
+            var outputFullPath = Path.GetFullPath(outputMapFilePath);
+            var validationReportFullPath = Path.GetFullPath(validationReportOutputPath);
+            var mapTemplateReportFullPath = Path.GetFullPath(mapTemplateReportOutputPath);
+            var generatedAt = DateTimeOffset.Now;
+            var issues = new List<string>();
+            var warnings = new List<string>();
+
+            if (!File.Exists(sourceFullPath))
+            {
+                throw new FileNotFoundException("Source map file was not found.", sourceFullPath);
+            }
+
+            var sourceFile = InspectFile(sourceFullPath, Path.GetFileName(sourceFullPath));
+            var sourceMap = BuildMapFacts(sourceFile);
+            issues.AddRange(sourceFile.AccessIssues);
+            if (!sourceFile.ParseStatus.Equals("dsonPartialDecoded", StringComparison.OrdinalIgnoreCase))
+            {
+                issues.Add($"Source map did not parse as a DSON container: {sourceFullPath}");
+            }
+
+            if (!sourceMap.HasStaticSave)
+            {
+                issues.Add("Source map has no decoded base_root.map.static_dynamic.static_save payload.");
+            }
+
+            var layoutFacts = ValidateMapLayoutTemplate(template, sourceMap, issues, warnings);
+            var spec = issues.Count == 0
+                ? CompileMapLayoutTemplateSpec(template, sourceMap, issues, warnings)
+                : null;
+            if (issues.Count == 0 && spec is not null)
+            {
+                try
+                {
+                    WriteCompiledMapLayoutSpec(spec, specFullPath);
+                    WriteMapTemplatePrototype(
+                        sourceFullPath,
+                        specFullPath,
+                        outputFullPath,
+                        mapTemplateReportFullPath,
+                        log);
+                }
+                catch (Exception ex)
+                {
+                    issues.Add($"Compiled map template failed: {ex.Message}");
+                }
+            }
+
+            var succeeded = issues.Count == 0;
+            var report = new MapLayoutTemplateValidationReport(
+                1,
+                generatedAt,
+                sourceFullPath,
+                template.Target,
+                template.Id,
+                succeeded,
+                succeeded,
+                succeeded ? "compiledToMapTemplate" : "compileFailed",
+                succeeded ? specFullPath : null,
+                succeeded ? outputFullPath : null,
+                succeeded ? mapTemplateReportFullPath : null,
+                sourceMap,
+                layoutFacts,
+                issues,
+                warnings);
+            WriteMapLayoutTemplateValidationReport(validationReportFullPath, report);
+            log.Info(
+                $"event name=map.layout_template_validation_written report={Quote(validationReportFullPath)} " +
+                $"source={Quote(sourceFullPath)} target={Quote(template.Target)} id={Quote(template.Id)} " +
+                $"succeeded={succeeded} issues={issues.Count} warnings={warnings.Count} compileReady={(succeeded ? 1 : 0)} " +
+                $"spec={Quote(succeeded ? specFullPath : string.Empty)} output={Quote(succeeded ? outputFullPath : string.Empty)}");
+
+            if (!succeeded)
+            {
+                throw new InvalidOperationException($"Map layout template validation failed: {string.Join("; ", issues)}");
+            }
+
+            return validationReportFullPath;
+        }
+
+        private static void WriteMapLayoutTemplateValidationReport(
+            string reportFullPath,
+            MapLayoutTemplateValidationReport report)
+        {
+            var reportDirectory = Path.GetDirectoryName(reportFullPath);
+            if (!string.IsNullOrWhiteSpace(reportDirectory))
+            {
+                Directory.CreateDirectory(reportDirectory);
+            }
+
+            File.WriteAllText(reportFullPath, JsonSerializer.Serialize(report, SessionJsonOptions), Encoding.UTF8);
+        }
+
+        private static void WriteCompiledMapLayoutSpec(MapTemplateSpec spec, string specFullPath)
+        {
+            var specDirectory = Path.GetDirectoryName(specFullPath);
+            if (!string.IsNullOrWhiteSpace(specDirectory))
+            {
+                Directory.CreateDirectory(specDirectory);
+            }
+
+            File.WriteAllText(specFullPath, JsonSerializer.Serialize(spec, SessionJsonOptions), Encoding.UTF8);
+        }
+
+        private static MapTemplateSpec CompileMapLayoutTemplateSpec(
+            MapLayoutTemplateRule template,
+            SaveStateMapFacts sourceMap,
+            List<string> issues,
+            List<string> warnings)
+        {
+            var layout = template.Layout ?? new MapLayoutDefinition();
+            var nodes = BuildMapLayoutCompilerNodes(layout);
+            var activeAreaIds = nodes.Values
+                .Select(node => node.TemplateAreaId)
+                .Where(areaId => !string.IsNullOrWhiteSpace(areaId))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var spec = new MapTemplateSpec
+            {
+                Version = 1,
+                Name = string.IsNullOrWhiteSpace(template.Id) ? template.Target : template.Id
+            };
+
+            if (!string.IsNullOrWhiteSpace(layout.Entrance) &&
+                nodes.TryGetValue(layout.Entrance, out var entranceNode))
+            {
+                spec.EntranceAreaId = entranceNode.TemplateAreaId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(layout.FinalRoom) &&
+                nodes.TryGetValue(layout.FinalRoom, out var finalRoomNode))
+            {
+                spec.FinalRoomId = finalRoomNode.TemplateAreaId;
+            }
+
+            AddMapLayoutStaticTileSpecs(layout, sourceMap, nodes, spec, issues);
+            AddMapLayoutDoorSpecs(layout, sourceMap, nodes, activeAreaIds, spec, issues);
+            AddMapLayoutDynamicTileSpecs(template, nodes, spec, issues, warnings);
+            return spec;
+        }
+
+        private static Dictionary<string, MapLayoutCompilerNode> BuildMapLayoutCompilerNodes(MapLayoutDefinition layout)
+        {
+            var nodes = new Dictionary<string, MapLayoutCompilerNode>(StringComparer.OrdinalIgnoreCase);
+            foreach (var room in layout.Rooms ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(room.Id) && !nodes.ContainsKey(room.Id))
+                {
+                    nodes.Add(room.Id, new MapLayoutCompilerNode(room.Id, "room", room.TemplateAreaId));
+                }
+            }
+
+            foreach (var corridor in layout.Corridors ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(corridor.Id) && !nodes.ContainsKey(corridor.Id))
+                {
+                    nodes.Add(corridor.Id, new MapLayoutCompilerNode(corridor.Id, "corridor", corridor.TemplateAreaId));
+                }
+            }
+
+            return nodes;
+        }
+
+        private static void AddMapLayoutStaticTileSpecs(
+            MapLayoutDefinition layout,
+            SaveStateMapFacts sourceMap,
+            IReadOnlyDictionary<string, MapLayoutCompilerNode> nodes,
+            MapTemplateSpec spec,
+            List<string> issues)
+        {
+            foreach (var room in layout.Rooms ?? [])
+            {
+                if (room.Position is not { Length: 2 } ||
+                    !nodes.TryGetValue(room.Id, out var node))
+                {
+                    continue;
+                }
+
+                if (!MapAreaHasTile(sourceMap, node.TemplateAreaId, "tile0"))
+                {
+                    issues.Add($"room {room.Id} template area {node.TemplateAreaId} has no tile0 for mapPosition.");
+                    continue;
+                }
+
+                spec.StaticTiles.Add(new MapTemplateStaticTileSpec
+                {
+                    AreaId = node.TemplateAreaId,
+                    TileId = "tile0",
+                    MapPosition = room.Position.ToList()
+                });
+            }
+
+            foreach (var corridor in layout.Corridors ?? [])
+            {
+                if (!nodes.TryGetValue(corridor.Id, out var node))
+                {
+                    continue;
+                }
+
+                var area = FindMapArea(sourceMap, node.TemplateAreaId);
+                if (area is null)
+                {
+                    continue;
+                }
+
+                var route = corridor.Route ?? [];
+                if (route.Length > area.TileCount)
+                {
+                    issues.Add(
+                        $"corridor {corridor.Id} route contains {route.Length} points, " +
+                        $"but template area {node.TemplateAreaId} has only {area.TileCount} tiles.");
+                    continue;
+                }
+
+                for (var i = 0; i < route.Length; i++)
+                {
+                    if (route[i].Length != 2)
+                    {
+                        continue;
+                    }
+
+                    var tileId = "tile" + i.ToString(CultureInfo.InvariantCulture);
+                    if (!MapAreaHasTile(sourceMap, node.TemplateAreaId, tileId))
+                    {
+                        issues.Add($"corridor {corridor.Id} template area {node.TemplateAreaId} has no {tileId} for route point {i}.");
+                        continue;
+                    }
+
+                    spec.StaticTiles.Add(new MapTemplateStaticTileSpec
+                    {
+                        AreaId = node.TemplateAreaId,
+                        TileId = tileId,
+                        MapPosition = route[i].ToList()
+                    });
+                }
+            }
+        }
+
+        private static void AddMapLayoutDoorSpecs(
+            MapLayoutDefinition layout,
+            SaveStateMapFacts sourceMap,
+            IReadOnlyDictionary<string, MapLayoutCompilerNode> nodes,
+            IReadOnlySet<string> activeAreaIds,
+            MapTemplateSpec spec,
+            List<string> issues)
+        {
+            var selectedStaticDoors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var selectedStaticTileDoors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var link in layout.Links ?? [])
+            {
+                if (!nodes.TryGetValue(link.From, out var fromNode) ||
+                    !nodes.TryGetValue(link.To, out var toNode))
+                {
+                    continue;
+                }
+
+                if (!TryGetRoomCorridorPair(fromNode, toNode, out var roomNode, out var corridorNode))
+                {
+                    issues.Add($"layout link {link.From}->{link.To} is unsupported; the first compiler slice only supports room-corridor links.");
+                    continue;
+                }
+
+                if (!TryResolveLayoutLinkTileId(link, corridorNode, sourceMap, issues, out var corridorTileId))
+                {
+                    continue;
+                }
+
+                var roomDoorSlot = SelectRoomDoorSlot(sourceMap, roomNode, corridorNode, selectedStaticDoors, issues);
+                if (string.IsNullOrWhiteSpace(roomDoorSlot))
+                {
+                    continue;
+                }
+
+                selectedStaticDoors.Add(MapDoorKey(roomNode.TemplateAreaId, roomDoorSlot));
+                selectedStaticTileDoors.Add(MapDoorKey(corridorNode.TemplateAreaId, corridorTileId));
+                spec.StaticDoors.Add(new MapTemplateStaticDoorSpec
+                {
+                    AreaId = roomNode.TemplateAreaId,
+                    DoorSlot = roomDoorSlot,
+                    TargetAreaId = corridorNode.TemplateAreaId,
+                    TargetTileId = corridorTileId,
+                    Implied = true
+                });
+                spec.StaticTileDoors.Add(new MapTemplateStaticTileDoorSpec
+                {
+                    AreaId = corridorNode.TemplateAreaId,
+                    TileId = corridorTileId,
+                    TargetAreaId = roomNode.TemplateAreaId,
+                    TargetTileIndex = 0,
+                    DoorType = 2,
+                    Implied = true
+                });
+            }
+
+            DisableUnselectedMapLayoutDoors(sourceMap, activeAreaIds, selectedStaticDoors, selectedStaticTileDoors, spec);
+        }
+
+        private static bool TryGetRoomCorridorPair(
+            MapLayoutCompilerNode first,
+            MapLayoutCompilerNode second,
+            out MapLayoutCompilerNode roomNode,
+            out MapLayoutCompilerNode corridorNode)
+        {
+            if (first.Kind.Equals("room", StringComparison.OrdinalIgnoreCase) &&
+                second.Kind.Equals("corridor", StringComparison.OrdinalIgnoreCase))
+            {
+                roomNode = first;
+                corridorNode = second;
+                return true;
+            }
+
+            if (first.Kind.Equals("corridor", StringComparison.OrdinalIgnoreCase) &&
+                second.Kind.Equals("room", StringComparison.OrdinalIgnoreCase))
+            {
+                roomNode = second;
+                corridorNode = first;
+                return true;
+            }
+
+            roomNode = first;
+            corridorNode = second;
+            return false;
+        }
+
+        private static bool TryResolveLayoutLinkTileId(
+            MapLayoutLinkRule link,
+            MapLayoutCompilerNode corridorNode,
+            SaveStateMapFacts sourceMap,
+            List<string> issues,
+            out string tileId)
+        {
+            tileId = string.Empty;
+            if (!TryResolveLayoutTileId(link.Tile, link.TileId, out tileId, out var tileIssue))
+            {
+                issues.Add($"layout link {link.From}->{link.To} requires a corridor tile: {tileIssue}");
+                return false;
+            }
+
+            if (!MapAreaHasTile(sourceMap, corridorNode.TemplateAreaId, tileId))
+            {
+                issues.Add($"layout link {link.From}->{link.To} references missing corridor tile {corridorNode.TemplateAreaId}.{tileId}.");
+                return false;
+            }
+
+            return true;
+        }
+
+        private static string SelectRoomDoorSlot(
+            SaveStateMapFacts sourceMap,
+            MapLayoutCompilerNode roomNode,
+            MapLayoutCompilerNode corridorNode,
+            IReadOnlySet<string> selectedStaticDoors,
+            List<string> issues)
+        {
+            var area = FindMapArea(sourceMap, roomNode.TemplateAreaId);
+            if (area is null)
+            {
+                issues.Add($"room node {roomNode.Id} template area was not found: {roomNode.TemplateAreaId}");
+                return string.Empty;
+            }
+
+            var preferred = area.Doors
+                .Where(door => !selectedStaticDoors.Contains(MapDoorKey(area.AreaId, door.SlotId)))
+                .OrderByDescending(door => string.Equals(door.TargetAreaId, corridorNode.TemplateAreaId, StringComparison.OrdinalIgnoreCase))
+                .ThenBy(door => NumericAwareSortKey(door.SlotId), StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+            if (preferred is null)
+            {
+                issues.Add($"room node {roomNode.Id} template area {roomNode.TemplateAreaId} has no reusable door slot.");
+                return string.Empty;
+            }
+
+            return preferred.SlotId;
+        }
+
+        private static void DisableUnselectedMapLayoutDoors(
+            SaveStateMapFacts sourceMap,
+            IReadOnlySet<string> activeAreaIds,
+            IReadOnlySet<string> selectedStaticDoors,
+            IReadOnlySet<string> selectedStaticTileDoors,
+            MapTemplateSpec spec)
+        {
+            foreach (var area in sourceMap.Areas)
+            {
+                var areaIsActive = activeAreaIds.Contains(area.AreaId);
+                foreach (var door in area.Doors)
+                {
+                    var key = MapDoorKey(area.AreaId, door.SlotId);
+                    var targetIsActive = !string.IsNullOrWhiteSpace(door.TargetAreaId) && activeAreaIds.Contains(door.TargetAreaId);
+                    if (selectedStaticDoors.Contains(key) || (!areaIsActive && !targetIsActive))
+                    {
+                        continue;
+                    }
+
+                    spec.StaticDoors.Add(new MapTemplateStaticDoorSpec
+                    {
+                        AreaId = area.AreaId,
+                        DoorSlot = door.SlotId,
+                        Disabled = true
+                    });
+                }
+
+                foreach (var tile in area.TileSamples)
+                {
+                    if (tile.DoorTo is null)
+                    {
+                        continue;
+                    }
+
+                    var key = MapDoorKey(area.AreaId, tile.TileId);
+                    var targetIsActive = !string.IsNullOrWhiteSpace(tile.DoorTo.TargetAreaId) && activeAreaIds.Contains(tile.DoorTo.TargetAreaId);
+                    if (selectedStaticTileDoors.Contains(key) || (!areaIsActive && !targetIsActive))
+                    {
+                        continue;
+                    }
+
+                    spec.StaticTileDoors.Add(new MapTemplateStaticTileDoorSpec
+                    {
+                        AreaId = area.AreaId,
+                        TileId = tile.TileId,
+                        Disabled = true
+                    });
+                }
+            }
+        }
+
+        private static void AddMapLayoutDynamicTileSpecs(
+            MapLayoutTemplateRule template,
+            IReadOnlyDictionary<string, MapLayoutCompilerNode> nodes,
+            MapTemplateSpec spec,
+            List<string> issues,
+            List<string> warnings)
+        {
+            foreach (var (tile, index) in (template.Tiles ?? []).Select((tile, index) => (tile, index)))
+            {
+                if (!nodes.TryGetValue(tile.Area, out var node))
+                {
+                    continue;
+                }
+
+                if (!TryResolveLayoutTileId(tile.Tile, tile.TileId, out var tileId, out var tileIssue))
+                {
+                    issues.Add($"layout tile[{index}] requires tile: {tileIssue}");
+                    continue;
+                }
+
+                if (!TryReadMapLayoutContent(tile.Content, $"layout tile[{index}].content", issues, out var content))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(tile.Encounter))
+                {
+                    issues.Add($"layout tile[{index}] encounter materialization is not implemented yet: {tile.Encounter}");
+                    continue;
+                }
+
+                if (!content.HasValue &&
+                    !tile.Light.HasValue &&
+                    !tile.Knowledge.HasValue &&
+                    !tile.MashIndex.HasValue &&
+                    !tile.MashType.HasValue &&
+                    !tile.CurioPropHash.HasValue &&
+                    !tile.TrapHash.HasValue &&
+                    !tile.CritScout.HasValue)
+                {
+                    warnings.Add($"layout tile[{index}] did not request any supported dynamic tile mutation.");
+                    continue;
+                }
+
+                spec.DynamicTiles.Add(new MapTemplateDynamicTileSpec
+                {
+                    AreaId = node.TemplateAreaId,
+                    TileId = tileId,
+                    Content = content,
+                    Light = tile.Light,
+                    Knowledge = tile.Knowledge,
+                    MashIndex = tile.MashIndex,
+                    MashType = tile.MashType,
+                    CurioPropHash = tile.CurioPropHash,
+                    TrapHash = tile.TrapHash,
+                    CritScout = tile.CritScout
+                });
+            }
+        }
+
+        private static bool TryReadMapLayoutContent(
+            JsonElement content,
+            string context,
+            List<string> issues,
+            out int? value)
+        {
+            value = null;
+            if (content.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            {
+                return true;
+            }
+
+            if (content.ValueKind == JsonValueKind.Number)
+            {
+                if (content.TryGetInt32(out var numericValue))
+                {
+                    value = numericValue;
+                    return true;
+                }
+
+                issues.Add($"{context} must fit in an Int32.");
+                return false;
+            }
+
+            if (content.ValueKind == JsonValueKind.String)
+            {
+                var text = content.GetString();
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    return true;
+                }
+
+                if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericTextValue))
+                {
+                    value = numericTextValue;
+                    return true;
+                }
+
+                if (text.Equals("empty", StringComparison.OrdinalIgnoreCase) ||
+                    text.Equals("none", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = 0;
+                    return true;
+                }
+
+                issues.Add($"{context} symbolic value is not implemented: {text}. Use a numeric content value.");
+                return false;
+            }
+
+            issues.Add($"{context} must be a number, numeric string, or supported symbolic string.");
+            return false;
+        }
+
+        private static bool TryResolveLayoutTileId(int? tile, string tileId, out string resolvedTileId, out string issue)
+        {
+            resolvedTileId = string.Empty;
+            issue = string.Empty;
+            var hasTile = tile.HasValue;
+            var hasTileId = !string.IsNullOrWhiteSpace(tileId);
+            if (!hasTile && !hasTileId)
+            {
+                issue = "missing tile or tileId";
+                return false;
+            }
+
+            if (hasTile && tile!.Value < 0)
+            {
+                issue = "tile index must be >= 0";
+                return false;
+            }
+
+            var parsedTileId = -1;
+            if (hasTileId && !TryParseTileId(tileId, out parsedTileId))
+            {
+                issue = $"unsupported tileId format: {tileId}";
+                return false;
+            }
+
+            if (hasTile && hasTileId && tile!.Value != parsedTileId)
+            {
+                issue = $"tile index {tile.Value} does not match tileId {tileId}";
+                return false;
+            }
+
+            resolvedTileId = hasTileId ? NormalizeMapTileId(tileId) : "tile" + tile!.Value.ToString(CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        private static SaveStateMapAreaFacts? FindMapArea(SaveStateMapFacts sourceMap, string areaId)
+        {
+            return sourceMap.Areas.FirstOrDefault(area => area.AreaId.Equals(areaId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool MapAreaHasTile(SaveStateMapFacts sourceMap, string areaId, string tileId)
+        {
+            var normalizedTileId = NormalizeMapTileId(tileId);
+            return FindMapArea(sourceMap, areaId)?.TileSamples.Any(tile => tile.TileId.Equals(normalizedTileId, StringComparison.OrdinalIgnoreCase)) == true;
+        }
+
+        private static string MapDoorKey(string areaId, string slotOrTileId)
+        {
+            return areaId + "|" + slotOrTileId;
         }
 
         private static MapLayoutTemplateFacts ValidateMapLayoutTemplate(
@@ -425,7 +1028,7 @@ internal sealed partial class SaveDirectoryWatcher
                     tile.Area,
                     tile.Tile,
                     string.IsNullOrWhiteSpace(tile.TileId) ? null : tile.TileId,
-                    string.IsNullOrWhiteSpace(tile.Content) ? null : tile.Content,
+                    FormatMapLayoutContent(tile.Content),
                     string.IsNullOrWhiteSpace(tile.Encounter) ? null : tile.Encounter,
                     areaFound));
             }
@@ -485,6 +1088,15 @@ internal sealed partial class SaveDirectoryWatcher
             return string.IsNullOrWhiteSpace(value) ? "<empty>" : value;
         }
 
+        private static string? FormatMapLayoutContent(JsonElement content)
+        {
+            return content.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                ? null
+                : content.ValueKind == JsonValueKind.String
+                    ? content.GetString()
+                    : content.GetRawText();
+        }
+
         private sealed record MapLayoutTemplateValidationReport(
             int Version,
             DateTimeOffset GeneratedAt,
@@ -494,6 +1106,9 @@ internal sealed partial class SaveDirectoryWatcher
             bool Succeeded,
             bool CompileReady,
             string Phase,
+            string? CompiledSpecPath,
+            string? OutputMapFilePath,
+            string? MapTemplateReportPath,
             SaveStateMapFacts SourceMap,
             MapLayoutTemplateFacts Layout,
             IReadOnlyList<string> Issues,
@@ -542,5 +1157,10 @@ internal sealed partial class SaveDirectoryWatcher
             string? Content,
             string? Encounter,
             bool AreaFound);
+
+        private sealed record MapLayoutCompilerNode(
+            string Id,
+            string Kind,
+            string TemplateAreaId);
     }
 }

@@ -68,8 +68,9 @@ internal sealed partial class RuntimeConfig
                 activePluginIds,
                 activeCapabilities,
                 log);
-            AddMapLayoutTemplateValidationReports(
+            AddMapLayoutTemplateVirtualRules(
                 projectRoot,
+                sourceRules,
                 compileIssues,
                 plugin,
                 activePluginIds,
@@ -158,8 +159,9 @@ internal sealed partial class RuntimeConfig
         }
     }
 
-    private void AddMapLayoutTemplateValidationReports(
+    private void AddMapLayoutTemplateVirtualRules(
         string projectRoot,
+        List<VirtualFileRuleSource> output,
         List<PatchCompileIssue> compileIssues,
         PluginManifestCandidate plugin,
         IReadOnlySet<string> activePluginIds,
@@ -199,13 +201,34 @@ internal sealed partial class RuntimeConfig
                 var sourcePath = ResolveMapLayoutTemplateSourcePath(projectRoot, manifestDirectory, template);
                 var reportDirectory = Path.Combine(ModStateDirectory, "_map_layout_templates", SafeFileName(plugin.Id));
                 var artifactBaseName = $"{ruleIndex:000}_{SafeFileName(string.IsNullOrWhiteSpace(template.Id) ? template.Target : template.Id)}";
-                var reportPath = Path.Combine(reportDirectory, artifactBaseName + ".validation.json");
+                var specPath = Path.Combine(reportDirectory, artifactBaseName + ".compiled.spec.json");
+                var outputPath = Path.Combine(reportDirectory, artifactBaseName + ".dm");
+                var reportPath = Path.Combine(reportDirectory, artifactBaseName + ".layout.validation.json");
+                var templateReportPath = Path.Combine(reportDirectory, artifactBaseName + ".template.report.json");
 
-                SaveDirectoryWatcher.WriteMapLayoutTemplateValidationReport(sourcePath, template, reportPath, log);
+                SaveDirectoryWatcher.WriteMapLayoutTemplatePrototype(
+                    sourcePath,
+                    template,
+                    specPath,
+                    outputPath,
+                    reportPath,
+                    templateReportPath,
+                    log);
+                output.Add(new VirtualFileRuleSource(
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    new VirtualFileRule
+                    {
+                        Target = template.Target,
+                        SourcePath = outputPath
+                    },
+                    condition.Reason + "; map layout template generated"));
                 log.Info(
-                    $"map-layout-template-validation source={plugin.SourceName} rule={ruleIndex} " +
+                    $"map-layout-template-rule source={plugin.SourceName} rule={ruleIndex} " +
                     $"id={QuoteLogValue(template.Id)} target={template.Target} source={QuoteLogValue(sourcePath)} " +
-                    $"report={QuoteLogValue(reportPath)} reason={QuoteLogValue(condition.Reason)}");
+                    $"spec={QuoteLogValue(specPath)} output={QuoteLogValue(outputPath)} " +
+                    $"report={QuoteLogValue(reportPath)} templateReport={QuoteLogValue(templateReportPath)}");
             }
             catch (Exception ex)
             {
@@ -217,7 +240,7 @@ internal sealed partial class RuntimeConfig
                     ruleIndex,
                     0,
                     template.Target,
-                    $"map layout template validation failed: {ex.Message}");
+                    $"map layout template failed: {ex.Message}");
             }
         }
     }

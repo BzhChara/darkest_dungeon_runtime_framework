@@ -468,6 +468,7 @@ function Test-PluginMapTemplateOverlay {
 function Test-PluginMapLayoutTemplateValidation {
     $pluginRoot = Join-Path $testRoot "plugins\map_layout_template_validation"
     $stateRoot = Join-Path $testRoot "plugin_map_layout_template_state"
+    $previewRoot = Join-Path $testRoot "plugin_map_layout_template_preview"
     $overlayConfigPath = Join-Path $projectRoot.Path "config\_map_layout_plugin_test_$sessionId.json"
     New-Item -ItemType Directory -Force -Path $pluginRoot | Out-Null
 
@@ -527,7 +528,9 @@ function Test-PluginMapLayoutTemplateValidation {
                     [ordered]@{
                         area = "boss"
                         tile = 0
-                        content = "battle"
+                        content = 8
+                        knowledge = 1
+                        critScout = $true
                     }
                 )
                 encounters = @()
@@ -566,17 +569,26 @@ function Test-PluginMapLayoutTemplateValidation {
     Invoke-Loader @(
         "--config", $overlayConfigPath,
         "--validate-only",
+        "--preview-patches",
+        "--preview-output", $previewRoot,
         "--explain-patches",
         "--no-inject"
     )
 
-    $reportPath = Join-Path $stateRoot "_map_layout_templates\validation.map_layout_template\001_dd4_high_level_layout_probe.validation.json"
+    $artifactRoot = Join-Path $stateRoot "_map_layout_templates\validation.map_layout_template"
+    $reportPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.layout.validation.json"
+    $specPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.compiled.spec.json"
+    $artifactPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.dm"
+    $templateReportPath = Join-Path $artifactRoot "001_dd4_high_level_layout_probe.template.report.json"
     Assert-True (Test-Path -LiteralPath $reportPath -PathType Leaf) "Plugin map layout validation report was not created: $reportPath"
+    Assert-True (Test-Path -LiteralPath $specPath -PathType Leaf) "Plugin map layout compiled spec was not created: $specPath"
+    Assert-True (Test-Path -LiteralPath $artifactPath -PathType Leaf) "Plugin map layout artifact was not created: $artifactPath"
+    Assert-True (Test-Path -LiteralPath $templateReportPath -PathType Leaf) "Plugin map layout template report was not created: $templateReportPath"
 
     $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
     Assert-True ([bool]$report.succeeded) "Plugin map layout validation report did not succeed."
-    Assert-True (-not [bool]$report.compileReady) "Plugin map layout validation should not claim compile readiness yet."
-    Assert-True ($report.phase -eq "validateOnly") "Plugin map layout validation phase mismatch."
+    Assert-True ([bool]$report.compileReady) "Plugin map layout validation should claim compile readiness after artifact generation."
+    Assert-True ($report.phase -eq "compiledToMapTemplate") "Plugin map layout validation phase mismatch."
     Assert-True ((Convert-ToArray $report.issues).Count -eq 0) "Plugin map layout validation reported issues."
     Assert-True ($report.layout.nodeCount -eq 3) "Plugin map layout node count mismatch."
     Assert-True ($report.layout.roomCount -eq 2) "Plugin map layout room count mismatch."
@@ -586,6 +598,34 @@ function Test-PluginMapLayoutTemplateValidation {
     Assert-True ($report.layout.reachableNodeCount -eq 3) "Plugin map layout reachable node count mismatch."
     Assert-True ([bool]$report.layout.entranceCanReachFinal) "Plugin map layout final room was not reachable."
     Assert-True ((Convert-ToArray $report.layout.unreachableNodeIds).Count -eq 0) "Plugin map layout reported unreachable nodes."
+
+    $spec = Get-Content -LiteralPath $specPath -Raw | ConvertFrom-Json
+    Assert-True ($spec.entranceAreaId -eq "rooA") "Plugin map layout compiled entrance mismatch."
+    Assert-True ($spec.finalRoomId -eq "rooC") "Plugin map layout compiled final room mismatch."
+    Assert-True ((Convert-ToArray $spec.staticTiles).Count -eq 5) "Plugin map layout compiled static tile count mismatch."
+    Assert-True ((Convert-ToArray $spec.staticTileDoors).Count -ge 3) "Plugin map layout compiled static tile doors did not include retarget and disable entries."
+
+    $templateReport = Get-Content -LiteralPath $templateReportPath -Raw | ConvertFrom-Json
+    Assert-True ([bool]$templateReport.succeeded) "Plugin map layout template report did not succeed."
+    Assert-True ($templateReport.outputMap.finalRoomId -eq "rooC") "Plugin map layout output final room was not updated."
+    Assert-MapTopology -MapFacts $templateReport.outputMap -MapName "plugin map layout output" -ExpectedAreas 4 -ExpectFinalRoom $true -ExpectedReachableAreas 3
+
+    $rooC = Convert-ToArray $templateReport.outputMap.dynamicAreas | Where-Object { $_.areaId -eq "rooC" } | Select-Object -First 1
+    Assert-True ($null -ne $rooC) "Plugin map layout output dynamic area rooC was not found."
+    $tile0 = Convert-ToArray $rooC.tileSamples | Where-Object { $_.tileId -eq "tile0" } | Select-Object -First 1
+    Assert-True ($null -ne $tile0) "Plugin map layout output dynamic tile rooC.tile0 was not found."
+    Assert-True ($tile0.content -eq 8) "Plugin map layout output dynamic tile content was not updated."
+    Assert-True ($tile0.knowledge -eq 1) "Plugin map layout output dynamic tile knowledge was not updated."
+    Assert-True ([bool]$tile0.critScout) "Plugin map layout output dynamic tile critScout was not updated."
+
+    $previewPath = Join-Path $previewRoot "maps_DD_map4.dm.preview.bin"
+    $diffPath = Join-Path $previewRoot "maps_DD_map4.dm.diff.txt"
+    Assert-True (Test-Path -LiteralPath $previewPath -PathType Leaf) "Plugin map layout overlay preview was not written: $previewPath"
+    Assert-True (Test-Path -LiteralPath $diffPath -PathType Leaf) "Plugin map layout overlay diff was not written: $diffPath"
+
+    $artifactHash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash
+    $previewHash = (Get-FileHash -LiteralPath $previewPath -Algorithm SHA256).Hash
+    Assert-True ($previewHash -eq $artifactHash) "Plugin map layout overlay preview bytes did not match the generated artifact."
 }
 
 Test-MapReport -MapName "tutorial_crypts" -ExpectedAreas 16 -ExpectedRooms 8 -ExpectedCorridors 8 -ExpectedTiles 56 -ExpectedEntrance "rooH" -ExpectedFinal $null

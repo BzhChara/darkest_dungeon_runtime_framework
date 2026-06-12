@@ -1,6 +1,6 @@
 # Map Layout Template Draft
 
-This document defines the high-level fixed-map layout contract. The first implementation slice is a plugin-declared validation layer, not a runtime map generator yet.
+This document defines the high-level fixed-map layout contract. The implemented slice is a plugin-declared compiler for layouts that can be represented by existing `.dm` areas, tiles, and door slots.
 
 The intended compile chain is:
 
@@ -30,9 +30,10 @@ Current implementation status:
 
 - plugin manifests can declare `mapLayoutTemplates`;
 - the loader validates the source `.dm` and the declared graph;
-- reports are written under `modStateDirectory/_map_layout_templates/<plugin-id>/`;
-- reports include `compileReady=false`;
-- no `.dm` artifact or virtual file overlay is generated from `mapLayoutTemplates` yet.
+- supported layouts compile to a low-level `mapTemplates` spec;
+- reports, compiled specs, generated `.dm` files, and low-level template reports are written under `modStateDirectory/_map_layout_templates/<plugin-id>/`;
+- generated `.dm` files are appended as ordinary `sourcePath` virtual file overlays;
+- reports include `compileReady=true` only when the artifact and overlay were generated.
 
 ## Draft Manifest Shape
 
@@ -77,16 +78,12 @@ Current implementation status:
         {
           "area": "boss",
           "tile": 0,
-          "content": "battle",
-          "encounter": "ancestor_echo"
+          "content": 8,
+          "knowledge": 1,
+          "critScout": true
         }
       ],
-      "encounters": [
-        {
-          "id": "ancestor_echo",
-          "mash": "author.post_ancestor.ancestor_echo"
-        }
-      ]
+      "encounters": []
     }
   ]
 }
@@ -94,9 +91,9 @@ Current implementation status:
 
 Names such as `start`, `main_path`, and `ancestor_echo` are plugin-local ids. `templateAreaId` is the bridge back to the existing low-level `.dm` template until the framework can create new `.dm` areas safely.
 
-## Implemented First Slice
+## Implemented Slice
 
-The first implementation does not try to create arbitrary `.dm` containers. It currently:
+The current implementation does not try to create arbitrary `.dm` containers. It currently:
 
 1. Parse `mapLayoutTemplates` from plugin manifests.
 2. Validate the declared graph:
@@ -111,20 +108,26 @@ The first implementation does not try to create arbitrary `.dm` containers. It c
    - tile area node exists,
    - tile index or `tileId` is in range,
    - named encounter references point at declared `encounters`.
-4. Write a validation report with `compileReady=false`.
-
-## Next Compiler Slice
-
-The next slice should compile only supported changes into a low-level `mapTemplates` spec:
-
-1. Convert validated layout intent into:
+4. Compile supported layout intent into a low-level `mapTemplates` spec:
    - `finalRoomId`,
+   - `entranceAreaId`,
    - `staticTiles[].mapPosition`,
    - `staticDoors[]`,
    - `staticTileDoors[]`,
    - selected `dynamicTiles[]`.
-2. Reuse the existing `mapTemplates` writer, report, and `sourcePath` overlay path.
-3. Fail when the requested graph needs creation/deletion of areas, tiles, door slots, or mash definitions that do not yet have writers.
+5. Reuse the existing `mapTemplates` writer, report, and `sourcePath` overlay path.
+6. Fail when the requested graph needs creation/deletion of areas, tiles, door slots, or mash definitions that do not yet have writers.
+
+## Compiler Rules
+
+- Links must currently connect one room node and one corridor node.
+- The room side reuses an existing door slot from that room template.
+- The corridor side uses the `tile` or `tileId` declared on the link.
+- Existing source doors and corridor `door_to` entries that are not part of the declared active layout are disabled when they touch an active area. This avoids hidden room-entry hotspots from the source template.
+- Room `position` maps to `tile0.mapPosition`.
+- Corridor `route` maps sequentially to `tile0`, `tile1`, and so on. The route cannot be longer than the existing template corridor tile count.
+- `tiles[].content` accepts a number or numeric string. Only `empty`/`none` are recognized symbolic aliases for now.
+- `tiles[].encounter` is reference-checked but not materialized; using it currently fails compilation because no `encounter.defineMash` writer exists yet.
 
 ## Topology Validation
 

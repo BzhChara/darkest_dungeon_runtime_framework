@@ -145,6 +145,25 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             log);
     }
 
+    public static string WriteMapLayoutTemplatePrototype(
+        string sourceMapFilePath,
+        MapLayoutTemplateRule template,
+        string compiledSpecOutputPath,
+        string outputMapFilePath,
+        string validationReportOutputPath,
+        string mapTemplateReportOutputPath,
+        LauncherLog log)
+    {
+        return SaveStateExporter.WriteMapLayoutTemplatePrototype(
+            sourceMapFilePath,
+            template,
+            compiledSpecOutputPath,
+            outputMapFilePath,
+            validationReportOutputPath,
+            mapTemplateReportOutputPath,
+            log);
+    }
+
     public void WaitForGameExit(int processId, int afterExitSeconds)
     {
         _gameProcessId = processId;
