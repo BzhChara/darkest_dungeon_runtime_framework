@@ -22,6 +22,7 @@ When an idea cannot be expressed by existing rules, classify the missing primiti
 | The framework cannot control town access state | `town.*` building availability and level actions | only supporting "unlock everything" initialization |
 | The framework cannot define dungeon shape | `map.*` fixed-layout or generated-layout actions | a special post-Ancestor map branch |
 | The framework cannot define deterministic fights | `encounter.*` mash or named-encounter actions | putting monster lineups in quest-chain code |
+| The framework needs a monster, skill, curio, loot table, localization key, or asset that normal DD/Workshop content can already provide | `contentRef.*` declaration plus content index/reference validation | a framework-specific monster/skill/asset generator as the default path |
 | The framework cannot restrict selection | `selection.*`, `roster.filter*`, or `equipment.filter*` | special casing one stage chain |
 | The framework cannot replace original behavior safely | managed intercept capability with diagnostics | silent memory patch or broad fallback |
 | The framework needs unsupported engine behavior | risky native capability gated by exe hash | treating risky hook behavior as a normal safe action |
@@ -35,8 +36,9 @@ Before implementing a new gameplay feature, answer these questions:
 3. Which missing piece is generic enough for another mod with different content?
 4. Can the new primitive be tested without the original game running?
 5. Does the implementation keep concrete quest ids, hero ids, item ids, and stage ids inside plugin data, fixtures, or docs instead of framework runtime code?
-6. What is the lowest-risk status this primitive can start with: planned, materialized, observed, passive, intercepted, or stable?
-7. What diagnostics will tell a mod author why it did or did not run?
+6. Is the missing piece truly runtime behavior, or should it be an external content reference checked by the framework?
+7. What is the lowest-risk status this primitive can start with: planned, materialized, observed, passive, intercepted, or stable?
+8. What diagnostics will tell a mod author why it did or did not run?
 
 If the answer to question 3 is weak, keep the behavior in a validation plugin or sample until the generic shape is clearer.
 
@@ -65,7 +67,8 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Quest board | `questBoard.replaceWithFixedSet` decoded-save writer, virtual `persist.quest.json` overlay, plot quest availability overlay from enabled plot quest content, explicit watched-profile refresh with backup, and opt-in realtime refresh after live task-board saves | broader non-plot quest list control |
 | Quest overlays | `quest.injectFixedStage` and fixed-board plot quest virtual file consumers | full roster/UI selection control |
 | Map topology | fixed map facts, topology validation, scalar `mapTemplates`, generated `.dm` sourcePath overlays, and `mapLayoutTemplates` room/corridor graph compiler for existing area/tile/door templates | generated map objects, encounter placement, and controlled creation/removal of rooms, corridors, tiles, and door slots |
-| Encounters | original mash content can be indexed from dungeon files | `encounter.defineMash` and named encounter placement tied to fixed layouts |
+| Content references | base/DLC content facts can already identify many original ids | plugin-declared `contentRefs` for base/DLC/Workshop/plugin content, with provider-aware missing/duplicate reports |
+| Encounters | original mash content can be indexed from dungeon files | `encounter.defineMash`, referenced monster ids, and named encounter placement tied to fixed layouts |
 | Save-to-event bridge | plugin-declared `factEventRules` and payload projections | more fact extractors and reusable projection operators |
 | Sidecar state | plugin namespaced state schema/actions | reset/backup policy and campaign scoping |
 

@@ -1,6 +1,6 @@
 # Architecture
 
-运行时平台的长期设计见 `docs/runtime_mod_platform.md`，通用规则契约见 `docs/capability_rule_contract.md`，新增能力前的通用性检查见 `docs/framework_capability_matrix.md`，验收场景见 `docs/validation_scenarios.md`。本文档记录当前骨架和短期组件边界；平台文档记录事件、状态、动作和深层 Hook 能力的方向。
+运行时平台的长期设计见 `docs/runtime_mod_platform.md`，通用规则契约见 `docs/capability_rule_contract.md`，新增能力前的通用性检查见 `docs/framework_capability_matrix.md`，内容引用和内容创作边界见 `docs/content_reference_boundaries.md`，验收场景见 `docs/validation_scenarios.md`。本文档记录当前骨架和短期组件边界；平台文档记录事件、状态、动作和深层 Hook 能力的方向。
 
 ## Phase 1: Injection and Logging
 
@@ -66,7 +66,8 @@ C++ DLL。
 - 每个插件目录读取一个 `patches.json`。
 - `enabled:false` 的清单只记录日志，不参与规则合并。
 - `enabled:true` 的清单可提供 `id`、`version`、`capabilities`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts` 和 `virtualFileRules`。
-- 清单现在也可以声明 `eventRules` 和 `stateSchema`。`eventRules` 可通过 `--explain-rules` 解释，并可通过 `--emit-event` 执行已实现的安全动作或物化 selected managed action artifact；`quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` artifact 会在启动前进入 overlay manifest，并生成相关 `quest.plot_quests.json` 的虚拟替换入口；固定任务板还可通过 `--refresh-quest-board-profile <profileId>` 受控写入 watched profile 的 `persist.quest.json`，或由 save watcher 在 live 任务板保存后受控重刷；`inventory.disableItemSale` trinket artifact 会生成 trinket entry price overlay；`stateSchema` 可初始化/读取到框架 sidecar 状态目录。
+- 清单现在也可以声明 `eventRules`、`stateSchema`，后续还应支持模块化 `contentRefs`。`eventRules` 可通过 `--explain-rules` 解释，并可通过 `--emit-event` 执行已实现的安全动作或物化 selected managed action artifact；`quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` artifact 会在启动前进入 overlay manifest，并生成相关 `quest.plot_quests.json` 的虚拟替换入口；固定任务板还可通过 `--refresh-quest-board-profile <profileId>` 受控写入 watched profile 的 `persist.quest.json`，或由 save watcher 在 live 任务板保存后受控重刷；`inventory.disableItemSale` trinket artifact 会生成 trinket entry price overlay；`stateSchema` 可初始化/读取到框架 sidecar 状态目录。
+- 静态内容创作和运行时编排分层处理。怪物、怪物技能、贴图、动画、音频、语言、普通 curio/loot 定义可以由原版、DLC、创意工坊或插件自带文件提供；框架优先做引用、校验、依赖报告、组合和运行时投影，只有规则生成或运行时强制确有必要时才实现 writer。
 - 重复 `id`、声明冲突和顺序循环默认只记录 warning；必需依赖缺失时跳过当前插件，不阻止其他插件。
 - `virtualFileRules` 可使用 `when.modsPresent` / `when.modsAbsent` / `when.capabilitiesPresent` / `when.capabilitiesAbsent` 做规则级条件；条件不满足的规则只进入 explain 诊断，不参与最终补丁链。
 - `operations` 会在启动前按加载顺序、基于当前虚拟文本逐步编译成底层字符串 `replacements`。

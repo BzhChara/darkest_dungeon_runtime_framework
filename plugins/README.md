@@ -8,7 +8,7 @@
 plugins/<plugin-id>/patches.json
 ```
 
-`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、关卡/章节顺序 `questChains`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。`questChains` 会校验固定顺序 stage、解锁条件和地图模板引用，并写出 sidecar 验证报告；当显式设置 `questBoard.enabled=true` 时，还会生成确定路径的 `questBoard.replaceWithFixedSet` managed action artifact，供启动前内容 overlay、任务板预览、runtime 存档 overlay、显式 decoded-save 写入、受控 profile 任务板刷新，或 save watcher 在 live `persist.quest.json` 变化后自动重刷复用。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、关卡/章节顺序 `questChains`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。`questChains` 会校验固定顺序 stage、解锁条件和地图模板引用，并写出 sidecar 验证报告；当显式设置 `questBoard.enabled=true` 时，还会生成确定路径的 `questBoard.replaceWithFixedSet` managed action artifact，供启动前内容 overlay、任务板预览、runtime 存档 overlay、显式 decoded-save 写入、受控 profile 任务板刷新，或 save watcher 在 live `persist.quest.json` 变化后自动重刷复用。后续复杂插件不应把所有内容都堆进 `patches.json`；`patches.json` 应作为入口索引，引用 quests/maps/encounters/spawn_pools/contentRefs 等领域文件。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
 
 `eventRules` 可通过 `--emit-event` 执行已实现的安全动作，或为已识别的 managed 动作生成 sidecar artifact。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`；payload 支持有限的通用数组投影，例如 `where` 条件过滤、`whereIn` 成员过滤、展开、字符串化和去重。契约细节见 `docs/capability_rule_contract.md`。
 
@@ -31,6 +31,13 @@ plugins/<plugin-id>/patches.json
   "loadAfter": [],
   "loadBefore": [],
   "conflicts": [],
+  "modules": {
+    "contentRefs": ["content/refs.json"],
+    "questChains": ["quests/*.chain.json"],
+    "mapLayouts": ["maps/*.layout.json"],
+    "encounters": ["encounters/*.json"],
+    "spawnPools": ["spawn_pools/*.json"]
+  },
   "virtualFileRules": [
     {
       "when": {
@@ -129,6 +136,30 @@ plugins/<plugin-id>/patches.json
 - `when.capabilitiesPresent`：所有列出的能力都由最终启用插件声明时，规则才生效。
 - `when.capabilitiesAbsent`：所有列出的能力都未被最终启用插件声明时，规则才生效。
 - 条件不满足的规则只会出现在 explain 诊断里，不参与编译、验证、预览或运行时替换。
+
+内容引用边界：
+
+- 框架不需要默认实现完整的新怪物、新技能、动画、贴图、音频、语言、普通 curio 或 loot authoring 工具。原版、DLC、创意工坊 mod 或插件自带文件可以提供这些静态内容。
+- 框架应该提供的是 `contentRefs`、依赖声明、存在性校验、加载来源报告，以及在 `encounters`、`spawnPools`、`questChains`、`mapLayoutTemplates` 中引用这些内容的能力。
+- 例如新怪物可以来自创意工坊；框架只需要在遭遇表中引用 `monsterId`，并在缺失时报告 required dependency，而不是复制一套怪物制作器。
+- 详细边界见 `docs/content_reference_boundaries.md`。
+
+推荐的复杂插件组织：
+
+```text
+plugins/author.mod_id/
+  patches.json
+  content/refs.json
+  quests/*.chain.json
+  maps/*.layout.json
+  encounters/*.json
+  spawn_pools/*.json
+  loot/*.json
+  localization/*.json
+  assets/...
+```
+
+注意：`modules.contentRefs`、`encounters`、`spawnPools`、`lootPolicies` 等是推荐方向，当前尚未全部实现为一等 schema。新增能力时应优先保持这种分层，而不是继续扩张单个 `patches.json`。
 
 固定地图模板：
 
