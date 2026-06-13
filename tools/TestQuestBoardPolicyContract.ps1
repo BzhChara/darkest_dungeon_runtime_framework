@@ -34,12 +34,16 @@ try {
     $resolveReportPath = Join-Path $projectRoot.Path "logs\quest_board_policy_resolve_report.json"
     $materializeReportPath = Join-Path $projectRoot.Path "logs\quest_board_policy_materialize_report.json"
     $questBoardPreviewReportPath = Join-Path $projectRoot.Path "logs\quest_board_preview_report.json"
+    $saveEventBridgeReportPath = Join-Path $projectRoot.Path "logs\save_event_bridge_report.json"
     $materializeStateRoot = Join-Path $projectRoot.Path "state\quest_board_policy_contract_materialize"
+    $autoMaterializeStateRoot = Join-Path $projectRoot.Path "state\quest_board_policy_contract_auto_materialize"
     Remove-Item -LiteralPath $previewReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $resolveReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $materializeReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $questBoardPreviewReportPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $saveEventBridgeReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $materializeStateRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $autoMaterializeStateRoot -Recurse -Force -ErrorAction SilentlyContinue
 
     & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --validate-only --explain-patches --preview-quest-board-policies --no-inject
     if ($LASTEXITCODE -ne 0) {
@@ -103,6 +107,11 @@ try {
     Assert-True ($secondCandidate.availabilityStatus -eq "requiresRuntimeFacts") "Second preview candidate should require runtime facts."
 
     $fixtureDir = Join-Path $projectRoot.Path "logs\quest_board_policy_contract_test"
+    $policyOnlyConfigPath = Join-Path $fixtureDir "policy_only_config.json"
+    $policyOnlyConfig = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
+    $policyOnlyConfig.pluginDirectories = @("./plugins/_validation/quest_board_policy_contract")
+    Write-JsonPayload $policyOnlyConfigPath $policyOnlyConfig
+
     $beforeNecromancerReportPath = Join-Path $fixtureDir "policy_week_5_no_completed_quests.json"
     Write-JsonPayload $beforeNecromancerReportPath ([pscustomobject]@{
         version = 1
@@ -221,7 +230,41 @@ try {
     Assert-True ([int]$policyPreviewArtifact.activeQuestCount -eq 1) "Materialized policy artifact should expose one active quest."
     Assert-True (@($policyPreviewArtifact.activeQuests.questId) -contains "plot_kill_prophet_3") "Materialized policy artifact should expose prophet."
 
-    Write-Host "PASS: questBoardPolicies validates, previews, resolves, materializes, and feeds the existing quest-board artifact consumer."
+    Remove-Item -LiteralPath $materializeReportPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $questBoardPreviewReportPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $saveEventBridgeReportPath -Force -ErrorAction SilentlyContinue
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --infer-save-events --auto-materialize-quest-board-policies --save-state-report $afterNecromancerReportPath --quest-board-policy-slots 1 --quest-board-policy-seed 42 --mod-state-dir $autoMaterializeStateRoot --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader save event bridge auto materialize failed with exit code $LASTEXITCODE"
+    }
+
+    Assert-True (Test-Path -LiteralPath $saveEventBridgeReportPath -PathType Leaf) "Save event bridge report was not created: $saveEventBridgeReportPath"
+    $bridge = Get-Content -Raw -LiteralPath $saveEventBridgeReportPath | ConvertFrom-Json
+    Assert-True ([bool]$bridge.succeeded) "Save event bridge should succeed with policy auto materialization."
+    Assert-True ([bool]$bridge.questBoardPolicyMaterialization.enabled) "Save event bridge should report enabled policy auto materialization."
+    Assert-True ($bridge.questBoardPolicyMaterialization.status -eq "materialized") "Auto materialization status mismatch: $($bridge.questBoardPolicyMaterialization.status)"
+    Assert-True ([int]$bridge.questBoardPolicyMaterialization.selectedQuestCount -eq 1) "Auto materialization should select one quest."
+    Assert-True (-not [string]::IsNullOrWhiteSpace($bridge.questBoardPolicyMaterialization.artifactPath)) "Auto materialization should report artifact path."
+    Assert-True (Test-Path -LiteralPath $bridge.questBoardPolicyMaterialization.artifactPath -PathType Leaf) "Auto materialization artifact was not written: $($bridge.questBoardPolicyMaterialization.artifactPath)"
+
+    $autoMaterialize = Get-Content -Raw -LiteralPath $materializeReportPath | ConvertFrom-Json
+    Assert-True ([bool]$autoMaterialize.succeeded) "Auto materialize report should succeed."
+    Assert-True (@($autoMaterialize.selectedQuestIds) -contains "plot_kill_prophet_3") "Auto materialize should select prophet."
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --preview-quest-board --mod-state-dir $autoMaterializeStateRoot --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader quest board preview after auto materialize failed with exit code $LASTEXITCODE"
+    }
+
+    $autoQuestBoardPreview = Get-Content -Raw -LiteralPath $questBoardPreviewReportPath | ConvertFrom-Json
+    Assert-True ([bool]$autoQuestBoardPreview.succeeded) "Quest board preview should consume auto materialized policy artifact."
+    $autoPolicyPreviewArtifact = @($autoQuestBoardPreview.artifacts) | Where-Object { $_.artifactPath -eq $bridge.questBoardPolicyMaterialization.artifactPath }
+    Assert-True (@($autoPolicyPreviewArtifact).Count -eq 1) "Quest board preview should include the auto materialized policy artifact."
+    Assert-True ($autoPolicyPreviewArtifact.status -eq "wouldApply") "Auto materialized policy artifact should be consumable by quest board preview."
+    Assert-True (@($autoPolicyPreviewArtifact.activeQuests.questId) -contains "plot_kill_prophet_3") "Auto materialized policy artifact should expose prophet."
+
+    Write-Host "PASS: questBoardPolicies validates, previews, resolves, materializes, auto-materializes from save facts, and feeds the existing quest-board artifact consumer."
 }
 finally {
     Pop-Location

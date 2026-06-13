@@ -46,6 +46,9 @@
   "saveEventBridgeDebounceMilliseconds": 1000,
   "questBoardAutoRefreshEnabled": false,
   "questBoardAutoRefreshAllowRunningGameSaveWrite": false,
+  "questBoardPolicyAutoMaterializeEnabled": false,
+  "questBoardPolicyAutoMaterializeSlots": null,
+  "questBoardPolicyAutoMaterializeSeed": null,
   "pluginDirectories": [
     "./plugins"
   ],

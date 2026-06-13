@@ -163,6 +163,35 @@ The materializer:
 
 The artifact pre-filters completed quests during policy resolution and sets `removeCompleted=false`. Existing fixed-board consumers can then read the artifact without learning about `questBoardPolicies`.
 
+## Automatic Materialization
+
+`questBoardPolicies` can be materialized automatically during the save-event bridge pass. Enable it in config:
+
+```json
+{
+  "saveEventBridgeEnabled": true,
+  "questBoardPolicyAutoMaterializeEnabled": true,
+  "questBoardPolicyAutoMaterializeSlots": 4,
+  "questBoardPolicyAutoMaterializeSeed": 42
+}
+```
+
+For one-off diagnostics, the same behavior can be enabled from the CLI:
+
+```text
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --infer-save-events --auto-materialize-quest-board-policies --save-state-report <path> --quest-board-policy-slots <n> --quest-board-policy-seed <seed> --no-inject
+```
+
+The bridge writes the normal `logs/save_event_bridge_report.json` with a `questBoardPolicyMaterialization` section. When enabled and policies exist, it also writes the normal materialization report and managed action artifact.
+
+Automatic materialization does not itself mutate a live save. In realtime use, pair it with the existing fixed-board refresh path:
+
+- `saveEventBridgeEnabled=true` watches save facts and runs fact-event rules;
+- `questBoardPolicyAutoMaterializeEnabled=true` turns the latest facts into a fresh fixed-board artifact;
+- `questBoardAutoRefreshEnabled=true` can then reapply the current fixed-board artifact after the original game rewrites live `persist.quest.json`.
+
+This keeps policy scheduling, artifact production, and live save refresh as separate diagnostics-backed steps.
+
 ## Relationship To Quest Chains
 
 `questChains` is best for authored ordered stage flows and can already materialize a deterministic `questBoard.replaceWithFixedSet` artifact when a plugin explicitly opts in.
@@ -179,4 +208,4 @@ The two schemas can coexist. A chain can define stage order, while a policy can 
 
 Regression coverage:
 
-- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, resolves week/completed-quest gated candidates from save facts, materializes a fixed-board managed action artifact, and feeds that artifact back through the existing quest-board preview consumer.
+- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, resolves week/completed-quest gated candidates from save facts, materializes a fixed-board managed action artifact, auto-materializes from `--infer-save-events`, and feeds those artifacts back through the existing quest-board preview consumer.

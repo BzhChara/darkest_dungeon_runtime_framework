@@ -58,12 +58,21 @@ internal static class SaveEventBridge
                 issues));
         }
 
+        var questBoardPolicyMaterialization = BuildQuestBoardPolicyMaterializationReport(
+            config,
+            patchPlan,
+            log,
+            projectRoot,
+            reportPath,
+            issues);
+
         var report = new SaveEventBridgeReport(
             ReportVersion,
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
             reportPath,
             pluginReports.Count,
             pluginReports.Count(plugin => plugin.Status.Equals("event-executed", StringComparison.OrdinalIgnoreCase)),
+            questBoardPolicyMaterialization,
             pluginReports,
             issues);
 
@@ -1046,6 +1055,100 @@ internal static class SaveEventBridge
         return Regex.IsMatch(actualText, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
+    private static SaveEventBridgeQuestBoardPolicyMaterializationReport BuildQuestBoardPolicyMaterializationReport(
+        RuntimeConfig config,
+        PatchPlan patchPlan,
+        LauncherLog log,
+        string projectRoot,
+        string saveStateReportPath,
+        List<SaveEventBridgeIssue> issues)
+    {
+        if (!config.QuestBoardPolicyAutoMaterializeEnabled)
+        {
+            return new SaveEventBridgeQuestBoardPolicyMaterializationReport(
+                false,
+                "disabled",
+                "questBoardPolicyAutoMaterializeEnabled is false",
+                string.Empty,
+                string.Empty,
+                0,
+                0,
+                0);
+        }
+
+        if (patchPlan.QuestBoardPolicyReports.Count == 0)
+        {
+            return new SaveEventBridgeQuestBoardPolicyMaterializationReport(
+                true,
+                "noPolicies",
+                "no enabled questBoardPolicies were present in the patch plan",
+                string.Empty,
+                string.Empty,
+                0,
+                0,
+                0);
+        }
+
+        try
+        {
+            var materializeReport = QuestBoardPolicyMaterializer.Write(
+                config,
+                patchPlan,
+                log,
+                projectRoot,
+                saveStateReportPath,
+                config.QuestBoardPolicyAutoMaterializeSlots,
+                config.QuestBoardPolicyAutoMaterializeSeed);
+
+            if (!materializeReport.Succeeded)
+            {
+                issues.Add(new SaveEventBridgeIssue(
+                    "error",
+                    "quest-board-policy-auto-materialize-failed",
+                    string.Empty,
+                    $"quest board policy materialization failed; inspect {materializeReport.ReportPath}"));
+            }
+            else if (materializeReport.WarningCount > 0)
+            {
+                issues.Add(new SaveEventBridgeIssue(
+                    "warning",
+                    "quest-board-policy-auto-materialize-warnings",
+                    string.Empty,
+                    $"quest board policy materialization reported {materializeReport.WarningCount} warning(s); inspect {materializeReport.ReportPath}"));
+            }
+
+            return new SaveEventBridgeQuestBoardPolicyMaterializationReport(
+                true,
+                materializeReport.Status,
+                materializeReport.Succeeded
+                    ? "quest board policies were materialized from the current save facts"
+                    : "quest board policy materialization failed",
+                materializeReport.ReportPath,
+                materializeReport.ArtifactPath,
+                materializeReport.SelectedQuestCount,
+                materializeReport.ErrorCount,
+                materializeReport.WarningCount);
+        }
+        catch (Exception ex)
+        {
+            issues.Add(new SaveEventBridgeIssue(
+                "error",
+                "quest-board-policy-auto-materialize-exception",
+                string.Empty,
+                ex.Message));
+            log.Error($"save-event-bridge quest-board-policy-auto-materialize exception message={QuoteLogValue(ex.Message)}");
+            return new SaveEventBridgeQuestBoardPolicyMaterializationReport(
+                true,
+                "failed",
+                ex.Message,
+                string.Empty,
+                string.Empty,
+                0,
+                1,
+                0);
+        }
+    }
+
     private static int PluginPhaseRank(string? phase)
     {
         return (phase ?? string.Empty).Trim().ToLowerInvariant() switch
@@ -1063,7 +1166,17 @@ internal static class SaveEventBridge
     {
         log.Info(
             $"save-event-bridge factEventRules={report.RuleCount} inferredEvents={report.InferredEventCount} " +
+            $"questBoardPolicyMaterialization={report.QuestBoardPolicyMaterialization.Status} " +
             $"issues={report.Issues.Count}");
+
+        if (report.QuestBoardPolicyMaterialization.Enabled)
+        {
+            log.Info(
+                $"save-event-bridge quest-board-policy-materialization status={report.QuestBoardPolicyMaterialization.Status} " +
+                $"selectedQuests={report.QuestBoardPolicyMaterialization.SelectedQuestCount} " +
+                $"report={QuoteLogValue(report.QuestBoardPolicyMaterialization.ReportPath)} " +
+                $"artifact={QuoteLogValue(report.QuestBoardPolicyMaterialization.ArtifactPath)}");
+        }
 
         foreach (var plugin in report.Plugins)
         {
@@ -1105,6 +1218,7 @@ internal sealed record SaveEventBridgeReport(
     string SaveStateReportPath,
     int RuleCount,
     int InferredEventCount,
+    SaveEventBridgeQuestBoardPolicyMaterializationReport QuestBoardPolicyMaterialization,
     IReadOnlyList<SaveEventBridgePluginReport> Plugins,
     IReadOnlyList<SaveEventBridgeIssue> Issues)
 {
@@ -1112,6 +1226,16 @@ internal sealed record SaveEventBridgeReport(
         Issues.All(issue => !issue.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)) &&
         Plugins.All(plugin => plugin.ExecutionSucceeded != false);
 }
+
+internal sealed record SaveEventBridgeQuestBoardPolicyMaterializationReport(
+    bool Enabled,
+    string Status,
+    string Reason,
+    string ReportPath,
+    string ArtifactPath,
+    int SelectedQuestCount,
+    int ErrorCount,
+    int WarningCount);
 
 internal sealed record SaveEventBridgePluginReport(
     string PluginId,

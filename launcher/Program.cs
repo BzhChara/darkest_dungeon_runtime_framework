@@ -27,6 +27,9 @@ internal static class Program
             log.Info($"Save event bridge debounce milliseconds: {config.SaveEventBridgeDebounceMilliseconds}");
             log.Info($"Quest board auto refresh enabled: {config.QuestBoardAutoRefreshEnabled}");
             log.Info($"Quest board auto refresh allow running game save write: {config.QuestBoardAutoRefreshAllowRunningGameSaveWrite}");
+            log.Info($"Quest board policy auto materialize enabled: {config.QuestBoardPolicyAutoMaterializeEnabled}");
+            log.Info($"Quest board policy auto materialize slots: {FormatNullableInt(config.QuestBoardPolicyAutoMaterializeSlots)}");
+            log.Info($"Quest board policy auto materialize seed: {FormatNullableInt(config.QuestBoardPolicyAutoMaterializeSeed)}");
             log.Info($"File IO hook enabled: {config.FileIoHookEnabled}");
             log.Info($"File IO observer enabled: {config.FileIoObserveOnly}");
             log.Info($"Injection enabled: {config.EnableInjection && !options.NoInject}");
@@ -125,8 +128,8 @@ internal static class Program
                     log,
                     projectRoot,
                     options.SaveStateReportPath,
-                    options.QuestBoardPolicySlots,
-                    options.QuestBoardPolicySeed).Succeeded;
+                    options.QuestBoardPolicySlots ?? config.QuestBoardPolicyAutoMaterializeSlots,
+                    options.QuestBoardPolicySeed ?? config.QuestBoardPolicyAutoMaterializeSeed).Succeeded;
             }
 
             if (options.InitModState)
@@ -537,6 +540,17 @@ internal static class Program
 
         if (config.SaveEventBridgeDebounceMilliseconds < 0)
             throw new InvalidOperationException("saveEventBridgeDebounceMilliseconds must be zero or greater.");
+
+        if (config.QuestBoardPolicyAutoMaterializeSlots.HasValue && config.QuestBoardPolicyAutoMaterializeSlots.Value <= 0)
+            throw new InvalidOperationException("questBoardPolicyAutoMaterializeSlots must be a positive integer when configured.");
+
+        if (config.QuestBoardPolicyAutoMaterializeEnabled && !config.SaveEventBridgeEnabled && !options.InferSaveEvents)
+            log.Warn("questBoardPolicyAutoMaterializeEnabled is true, but saveEventBridgeEnabled is false; automatic materialization will only run during explicit --infer-save-events calls.");
+    }
+
+    private static string FormatNullableInt(int? value)
+    {
+        return value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : "\"\"";
     }
 
     private static string ComputeSha256(string path)

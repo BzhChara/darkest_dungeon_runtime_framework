@@ -116,6 +116,15 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("questBoardAutoRefreshAllowRunningGameSaveWrite")]
     public bool QuestBoardAutoRefreshAllowRunningGameSaveWrite { get; set; }
 
+    [JsonPropertyName("questBoardPolicyAutoMaterializeEnabled")]
+    public bool QuestBoardPolicyAutoMaterializeEnabled { get; set; }
+
+    [JsonPropertyName("questBoardPolicyAutoMaterializeSlots")]
+    public int? QuestBoardPolicyAutoMaterializeSlots { get; set; }
+
+    [JsonPropertyName("questBoardPolicyAutoMaterializeSeed")]
+    public int? QuestBoardPolicyAutoMaterializeSeed { get; set; }
+
     [JsonPropertyName("pluginDirectories")]
     public string[] PluginDirectories { get; set; } = ["./plugins"];
 
@@ -140,6 +149,9 @@ internal sealed partial class RuntimeConfig
         if (!string.IsNullOrWhiteSpace(options.ModStateDirectory)) ModStateDirectory = options.ModStateDirectory;
         if (options.AllowNonAtomicStateWrites) AllowNonAtomicStateWrites = true;
         if (options.NoInject) EnableInjection = false;
+        if (options.AutoMaterializeQuestBoardPolicies) QuestBoardPolicyAutoMaterializeEnabled = true;
+        if (options.QuestBoardPolicySlots.HasValue) QuestBoardPolicyAutoMaterializeSlots = options.QuestBoardPolicySlots.Value;
+        if (options.QuestBoardPolicySeed.HasValue) QuestBoardPolicyAutoMaterializeSeed = options.QuestBoardPolicySeed.Value;
     }
 
     public void ResolvePaths(string projectRoot)

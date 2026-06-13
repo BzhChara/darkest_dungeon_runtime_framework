@@ -27,6 +27,7 @@ internal sealed class LauncherOptions
     public bool PreviewQuestBoardPolicies { get; private set; }
     public bool ResolveQuestBoardPolicies { get; private set; }
     public bool MaterializeQuestBoardPolicies { get; private set; }
+    public bool AutoMaterializeQuestBoardPolicies { get; private set; }
     public bool InspectMapFile { get; private set; }
     public bool PrototypeMapFinalRoom { get; private set; }
     public bool PrototypeMapTemplate { get; private set; }
@@ -127,6 +128,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--materialize-quest-board-policies":
                     options.MaterializeQuestBoardPolicies = true;
+                    break;
+                case "--auto-materialize-quest-board-policies":
+                    options.AutoMaterializeQuestBoardPolicies = true;
                     break;
                 case "--inspect-map-file":
                     options.InspectMapFile = true;
