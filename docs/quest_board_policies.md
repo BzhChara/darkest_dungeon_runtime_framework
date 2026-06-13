@@ -2,7 +2,7 @@
 
 `questBoardPolicies` is the generic scheduling layer for deciding which referenced quests may appear on the task board. It is intentionally separate from static quest, dungeon, monster, map, art, and localization authoring. Those definitions should usually come from original game files, DLC, Workshop content, or plugin-bundled DD-format files and be declared through `contentRefs`.
 
-The current implementation is validation, reporting, and content-backed candidate preview only:
+The current implementation is validation, reporting, content-backed candidate preview, and facts-driven candidate resolution only:
 
 ```text
 questBoardPolicies
@@ -11,9 +11,11 @@ questBoardPolicies
   -> explain policy and entry facts through --explain-patches
   -> preview declared candidate quests through --preview-quest-board-policies
   -> write logs/quest_board_policy_preview_report.json
+  -> resolve eligible candidate quests through --resolve-quest-board-policies
+  -> write logs/quest_board_policy_resolve_report.json
 ```
 
-It does not directly modify `persist.quest.json`, simulate week settlement, evaluate current completed-quest state, or replace the existing `questBoard.replaceWithFixedSet` writer. Later quest-board generators should consume these policy facts instead of hardcoding one mod's quest order.
+It does not directly modify `persist.quest.json`, simulate week settlement, perform random pool draws, allocate final task-board slots, or replace the existing `questBoard.replaceWithFixedSet` writer. Later quest-board generators should consume these policy facts instead of hardcoding one mod's quest order.
 
 ## Manifest Shape
 
@@ -109,6 +111,32 @@ Each candidate records:
 
 This preview is deliberately not a live scheduler yet. Entries gated by `weekGte`, `completedQuest`, `phase`, or `stateKey` are reported as requiring runtime facts rather than being accepted or rejected from one sample save.
 
+## Candidate Resolution
+
+Run:
+
+```text
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --resolve-quest-board-policies --save-state-report <path> --no-inject
+```
+
+The report is written to `logs/quest_board_policy_resolve_report.json`.
+
+The resolver consumes the preview candidates plus optional runtime facts:
+
+- `facts.campaignLog.totalWeeks` for `weekGte`, `weekLte`, and `weekEq`;
+- string quest ids from `facts.completedQuestIds`, `facts.progression.completedQuestIds`, `facts.progression.completedPlotQuestDataIds`, successful `facts.progression.lastRaidQuest.names`, successful `facts.campaignLog.latestCompletedPartyRaidRecord.questId.names`, and successful `facts.campaignLog.partyRaidRecords[].questId.names`;
+- matching plugin sidecar state from `modStateDirectory/*.json` for `availableWhen.phase`, `stateKey`, and `stateEquals`.
+
+Each candidate becomes:
+
+- `active`: fixed candidate matched all predicates;
+- `eligiblePoolCandidate`: pooled/weighted candidate matched all predicates;
+- `skipped`: predicate did not match, content was optional-missing, or `onCompleted` filtered an already-completed quest;
+- `unevaluated`: required runtime facts were not available;
+- `blocked`: required quest content was missing or invalid.
+
+`resolvedQuestIds` is currently deterministic and includes all `active` and `eligiblePoolCandidate` quests in policy order. It is not yet a final randomized board. Pool size, weighted drawing, slot limits, and persistence into `persist.quest.json` remain separate follow-up consumers.
+
 ## Relationship To Quest Chains
 
 `questChains` is best for authored ordered stage flows and can already materialize a deterministic `questBoard.replaceWithFixedSet` artifact when a plugin explicitly opts in.
@@ -125,4 +153,4 @@ The two schemas can coexist. A chain can define stage order, while a policy can 
 
 Regression coverage:
 
-- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, and expands into a content-backed candidate preview report through the validation plugin.
+- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, and resolves week/completed-quest gated candidates from save facts through the validation plugin.

@@ -25,6 +25,7 @@ internal sealed class LauncherOptions
     public bool InitializeDecodedProfile { get; private set; }
     public bool PreviewQuestBoard { get; private set; }
     public bool PreviewQuestBoardPolicies { get; private set; }
+    public bool ResolveQuestBoardPolicies { get; private set; }
     public bool InspectMapFile { get; private set; }
     public bool PrototypeMapFinalRoom { get; private set; }
     public bool PrototypeMapTemplate { get; private set; }
@@ -117,6 +118,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--preview-quest-board-policies":
                     options.PreviewQuestBoardPolicies = true;
+                    break;
+                case "--resolve-quest-board-policies":
+                    options.ResolveQuestBoardPolicies = true;
                     break;
                 case "--inspect-map-file":
                     options.InspectMapFile = true;

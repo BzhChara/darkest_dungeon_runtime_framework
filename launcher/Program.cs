@@ -52,6 +52,7 @@ internal static class Program
                     !options.InitializeDecodedProfile &&
                     !options.PreviewQuestBoard &&
                     !options.PreviewQuestBoardPolicies &&
+                    !options.ResolveQuestBoardPolicies &&
                     !options.InspectMapFile &&
                     !options.PrototypeMapFinalRoom &&
                     !options.PrototypeMapTemplate &&
@@ -103,6 +104,16 @@ internal static class Program
             if (options.PreviewQuestBoardPolicies)
             {
                 modStateSucceeded &= QuestBoardPolicyPreviewReporter.Write(config, patchPlan, log).Succeeded;
+            }
+
+            if (options.ResolveQuestBoardPolicies)
+            {
+                modStateSucceeded &= QuestBoardPolicyResolveReporter.Write(
+                    config,
+                    patchPlan,
+                    log,
+                    projectRoot,
+                    options.SaveStateReportPath).Succeeded;
             }
 
             if (options.InitModState)
@@ -264,6 +275,7 @@ internal static class Program
                 options.InitializeDecodedProfile ||
                 options.PreviewQuestBoard ||
                 options.PreviewQuestBoardPolicies ||
+                options.ResolveQuestBoardPolicies ||
                 options.InspectMapFile ||
                 options.PrototypeMapFinalRoom ||
                 options.PrototypeMapTemplate ||
@@ -488,6 +500,7 @@ internal static class Program
             !options.InitializeDecodedProfile &&
             !options.PreviewQuestBoard &&
             !options.PreviewQuestBoardPolicies &&
+            !options.ResolveQuestBoardPolicies &&
             !options.InspectMapFile &&
             !options.PrototypeMapFinalRoom &&
             !options.PrototypeMapTemplate &&

@@ -17,10 +17,23 @@ function Assert-True {
     }
 }
 
+function Write-JsonPayload {
+    param(
+        [string]$Path,
+        [object]$Value
+    )
+
+    $directory = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    $Value | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
 Push-Location $projectRoot.Path
 try {
     $previewReportPath = Join-Path $projectRoot.Path "logs\quest_board_policy_preview_report.json"
+    $resolveReportPath = Join-Path $projectRoot.Path "logs\quest_board_policy_resolve_report.json"
     Remove-Item -LiteralPath $previewReportPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $resolveReportPath -Force -ErrorAction SilentlyContinue
 
     & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --validate-only --explain-patches --preview-quest-board-policies --no-inject
     if ($LASTEXITCODE -ne 0) {
@@ -83,7 +96,90 @@ try {
     Assert-True ([int]$secondCandidate.weight -eq 2) "Second preview candidate weight mismatch."
     Assert-True ($secondCandidate.availabilityStatus -eq "requiresRuntimeFacts") "Second preview candidate should require runtime facts."
 
-    Write-Host "PASS: questBoardPolicies validates and expands into a content-backed candidate preview report."
+    $fixtureDir = Join-Path $projectRoot.Path "logs\quest_board_policy_contract_test"
+    $beforeNecromancerReportPath = Join-Path $fixtureDir "policy_week_5_no_completed_quests.json"
+    Write-JsonPayload $beforeNecromancerReportPath ([pscustomobject]@{
+        version = 1
+        sessionId = "quest_board_policy_contract"
+        generatedAt = [DateTimeOffset]::Now
+        parseStatus = "fixture"
+        facts = [pscustomobject]@{
+            campaignLog = [pscustomobject]@{
+                totalWeeks = 5
+            }
+            progression = [pscustomobject]@{
+                completedQuestIds = @()
+            }
+        }
+    })
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --resolve-quest-board-policies --save-state-report $beforeNecromancerReportPath --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader policy resolve failed with exit code $LASTEXITCODE"
+    }
+
+    Assert-True (Test-Path -LiteralPath $resolveReportPath -PathType Leaf) "Quest board policy resolve report was not created: $resolveReportPath"
+    $resolve = Get-Content -Raw -LiteralPath $resolveReportPath | ConvertFrom-Json
+    Assert-True ([bool]$resolve.succeeded) "Quest board policy resolve should succeed before any completed quest."
+    Assert-True ([int]$resolve.week -eq 5) "Resolve report should read week 5 from save facts."
+    Assert-True ([int]$resolve.resolvedQuestCount -eq 1) "Week 5 resolve should produce one quest."
+    Assert-True (@($resolve.resolvedQuestIds) -contains "plot_kill_necromancer_3") "Week 5 resolve should include necromancer."
+    Assert-True (-not (@($resolve.resolvedQuestIds) -contains "plot_kill_prophet_3")) "Week 5 resolve should not include prophet."
+    $resolvePolicy = @($resolve.policies)[0]
+    Assert-True ($resolvePolicy.status -eq "resolved") "Week 5 policy should resolve."
+    $resolvedFirst = @($resolvePolicy.candidates)[0]
+    $resolvedSecond = @($resolvePolicy.candidates)[1]
+    Assert-True ($resolvedFirst.resolutionStatus -eq "active") "Necromancer should be active at week 5."
+    Assert-True ($resolvedSecond.resolutionStatus -eq "skipped") "Prophet should be skipped before necromancer is completed."
+    Assert-True ($resolvedSecond.predicateStatus -eq "predicateNotMatched") "Prophet should be skipped by predicate."
+
+    $afterNecromancerReportPath = Join-Path $fixtureDir "policy_week_6_necromancer_completed.json"
+    Write-JsonPayload $afterNecromancerReportPath ([pscustomobject]@{
+        version = 1
+        sessionId = "quest_board_policy_contract"
+        generatedAt = [DateTimeOffset]::Now
+        parseStatus = "fixture"
+        facts = [pscustomobject]@{
+            campaignLog = [pscustomobject]@{
+                totalWeeks = 6
+                latestCompletedPartyRaidRecord = [pscustomobject]@{
+                    questId = [pscustomobject]@{
+                        names = @("plot_kill_necromancer_3")
+                    }
+                    start = $false
+                    success = $true
+                }
+            }
+            progression = [pscustomobject]@{
+                lastRaidQuest = [pscustomobject]@{
+                    names = @("plot_kill_necromancer_3")
+                }
+                lastRaidSuccess = $true
+            }
+        }
+    })
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --resolve-quest-board-policies --save-state-report $afterNecromancerReportPath --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader policy resolve after completed quest failed with exit code $LASTEXITCODE"
+    }
+
+    $resolve = Get-Content -Raw -LiteralPath $resolveReportPath | ConvertFrom-Json
+    Assert-True ([bool]$resolve.succeeded) "Quest board policy resolve should succeed after necromancer completion."
+    Assert-True ([int]$resolve.week -eq 6) "Resolve report should read week 6 from save facts."
+    Assert-True (@($resolve.completedQuestIds) -contains "plot_kill_necromancer_3") "Resolve report should read completed necromancer."
+    Assert-True ([int]$resolve.resolvedQuestCount -eq 1) "Week 6 resolve should produce one quest."
+    Assert-True (-not (@($resolve.resolvedQuestIds) -contains "plot_kill_necromancer_3")) "Completed necromancer should be removed by onCompleted=remove."
+    Assert-True (@($resolve.resolvedQuestIds) -contains "plot_kill_prophet_3") "Week 6 resolve should include prophet."
+    $resolvePolicy = @($resolve.policies)[0]
+    $resolvedFirst = @($resolvePolicy.candidates)[0]
+    $resolvedSecond = @($resolvePolicy.candidates)[1]
+    Assert-True ($resolvedFirst.resolutionStatus -eq "skipped") "Completed necromancer should be skipped."
+    Assert-True ($resolvedFirst.predicateStatus -eq "completedActionFiltered") "Completed necromancer should be filtered by completion action."
+    Assert-True ($resolvedSecond.resolutionStatus -eq "eligiblePoolCandidate") "Prophet should be an eligible pool candidate after necromancer completion."
+    Assert-True ($resolvedSecond.predicateStatus -eq "matched") "Prophet predicate should match after necromancer completion."
+
+    Write-Host "PASS: questBoardPolicies validates, previews, and resolves policy candidates from save facts."
 }
 finally {
     Pop-Location
