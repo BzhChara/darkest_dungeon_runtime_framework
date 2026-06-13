@@ -1,0 +1,56 @@
+{
+  "gameExecutablePath": "E:/Steam/steamapps/common/DarkestDungeon/_windows/win64/Darkest.exe",
+  "gameWorkingDirectory": "E:/Steam/steamapps/common/DarkestDungeon",
+  "gameArguments": [],
+  "runtimeDllPath": "./runtime/bin/x64/Release/RuntimeHook.dll",
+  "logDirectory": "./logs",
+  "modStateDirectory": "./state/boss_gauntlet_live",
+  "allowNonAtomicStateWrites": false,
+  "enableInjection": true,
+  "killGameOnInjectionFailure": false,
+  "startSuspendedForInjection": true,
+  "fileIoHookEnabled": true,
+  "fileIoObserveOnly": true,
+  "fileIoLogExtensions": [
+    ".darkest",
+    ".json",
+    ".txt"
+  ],
+  "fileIoMaxLogEntries": 20000,
+  "fileIoDeduplicate": true,
+  "eventProbeEnabled": true,
+  "eventProbeLogFileOpen": true,
+  "eventProbeLogFileWrite": true,
+  "eventProbeLogSaveFiles": true,
+  "eventProbeLogDataFiles": false,
+  "eventProbeLogAssetFiles": false,
+  "eventProbeMaxLogEntries": 20000,
+  "eventProbeMaxSaveLogEntries": 5000,
+  "eventProbeIgnorePathFragments": [
+    "Steam/logs/",
+    "gameoverlay_renderer.txt"
+  ],
+  "saveWatchEnabled": true,
+  "saveWatchDirectories": [
+    "E:/Steam/userdata/1097809614/262060/remote"
+  ],
+  "saveWatchAfterExitSeconds": 10,
+  "saveEventBridgeEnabled": true,
+  "saveEventBridgeDebounceMilliseconds": 1000,
+  "questBoardAutoRefreshEnabled": true,
+  "questBoardAutoRefreshAllowRunningGameSaveWrite": true,
+  "questBoardPolicyAutoMaterializeEnabled": false,
+  "questBoardPolicyAutoMaterializeSlots": null,
+  "questBoardPolicyAutoMaterializeSeed": null,
+  "managedActionRetentionKeepLatestPerGroup": 5,
+  "pluginDirectories": [
+    "./plugins/_validation/boss_gauntlet_campaign_contract",
+    "./plugins/_optional/boss_gauntlet_roster_capacity_patch"
+  ],
+  "pluginPatchManifestName": "patches.json",
+  "virtualFileEnabled": true,
+  "virtualFileTarget": "",
+  "virtualFileFind": "",
+  "virtualFileReplace": "",
+  "virtualFileRules": []
+}

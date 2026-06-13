@@ -1,5 +1,5 @@
 param(
-    [string]$ConfigPath = "config\challenge_save_event_bridge_observe_config.json",
+    [string]$ConfigPath = "config\boss_gauntlet_live_config.json",
     [string]$StateRoot = "",
     [switch]$NoBuild,
     [switch]$SkipPrepare,
