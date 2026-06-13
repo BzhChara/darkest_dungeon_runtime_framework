@@ -20,10 +20,6 @@
         {
           "find": "inventory_system_config:\t.type \"trinket_storage\"\t\t\t\t.max_slots 999\t\t\t\t.use_stack_limits true",
           "replace": "inventory_system_config:\t.type \"trinket_storage\"\t\t\t\t.max_slots 9999\t\t\t.use_stack_limits true"
-        },
-        {
-          "find": "inventory_system_config:\t.type \"trinket_storage\"\t\t\t\t.max_slots 9999\t\t\t\t.use_stack_limits true",
-          "replace": "inventory_system_config:\t.type \"trinket_storage\"\t\t\t\t.max_slots 9999\t\t\t.use_stack_limits true"
         }
       ]
     }
