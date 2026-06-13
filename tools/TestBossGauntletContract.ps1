@@ -140,7 +140,7 @@ Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necroma
 Assert-True ([bool]$state.finaleDoesNotReviveDeadHeroes) "Definition should record that finale unlock does not revive dead heroes."
 
 $initializationReport = Read-RuntimeEventReport
-Assert-True ([int]$initializationReport.materializedActionCount -eq 12) "Initialization should materialize twelve managed profile-normalization actions."
+Assert-True ([int]$initializationReport.materializedActionCount -eq 13) "Initialization should materialize thirteen managed profile-normalization actions."
 
 $rosterAction = Get-ActionReport -Report $initializationReport -Type "roster.ensureClassInstances"
 $rosterArtifact = Read-ManagedActionArtifact -Action $rosterAction -ExpectedType "roster.ensureClassInstances"
@@ -169,6 +169,12 @@ Assert-True ([int]$walletArtifact.plan.arguments.amounts.portrait -eq 0) "Wallet
 Assert-True ([int]$walletArtifact.plan.arguments.amounts.deed -eq 0) "Wallet normalization should include an explicit deed heirloom amount."
 Assert-True ([int]$walletArtifact.plan.arguments.amounts.crest -eq 0) "Wallet normalization should include an explicit crest heirloom amount."
 Assert-True ([int]$walletArtifact.plan.arguments.amounts.shard -eq 0) "Wallet normalization should include an explicit shard amount."
+
+$campaignProgressAction = Get-ActionReport -Report $initializationReport -Type "campaign.resetPlotProgress"
+$campaignProgressArtifact = Read-ManagedActionArtifact -Action $campaignProgressAction -ExpectedType "campaign.resetPlotProgress"
+Assert-True ((Convert-ToArray $campaignProgressArtifact.plan.arguments.plotQuestIds) -contains "plot_darkest_dungeon_1") "Campaign progress reset should include DD1."
+Assert-True ((Convert-ToArray $campaignProgressArtifact.plan.arguments.plotQuestIds) -contains "plot_darkest_dungeon_4") "Campaign progress reset should include DD4."
+Assert-True ([bool]$campaignProgressArtifact.plan.arguments.clearHeroDarkestDungeonProgress) "Campaign progress reset should clear hero DD participation flags."
 
 $questBoardAction = Get-ActionReport -Report $initializationReport -Type "questBoard.replaceWithFixedSet"
 $questBoardArtifact = Read-ManagedActionArtifact -Action $questBoardAction -ExpectedType "questBoard.replaceWithFixedSet"

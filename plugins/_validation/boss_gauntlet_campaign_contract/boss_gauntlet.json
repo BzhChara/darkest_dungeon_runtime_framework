@@ -45,6 +45,15 @@
     "mode": "override",
     "message": "Enjoy the inferno"
   },
+  "resetPlotProgress": {
+    "plotQuestIds": [
+      "plot_darkest_dungeon_1",
+      "plot_darkest_dungeon_2",
+      "plot_darkest_dungeon_3",
+      "plot_darkest_dungeon_4"
+    ],
+    "clearHeroDarkestDungeonProgress": true
+  },
   "finaleDoesNotReviveDeadHeroes": true,
   "fixedQuestIds": [
     "plot_kill_necromancer_3",

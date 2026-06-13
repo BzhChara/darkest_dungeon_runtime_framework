@@ -415,6 +415,7 @@ internal static class RuntimeEventExecutor
             "wallet.setCurrencyAmount" => BuildGenericManagedActionPlan(action, document, payload, "setCurrencyAmount", "profile.wallet"),
             "wallet.setCurrencyAmounts" => BuildGenericManagedActionPlan(action, document, payload, "setCurrencyAmounts", "profile.wallet"),
             "inventory.disableItemSale" => BuildGenericManagedActionPlan(action, document, payload, "disableItemSale", "profile.inventory"),
+            "campaign.resetPlotProgress" => BuildGenericManagedActionPlan(action, document, payload, "resetPlotProgress", "profile.campaignProgress"),
             "town.unlockAllBuildings" => BuildGenericManagedActionPlan(action, document, payload, "unlockAllBuildings", "profile.town"),
             "town.setBuildingLevels" => BuildGenericManagedActionPlan(action, document, payload, "setBuildingLevels", "profile.town"),
             "townEvent.overrideCurrent" => BuildGenericManagedActionPlan(action, document, payload, "overrideCurrent", "profile.townEvent"),
@@ -1299,6 +1300,7 @@ internal static class RuntimeEventExecutor
             "wallet.setCurrencyAmount" or
             "wallet.setCurrencyAmounts" or
             "inventory.disableItemSale" or
+            "campaign.resetPlotProgress" or
             "town.unlockAllBuildings" or
             "town.setBuildingLevels" or
             "townEvent.overrideCurrent" or

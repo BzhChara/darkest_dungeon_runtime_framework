@@ -19,6 +19,7 @@ When an idea cannot be expressed by existing rules, classify the missing primiti
 | The framework cannot create or normalize heroes | `roster.*` action driven by class/content facts | copying a fixed hero object from a sample save |
 | The framework cannot express skill training | `upgrade.*` or town upgrade-tree writer | setting a boss-gauntlet-only flag in roster |
 | The framework cannot control available quests | `quest_board.*` or `quest.*` action | hardcoding one campaign's quest ids in launcher code |
+| The framework cannot reset or gate story progress for a converted profile | `campaign.*` progression action over declared quest ids | treating one test profile's DD4 state as a global rule |
 | The framework cannot control town access state | `town.*` building availability and level actions | only supporting "unlock everything" initialization |
 | The framework cannot reference or validate a special fixed map | optional/experimental `map.*` inspection or fixed-layout overlay | making a full map editor the default path when DD/Workshop map formats already work |
 | The framework cannot define deterministic fights | `encounter.*` mash or named-encounter actions | putting monster lineups in quest-chain code |
@@ -46,7 +47,7 @@ If the answer to question 3 is weak, keep the behavior in a validation plugin or
 
 | Pressure test | Generic primitives it should prove | Not acceptable as framework core |
 | --- | --- | --- |
-| Fixed boss gauntlet campaign | profile initialization, roster generation, skill unlock lists, wallet/resource setup, trinket inventory setup, fixed quest board, selection consumption, phase transition | launcher code that knows the boss-gauntlet stage ids |
+| Fixed boss gauntlet campaign | profile initialization, roster generation, skill unlock lists, wallet/resource setup, trinket inventory setup, campaign plot progress reset, fixed quest board, selection consumption, phase transition | launcher code that knows the boss-gauntlet stage ids |
 | Delayed building upgrades | upgrade request observation, cost handling, sidecar queue, week advance event, completion action | hardcoded blacksmith-only delay logic |
 | Fixed-stage challenge run | stage-chain state, quest injection artifact, party selection observation, completion/failure events | a single built-in challenge mode path |
 | Post-ending expansion | progression facts, quest/region unlocks, narration/content overlays, phase-gated quest board, fixed map topology, named encounters | hardcoded "after ancestor" script branch |
@@ -64,6 +65,7 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Upgrade purchases | `upgrade.ensurePurchases` for content-defined building, hero skill, weapon, and armour requirements | original-save write policy and narrower per-tree/per-level selection modes |
 | Town runtime | `stagecoach.suppressRecruits` and district-scoped `town.unlockAllBuildings` decoded-save writers | ordinary building unlock UI verification, `town.setBuildingAvailability`, and `town.setBuildingLevels` semantics |
 | Selection state | `selection.lock`, `selection.consumeHeroes`, `selection.consumeTrinkets` | live UI/game enforcement instead of sidecar-only observation |
+| Campaign progress | `campaign.resetPlotProgress` decoded-save writer removes declared completed plot quest records, clears matching plot achievements, clears stale last quest references, and can clear hero Darkest Dungeon participation flags | broader chapter/ending policy, phase-gated finale unlock, and live UI refresh |
 | Quest board | `questBoard.replaceWithFixedSet` decoded-save writer, virtual `persist.quest.json` overlay, plot quest availability overlay from enabled plot quest content, explicit watched-profile refresh with backup, opt-in realtime refresh after live task-board saves, `questBoardPolicies` validation/reporting/candidate preview/facts-driven resolution/materialization/bridge auto-materialization/profile-scoped scheduling for fixed/random/mixed eligibility rules, weighted pool draws, slot caps, and managed fixed-board artifact output, plus generic managed action artifact retention preview/prune tooling | broader non-plot quest list control |
 | Quest overlays | `quest.injectFixedStage` and fixed-board plot quest virtual file consumers | full roster/UI selection control |
 | Profile workspace | `tools/PrepareDecodedProfileWorkspace.ps1` decodes a source profile into project-local workspace, can initialize/write managed actions, re-encode to sandbox `encoded_profile`, and roundtrip-validate decoded JSON; `tools/PromoteEncodedProfileWorkspace.ps1` can dry-run/write decoded-content-changed encoded files with backup manifest, hash checks, external-target guard, running-game write guard, and restore of overwritten files | live `profile_3` promotion trial and broader UI/runtime validation |

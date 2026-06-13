@@ -118,6 +118,12 @@ function Read-DecodedQuest {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-DecodedProgression {
+    $path = Join-Path $saveRoot "persist.progression.json"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded progression file was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Read-DecodedTownEvent {
     $path = Join-Path $saveRoot "persist.town_event.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded town event file was not created: $path"
@@ -202,7 +208,7 @@ function Write-DecodedRosterFixture {
               "item_tracking": {
                 "supply": {}
               },
-              "number_of_successful_darkest_dungeon_quests": 0,
+              "number_of_successful_darkest_dungeon_quests": 1,
               "is_from_town_event": false,
               "dungeon_history": []
             }
@@ -488,6 +494,95 @@ function Write-DecodedQuestFixture {
 '@ | Set-Content -LiteralPath $path -Encoding UTF8
 }
 
+function Write-DecodedProgressionFixture {
+    $path = Join-Path $saveRoot "persist.progression.json"
+    $tutorialHash = Get-DsonHashSigned "plot_tutorial_crypts"
+    $dd1Hash = Get-DsonHashSigned "plot_darkest_dungeon_1"
+    $dd2Hash = Get-DsonHashSigned "plot_darkest_dungeon_2"
+    $dd3Hash = Get-DsonHashSigned "plot_darkest_dungeon_3"
+    @"
+{
+  "base_root": {
+    "version": 2,
+    "dungeon": {
+      "crypts": {
+        "xp": 4
+      }
+    },
+    "completed_plot_quests_data": {
+      "0": {
+        "plot_quest_id": $tutorialHash,
+        "heroes": {
+          "0": {
+            "guid": 1,
+            "survived": true,
+            "last_blow": false
+          }
+        }
+      },
+      "1": {
+        "plot_quest_id": $dd1Hash,
+        "heroes": {
+          "0": {
+            "guid": 1,
+            "survived": true,
+            "last_blow": true
+          }
+        }
+      },
+      "2": {
+        "plot_quest_id": $dd2Hash,
+        "heroes": {
+          "0": {
+            "guid": 2,
+            "survived": true,
+            "last_blow": false
+          }
+        }
+      }
+    },
+    "total_recruited_stage_coach_heroes": 2,
+    "total_quests_finished": 3,
+    "total_successful_quests_finished": 3,
+    "last_quest_played_successfully": true,
+    "last_quest_played_id": $dd2Hash,
+    "last_quest_played_xp": 8,
+    "last_raid_success": true,
+    "last_raid_was_a_plot_quest": true,
+    "last_raid_quest_id": $dd3Hash,
+    "achievements": {
+      "plot_tutorial_crypts": {
+        "rtti": 196099018,
+        "id": "plot_tutorial_crypts",
+        "completed": true,
+        "awarded": false
+      },
+      "plot_darkest_dungeon_1": {
+        "rtti": 196099018,
+        "id": "plot_darkest_dungeon_1",
+        "completed": true,
+        "awarded": true
+      },
+      "plot_darkest_dungeon_2": {
+        "rtti": 196099018,
+        "id": "plot_darkest_dungeon_2",
+        "completed": true,
+        "awarded": false
+      },
+      "plot_darkest_dungeon_3": {
+        "rtti": 196099018,
+        "id": "plot_darkest_dungeon_3",
+        "completed": true,
+        "awarded": false
+      }
+    },
+    "real_achievements": {},
+    "flashback_completion_counts": {}
+  }
+}
+"@ | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
 function Write-CompletedQuestStateFixture {
     param([string[]]$QuestIds)
 
@@ -556,6 +651,14 @@ function Get-HeroClassCount {
     )
 
     return @((Get-HeroRoots -Roster $Roster) | Where-Object { $_.heroClass -eq $ClassId }).Count
+}
+
+function Get-CompletedPlotQuestHashes {
+    param([object]$Progression)
+
+    return @($Progression.base_root.completed_plot_quests_data.PSObject.Properties | ForEach-Object {
+        [int64]$_.Value.plot_quest_id
+    })
 }
 
 function Get-FirstHeroRootByClass {
@@ -686,6 +789,7 @@ Write-DecodedUpgradesFixture
 Write-DecodedTownFixture
 Write-DecodedTownEventFixture
 Write-DecodedQuestFixture
+Write-DecodedProgressionFixture
 
 $baseArgs = @(
     "--config", (Resolve-ProjectPath $ConfigPath),
@@ -701,6 +805,7 @@ Assert-True ($startingGold -ne 20000) "Fixture should start with a non-normalize
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 0) "Fixture should start without focus_ring so the trinket write assertion is meaningful."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Fixture should start with one crusader."
+$initialCrusader = Get-FirstHeroRootByClass -Roster $roster -ClassId "crusader"
 $initialHighwayman = Get-FirstHeroRootByClass -Roster $roster -ClassId "highwayman"
 Assert-True ([string]$initialHighwayman.actor.name -eq "DDRF Highwayman 2") "Fixture should start with one old generated placeholder hero name."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Fixture should start without arbalest so roster write assertions are meaningful."
@@ -714,6 +819,13 @@ $quest = Read-DecodedQuest
 Assert-True ((Get-QuestIds -Quest $quest).Count -eq 1) "Fixture should start with one quest board entry."
 Assert-True ((Get-QuestIds -Quest $quest) -contains "plot_tutorial_crypts") "Fixture should start with tutorial quest."
 Assert-True (-not ((Get-QuestIds -Quest $quest) -contains "plot_kill_necromancer_3")) "Fixture should start without fixed boss quests."
+$progression = Read-DecodedProgression
+$completedPlotQuestHashes = @(Get-CompletedPlotQuestHashes -Progression $progression)
+Assert-True ($completedPlotQuestHashes -contains (Get-DsonHashSigned "plot_tutorial_crypts")) "Fixture should start with tutorial completed plot data."
+Assert-True ($completedPlotQuestHashes -contains (Get-DsonHashSigned "plot_darkest_dungeon_1")) "Fixture should start with DD1 completed plot data."
+Assert-True ($completedPlotQuestHashes -contains (Get-DsonHashSigned "plot_darkest_dungeon_2")) "Fixture should start with DD2 completed plot data."
+Assert-True ([bool]$progression.base_root.achievements.plot_darkest_dungeon_1.completed) "Fixture should start with DD1 achievement completed."
+Assert-True ([int]$initialCrusader.number_of_successful_darkest_dungeon_quests -eq 1) "Fixture should start with one old hero marked as a DD survivor."
 $townEvent = Read-DecodedTownEvent
 Assert-True ([int]$townEvent.base_root.current_result_event_id -ne 0) "Fixture should start with a current town event id."
 Assert-True ([bool]$townEvent.base_root.has_unclaimed_interaction) "Fixture should start with an unclaimed town event interaction."
@@ -725,24 +837,24 @@ Assert-True ([bool]$dryRunInitializationReport.succeeded) "Decoded profile dry-r
 Assert-True ([bool]$dryRunInitializationReport.dryRun) "Decoded profile dry-run initialization should record dryRun=true."
 Assert-True ([bool]$dryRunInitializationReport.stateSucceeded) "Decoded profile dry-run initialization should initialize sidecar state."
 Assert-True ([bool]$dryRunInitializationReport.eventSucceeded) "Decoded profile dry-run initialization should run the initialization event."
-Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 12) "Decoded profile dry-run initialization should materialize twelve actions."
+Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 13) "Decoded profile dry-run initialization should materialize thirteen actions."
 Assert-True ([bool]$dryRunInitializationReport.questBoardPreviewSucceeded) "Decoded profile dry-run initialization should preview the quest board."
 Assert-True ([int]$dryRunInitializationReport.questBoardCandidateCount -eq 8) "Decoded profile dry-run initialization should preview eight fixed boss quests."
 Assert-True (-not [bool]$dryRunInitializationReport.applySkipped) "Decoded profile dry-run initialization should run managed action apply."
 Assert-True ([bool]$dryRunInitializationReport.applySucceeded) "Decoded profile dry-run initialization apply should succeed."
-Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 11) "Decoded profile dry-run initialization should recognize eleven supported decoded-save/policy actions."
-Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 11) "Decoded profile dry-run initialization should dry-run eleven supported actions."
-Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 7) "Decoded profile dry-run initialization should report seven would-change decoded save or policy files."
+Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 12) "Decoded profile dry-run initialization should recognize twelve supported decoded-save/policy actions."
+Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 12) "Decoded profile dry-run initialization should dry-run twelve supported actions."
+Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 8) "Decoded profile dry-run initialization should report eight would-change decoded save or policy files."
 Assert-True (@(Convert-ToArray $dryRunInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "dry-run" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression dry-run action details."
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
-Assert-True ([int]$dryRunReport.artifactCount -eq 12) "Dry-run should inspect twelve boss gauntlet initialization artifacts."
-Assert-True ([int]$dryRunReport.supportedActionCount -eq 11) "Dry-run should recognize eleven currently supported decoded-save/policy actions."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 11) "Dry-run should report eleven dry-run actions."
+Assert-True ([int]$dryRunReport.artifactCount -eq 13) "Dry-run should inspect thirteen boss gauntlet initialization artifacts."
+Assert-True ([int]$dryRunReport.supportedActionCount -eq 12) "Dry-run should recognize twelve currently supported decoded-save/policy actions."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 12) "Dry-run should report twelve dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
 Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 1) "Dry-run should report the remaining profile-normalization action as unsupported."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
-Assert-True ([int]$dryRunReport.changedFileCount -eq 7) "Dry-run should report seven would-change decoded save or policy files."
+Assert-True ([int]$dryRunReport.changedFileCount -eq 8) "Dry-run should report eight would-change decoded save or policy files."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
@@ -765,6 +877,10 @@ $quest = Read-DecodedQuest
 Assert-True ((Get-QuestIds -Quest $quest).Count -eq 1) "Dry-run must not replace quest board entries."
 Assert-True ((Get-QuestIds -Quest $quest) -contains "plot_tutorial_crypts") "Dry-run must keep tutorial quest."
 Assert-True (-not ((Get-QuestIds -Quest $quest) -contains "plot_kill_necromancer_3")) "Dry-run must not add fixed boss quests."
+$progression = Read-DecodedProgression
+$completedPlotQuestHashes = @(Get-CompletedPlotQuestHashes -Progression $progression)
+Assert-True ($completedPlotQuestHashes -contains (Get-DsonHashSigned "plot_darkest_dungeon_1")) "Dry-run must not remove DD1 completed plot data."
+Assert-True ([bool]$progression.base_root.achievements.plot_darkest_dungeon_1.completed) "Dry-run must not reset DD1 achievement state."
 $townEvent = Read-DecodedTownEvent
 Assert-True ([int]$townEvent.base_root.current_result_event_id -eq 123456789) "Dry-run must not suppress the current town event."
 Assert-True ([bool]$townEvent.base_root.has_unclaimed_interaction) "Dry-run must not clear town event interaction state."
@@ -778,17 +894,17 @@ Assert-True ([bool]$writeInitializationReport.stateSucceeded) "Decoded profile w
 Assert-True ([bool]$writeInitializationReport.eventSucceeded) "Decoded profile write initialization event should succeed even after initialized=true."
 Assert-True (-not [bool]$writeInitializationReport.applySkipped) "Decoded profile write initialization should run managed action apply."
 Assert-True ([bool]$writeInitializationReport.applySucceeded) "Decoded profile write initialization apply should succeed."
-Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 11) "Decoded profile write initialization should apply eleven supported decoded-save/policy actions."
-Assert-True ([int]$writeInitializationReport.applyChangedFileCount -eq 7) "Decoded profile write initialization should write seven decoded save or policy files."
+Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 12) "Decoded profile write initialization should apply twelve supported decoded-save/policy actions."
+Assert-True ([int]$writeInitializationReport.applyChangedFileCount -eq 8) "Decoded profile write initialization should write eight decoded save or policy files."
 Assert-True (@(Convert-ToArray $writeInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "applied" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression applied action details."
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
-Assert-True ([int]$writeReport.supportedActionCount -eq 11) "Write pass should recognize eleven currently supported decoded-save/policy actions."
+Assert-True ([int]$writeReport.supportedActionCount -eq 12) "Write pass should recognize twelve currently supported decoded-save/policy actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 11) "Write pass should apply eleven currently supported decoded-save/policy actions."
+Assert-True ([int]$writeReport.appliedActionCount -eq 12) "Write pass should apply twelve currently supported decoded-save/policy actions."
 Assert-True ([int]$writeReport.unsupportedActionCount -eq 1) "Write pass should leave only one future profile-normalization action unsupported."
-Assert-True ([int]$writeReport.changedFileCount -eq 7) "Write pass should change seven decoded save or policy files."
-Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 7) "Write pass should mark seven files as written."
+Assert-True ([int]$writeReport.changedFileCount -eq 8) "Write pass should change eight decoded save or policy files."
+Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 8) "Write pass should mark eight files as written."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq 20000) "Write pass should set starting gold to 20000."
@@ -814,6 +930,7 @@ Assert-True ([double]$crusader.actor.current_hp -gt 33.0) "Progression action sh
 Assert-True ([int]$arbalest.resolveXp -eq 46) "Generated max-level heroes should use max resolve XP."
 Assert-True ([int]$arbalest.weapon_rank -eq 4) "Generated max-level heroes should use max weapon rank."
 Assert-True ([int]$arbalest.armour_rank -eq 4) "Generated max-level heroes should use max armour rank."
+Assert-True ([int]$crusader.number_of_successful_darkest_dungeon_quests -eq 0) "Campaign progress reset should clear old hero DD survivor counts."
 Assert-True ($null -eq $arbalest.template_only_marker) "Generated heroes must be built from a clean blueprint, not copied from an existing roster template."
 Assert-True (-not ([string]$arbalest.actor.name -like "DDRF *")) "Generated heroes should use a configured content name pool instead of DDRF placeholder names."
 $heroNamePool = Get-HeroNamePool -Language "schinese"
@@ -846,6 +963,16 @@ $questIds = @(Get-QuestIds -Quest $quest)
 Assert-True ($questIds.Count -eq 8) "Write pass should replace the quest board with eight fixed boss quests."
 Assert-True ($questIds[0] -eq "plot_kill_necromancer_3") "Write pass should keep fixed quest order from the action plan."
 Assert-True ($questIds[1] -eq "plot_kill_prophet_3") "Write pass should keep fixed quest order from the action plan."
+$progression = Read-DecodedProgression
+$completedPlotQuestHashes = @(Get-CompletedPlotQuestHashes -Progression $progression)
+Assert-True ($completedPlotQuestHashes -contains (Get-DsonHashSigned "plot_tutorial_crypts")) "Campaign progress reset should keep unrelated completed plot data."
+Assert-True (-not ($completedPlotQuestHashes -contains (Get-DsonHashSigned "plot_darkest_dungeon_1"))) "Campaign progress reset should remove DD1 completed plot data."
+Assert-True (-not ($completedPlotQuestHashes -contains (Get-DsonHashSigned "plot_darkest_dungeon_2"))) "Campaign progress reset should remove DD2 completed plot data."
+Assert-True (-not [bool]$progression.base_root.achievements.plot_darkest_dungeon_1.completed) "Campaign progress reset should clear DD1 achievement completion."
+Assert-True (-not [bool]$progression.base_root.achievements.plot_darkest_dungeon_1.awarded) "Campaign progress reset should clear DD1 achievement awarded state."
+Assert-True ([bool]$progression.base_root.achievements.plot_tutorial_crypts.completed) "Campaign progress reset should keep unrelated achievement completion."
+Assert-True ([int]$progression.base_root.last_quest_played_id -eq 0) "Campaign progress reset should clear stale last quest references when they point to a reset plot quest."
+Assert-True ([int]$progression.base_root.last_raid_quest_id -eq 0) "Campaign progress reset should clear stale last raid references when they point to a reset plot quest."
 $townEvent = Read-DecodedTownEvent
 Assert-True ([int]$townEvent.base_root.current_result_event_id -eq 0) "Write pass should suppress the current town event id."
 Assert-True (-not [bool]$townEvent.base_root.has_unclaimed_interaction) "Write pass should clear unclaimed town event interaction state."

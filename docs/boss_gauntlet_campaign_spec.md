@@ -12,16 +12,17 @@ The mod turns a normal Darkest Dungeon campaign into a fixed-resource boss gaunt
 4. Wallet resources are initialized from a data-driven currency map. The current target sets gold to `20000` and explicitly records heirloom resources such as busts, portraits, deeds, crests, and shards so the values can be tuned without adding new framework code.
 5. Trinkets cannot be sold. This prevents the fixed trinket pool from becoming a repeatable or front-loaded gold source.
 6. Town buildings are unlocked and fully upgraded. Town events are either suppressed or replaced with a fixed event message such as `Enjoy the inferno`. This is the boss-gauntlet configuration, not the only town state the framework should support; other campaigns may intentionally leave selected buildings locked at start.
-7. The quest board shows only the highest-difficulty boss quests for each non-Darkest region, all at the same time.
-8. Defeating a boss removes that fixed boss quest from the board and does not generate a replacement quest.
-9. Winning a pre-finale boss quest grants `10000` gold after the result is observed.
-10. Before the Darkest Dungeon finale unlocks, each hero and each trinket can be selected only once. This selection is consumed on any terminal attempt result, successful or failed.
-11. A failed or abandoned boss attempt is not rolled back. Original settlement state, deaths, stress, diseases, quirks, loot, and other resolved consequences remain as the game recorded them.
-12. The game continues to save normally. The original profile save remains the canonical record for deaths, roster attrition, stress, inventory changes, and town consequences after initialization.
-13. Because the stage coach is suppressed, a campaign can become unwinnable if too many heroes die or the player suffers a major strategic failure. That failure state is intentional. The player starts over by deleting the campaign and creating a new save.
-14. When every fixed boss quest is defeated, the Darkest Dungeon finale unlocks.
-15. In the finale phase, sidecar boss-gauntlet reuse restrictions are cleared. This does not resurrect dead heroes or recreate missing heroes. The framework should prefer the original game Darkest Dungeon participation rule: heroes who completed a Darkest Dungeon quest cannot enter another Darkest Dungeon quest.
-16. Defeating the Ancestor completes the run.
+7. Initialization resets pre-existing Darkest Dungeon plot progress for this challenge profile. This prevents test or conversion profiles that already reached DD2-DD4 from skipping the intended boss-gauntlet finale gate.
+8. The quest board shows only the highest-difficulty boss quests for each non-Darkest region, all at the same time.
+9. Defeating a boss removes that fixed boss quest from the board and does not generate a replacement quest.
+10. Winning a pre-finale boss quest grants `10000` gold after the result is observed.
+11. Before the Darkest Dungeon finale unlocks, each hero and each trinket can be selected only once. This selection is consumed on any terminal attempt result, successful or failed.
+12. A failed or abandoned boss attempt is not rolled back. Original settlement state, deaths, stress, diseases, quirks, loot, and other resolved consequences remain as the game recorded them.
+13. The game continues to save normally. The original profile save remains the canonical record for deaths, roster attrition, stress, inventory changes, and town consequences after initialization.
+14. Because the stage coach is suppressed, a campaign can become unwinnable if too many heroes die or the player suffers a major strategic failure. That failure state is intentional. The player starts over by deleting the campaign and creating a new save.
+15. When every fixed boss quest is defeated, the Darkest Dungeon finale unlocks.
+16. In the finale phase, sidecar boss-gauntlet reuse restrictions are cleared. This does not resurrect dead heroes or recreate missing heroes. The framework should prefer the original game Darkest Dungeon participation rule: heroes who completed a Darkest Dungeon quest cannot enter another Darkest Dungeon quest.
+17. Defeating the Ancestor completes the run.
 
 If a hero dies during the boss gauntlet, "all heroes available in the finale" means the sidecar reuse restriction is cleared. It does not resurrect heroes unless a separate revival or roster-normalization rule explicitly says so.
 
@@ -81,6 +82,7 @@ Required generic capabilities:
 | Per-building town access | `town.set_building_availability` |
 | Fully upgraded town | `town.set_building_levels` |
 | Fixed or suppressed event | `town_event.override_current` or `town_event.suppress_rotation` |
+| Reset incompatible plot progress for converted/test profiles | `campaign.reset_plot_progress` |
 | Fixed quest board | `quest_board.replace_with_fixed_set` |
 
 The first implementation should materialize these as managed action artifacts and diagnostics. The final gameplay target likely needs managed original-save initialization so the game can keep saving normally afterward. Any original-save write path must remain explicitly documented, reversible before first commit where practical, schema-verified, and guarded by an idempotent initialized marker.

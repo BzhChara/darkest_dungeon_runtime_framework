@@ -17,6 +17,7 @@
     "wallet.set_currency_amounts",
     "wallet.modify_currency",
     "inventory.disable_item_sale",
+    "campaign.reset_plot_progress",
     "town.unlock_all_buildings",
     "town.set_building_levels",
     "town_event.override_current",
@@ -269,6 +270,7 @@
         "estate.ensure_inventory_counts",
         "wallet.set_currency_amounts",
         "inventory.disable_item_sale",
+        "campaign.reset_plot_progress",
         "town.unlock_all_buildings",
         "town.set_building_levels",
         "town_event.override_current",
@@ -390,6 +392,17 @@
             "target": "profile.inventory",
             "itemKind": "trinket",
             "disabled": "state.bossGauntlet.trinketSaleDisabled"
+          }
+        },
+        {
+          "type": "campaign.resetPlotProgress",
+          "capability": "campaign.reset_plot_progress",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.campaign_progress",
+            "plotQuestIds": "state.bossGauntlet.resetPlotProgress.plotQuestIds",
+            "clearHeroDarkestDungeonProgress": "state.bossGauntlet.resetPlotProgress.clearHeroDarkestDungeonProgress"
           }
         },
         {
