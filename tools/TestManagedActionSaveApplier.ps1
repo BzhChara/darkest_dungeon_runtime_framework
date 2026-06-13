@@ -59,6 +59,23 @@ function Invoke-DDSaveEditorEncodeProbe {
     Assert-True ((Get-Item -LiteralPath $outputPath).Length -gt 0) "DDSaveEditor encode output was empty: $outputPath"
 }
 
+function Invoke-DDSaveEditorEncodeFile {
+    param(
+        [string]$DecodedPath,
+        [string]$OutputPath
+    )
+
+    Assert-True (Test-Path -LiteralPath $saveEditorJar -PathType Leaf) "DDSaveEditor jar is missing: $saveEditorJar"
+    Assert-True (Test-Path -LiteralPath $DecodedPath -PathType Leaf) "Decoded file missing for encode: $DecodedPath"
+    & java -jar $saveEditorJar encode --output $OutputPath $DecodedPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDSaveEditor encode failed for $DecodedPath with exit code $LASTEXITCODE"
+    }
+
+    Assert-True (Test-Path -LiteralPath $OutputPath -PathType Leaf) "DDSaveEditor encode did not create output: $OutputPath"
+    Assert-True ((Get-Item -LiteralPath $OutputPath).Length -gt 0) "DDSaveEditor encode output was empty: $OutputPath"
+}
+
 function Read-ApplyReport {
     $path = Join-Path $projectRoot.Path "logs\managed_action_apply_report.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Managed action apply report was not created: $path"
@@ -832,5 +849,57 @@ Invoke-DDSaveEditorEncodeProbe -FileName "persist.upgrades.json"
 Invoke-DDSaveEditorEncodeProbe -FileName "persist.town.json"
 Invoke-DDSaveEditorEncodeProbe -FileName "persist.town_event.json"
 Invoke-DDSaveEditorEncodeProbe -FileName "persist.quest.json"
+
+$prepareSourceProfile = Join-Path $stateRoot "prepare_source_profile"
+$prepareOutputRoot = Join-Path $stateRoot "prepared_workspaces"
+$prepareSessionId = "encoded_profile_roundtrip"
+New-Item -ItemType Directory -Force -Path $prepareSourceProfile | Out-Null
+$persistDecodedFiles = @(Get-ChildItem -LiteralPath $saveRoot -Filter "persist*.json" -File | Sort-Object Name)
+Assert-True ($persistDecodedFiles.Count -ge 5) "Roundtrip source profile should have the required persist files."
+foreach ($persistFile in $persistDecodedFiles) {
+    Invoke-DDSaveEditorEncodeFile `
+        -DecodedPath $persistFile.FullName `
+        -OutputPath (Join-Path $prepareSourceProfile $persistFile.Name)
+}
+
+& (Join-Path $projectRoot.Path "tools\PrepareDecodedProfileWorkspace.ps1") `
+    -SourceProfileDirectory $prepareSourceProfile `
+    -OutputRoot $prepareOutputRoot `
+    -SessionId $prepareSessionId `
+    -SaveEditorJar $saveEditorJar `
+    -ConfigPath (Resolve-ProjectPath $ConfigPath) `
+    -ModStateId $pluginId `
+    -Initialize `
+    -WriteManagedActions `
+    -EncodeInitializedProfile `
+    -NoBuild
+if ($LASTEXITCODE -ne 0) {
+    throw "PrepareDecodedProfileWorkspace failed with exit code $LASTEXITCODE"
+}
+
+$workspaceReportPath = Join-Path $prepareOutputRoot (Join-Path $prepareSessionId "decoded_profile_workspace_report.json")
+Assert-True (Test-Path -LiteralPath $workspaceReportPath -PathType Leaf) "Decoded profile workspace report was not written: $workspaceReportPath"
+$workspaceReport = Get-Content -Raw -LiteralPath $workspaceReportPath | ConvertFrom-Json
+Assert-True ([bool]$workspaceReport.initializeRequested) "Workspace roundtrip should request initialization."
+Assert-True ([bool]$workspaceReport.writeManagedActions) "Workspace roundtrip should write managed actions into the decoded sandbox."
+Assert-True ([bool]$workspaceReport.encodeInitializedProfileRequested) "Workspace roundtrip should request initialized profile encoding."
+Assert-True ([bool]$workspaceReport.initialization.succeeded) "Workspace initialization should succeed before encoding."
+Assert-True ([string]$workspaceReport.encoding.status -eq "completed") "Workspace encoding should complete."
+Assert-True ([int]$workspaceReport.encoding.encodedFileCount -eq $persistDecodedFiles.Count) "Workspace encoding should encode every decoded persist file."
+Assert-True ([int]$workspaceReport.encoding.failedFileCount -eq 0) "Workspace encoding should not fail any persist file."
+Assert-True ([int]$workspaceReport.encoding.roundTripValidatedFileCount -eq $persistDecodedFiles.Count) "Workspace encoding should roundtrip-validate every encoded persist file."
+Assert-True (Test-Path -LiteralPath (Join-Path ([string]$workspaceReport.encoding.encodedProfileDirectory) "persist.roster.json") -PathType Leaf) "Encoded sandbox profile should include persist.roster.json."
+Assert-True (Test-Path -LiteralPath (Join-Path ([string]$workspaceReport.encoding.roundTripDecodedDirectory) "persist.roster.json") -PathType Leaf) "Roundtrip decoded sandbox should include persist.roster.json."
+
+$roundTripRoster = Get-Content -Raw -LiteralPath (Join-Path ([string]$workspaceReport.encoding.roundTripDecodedDirectory) "persist.roster.json") | ConvertFrom-Json
+Assert-True ((Get-HeroClassCount -Roster $roundTripRoster -ClassId "crusader") -eq 2) "Roundtrip decoded roster should preserve initialized crusader count."
+Assert-True ((Get-HeroClassCount -Roster $roundTripRoster -ClassId "arbalest") -eq 2) "Roundtrip decoded roster should preserve initialized arbalest count."
+$roundTripCrusader = Get-FirstHeroRootByClass -Roster $roundTripRoster -ClassId "crusader"
+Assert-True ([int]$roundTripCrusader.resolveXp -eq 46) "Roundtrip decoded roster should preserve initialized resolve XP."
+
+$roundTripQuest = Get-Content -Raw -LiteralPath (Join-Path ([string]$workspaceReport.encoding.roundTripDecodedDirectory) "persist.quest.json") | ConvertFrom-Json
+$roundTripQuestIds = @(Get-QuestIds -Quest $roundTripQuest)
+Assert-True ($roundTripQuestIds.Count -eq 2) "Roundtrip decoded quest board should preserve initialized fixed quest count."
+Assert-True ($roundTripQuestIds[0] -eq "plot_kill_necromancer_3") "Roundtrip decoded quest board should preserve initialized fixed quest order."
 
 Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster/skill/upgrade/town/town-event/quest/policy write assertions passed."
