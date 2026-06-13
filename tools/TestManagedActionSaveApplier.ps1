@@ -510,7 +510,7 @@ function Get-WalletAmount {
     return [int]$entry.amount
 }
 
-function Get-TrinketAmount {
+function Get-TrinketCopies {
     param(
         [object]$Estate,
         [string]$Id
@@ -518,16 +518,16 @@ function Get-TrinketAmount {
 
     $items = $Estate.base_root.trinkets.items
     if ($null -eq $items) {
-        return $null
+        return 0
     }
 
     $entries = @($items.PSObject.Properties | ForEach-Object { $_.Value })
-    $entry = @($entries | Where-Object { $_.type -eq "trinket" -and $_.id -eq $Id }) | Select-Object -First 1
-    if ($null -eq $entry) {
-        return $null
+    $matches = @($entries | Where-Object { $_.type -eq "trinket" -and $_.id -eq $Id })
+    foreach ($entry in $matches) {
+        Assert-True ([int]$entry.amount -eq 1) "Non-stackable trinket '$Id' should be represented as independent amount=1 entries."
     }
 
-    return [int]$entry.amount
+    return $matches.Count
 }
 
 function Get-HeroRoots {
@@ -686,7 +686,7 @@ $baseArgs = @(
 $estate = Read-DecodedEstate
 $startingGold = Get-WalletAmount -Estate $estate -Currency "gold"
 Assert-True ($startingGold -ne 20000) "Fixture should start with a non-normalized gold amount so the write assertion is meaningful."
-Assert-True ($null -eq (Get-TrinketAmount -Estate $estate -Id "focus_ring")) "Fixture should start without focus_ring so the trinket write assertion is meaningful."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 0) "Fixture should start without focus_ring so the trinket write assertion is meaningful."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Fixture should start with one crusader."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Fixture should start without arbalest so roster write assertions are meaningful."
@@ -713,7 +713,7 @@ Assert-True ([bool]$dryRunInitializationReport.stateSucceeded) "Decoded profile 
 Assert-True ([bool]$dryRunInitializationReport.eventSucceeded) "Decoded profile dry-run initialization should run the initialization event."
 Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 12) "Decoded profile dry-run initialization should materialize twelve actions."
 Assert-True ([bool]$dryRunInitializationReport.questBoardPreviewSucceeded) "Decoded profile dry-run initialization should preview the quest board."
-Assert-True ([int]$dryRunInitializationReport.questBoardCandidateCount -eq 2) "Decoded profile dry-run initialization should preview two fixed quests."
+Assert-True ([int]$dryRunInitializationReport.questBoardCandidateCount -eq 8) "Decoded profile dry-run initialization should preview eight fixed boss quests."
 Assert-True (-not [bool]$dryRunInitializationReport.applySkipped) "Decoded profile dry-run initialization should run managed action apply."
 Assert-True ([bool]$dryRunInitializationReport.applySucceeded) "Decoded profile dry-run initialization apply should succeed."
 Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 11) "Decoded profile dry-run initialization should recognize eleven supported decoded-save/policy actions."
@@ -732,7 +732,7 @@ Assert-True ([int]$dryRunReport.changedFileCount -eq 7) "Dry-run should report s
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
-Assert-True ($null -eq (Get-TrinketAmount -Estate $estate -Id "focus_ring")) "Dry-run must not add trinkets to decoded save JSON."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 0) "Dry-run must not add trinkets to decoded save JSON."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Dry-run must not add roster heroes."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Dry-run must not add missing roster classes."
@@ -781,8 +781,8 @@ Assert-True ((Get-WalletAmount -Estate $estate -Currency "portrait") -eq 0) "Wri
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "deed") -eq 0) "Write pass should set starting deeds to 0."
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "crest") -eq 0) "Write pass should set starting crests to 0."
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "shard") -eq 0) "Write pass should set starting shards to 0."
-Assert-True ((Get-TrinketAmount -Estate $estate -Id "focus_ring") -eq 2) "Write pass should add two copies of focus_ring."
-Assert-True ((Get-TrinketAmount -Estate $estate -Id "berserk_mask") -eq 2) "Write pass should add two copies of berserk_mask."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 2) "Write pass should add two independent copies of focus_ring."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "berserk_mask") -eq 2) "Write pass should add two independent copies of berserk_mask."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 2) "Write pass should ensure two crusaders."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "highwayman") -eq 2) "Write pass should ensure two highwaymen."
@@ -820,7 +820,7 @@ Assert-True (Get-DistrictBuilt -Town $town -DistrictId "granary") "Write pass sh
 Assert-True (Get-DistrictBuilt -Town $town -DistrictId "library") "Write pass should keep already-built district built."
 $quest = Read-DecodedQuest
 $questIds = @(Get-QuestIds -Quest $quest)
-Assert-True ($questIds.Count -eq 2) "Write pass should replace the quest board with two fixed quests."
+Assert-True ($questIds.Count -eq 8) "Write pass should replace the quest board with eight fixed boss quests."
 Assert-True ($questIds[0] -eq "plot_kill_necromancer_3") "Write pass should keep fixed quest order from the action plan."
 Assert-True ($questIds[1] -eq "plot_kill_prophet_3") "Write pass should keep fixed quest order from the action plan."
 $townEvent = Read-DecodedTownEvent
@@ -842,7 +842,7 @@ Write-DecodedQuestFixture
 Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
 $quest = Read-DecodedQuest
 $questIds = @(Get-QuestIds -Quest $quest)
-Assert-True ($questIds.Count -eq 1) "Completed fixed quests should be filtered out when removeCompleted is enabled."
+Assert-True ($questIds.Count -eq 7) "Completed fixed quests should be filtered out when removeCompleted is enabled."
 Assert-True ($questIds[0] -eq "plot_kill_prophet_3") "Quest board should keep only uncompleted fixed quests after sidecar completion state changes."
 Invoke-DDSaveEditorEncodeProbe -FileName "persist.roster.json"
 Invoke-DDSaveEditorEncodeProbe -FileName "persist.upgrades.json"
@@ -899,7 +899,7 @@ Assert-True ([int]$roundTripCrusader.resolveXp -eq 46) "Roundtrip decoded roster
 
 $roundTripQuest = Get-Content -Raw -LiteralPath (Join-Path ([string]$workspaceReport.encoding.roundTripDecodedDirectory) "persist.quest.json") | ConvertFrom-Json
 $roundTripQuestIds = @(Get-QuestIds -Quest $roundTripQuest)
-Assert-True ($roundTripQuestIds.Count -eq 2) "Roundtrip decoded quest board should preserve initialized fixed quest count."
+Assert-True ($roundTripQuestIds.Count -eq 8) "Roundtrip decoded quest board should preserve initialized fixed quest count."
 Assert-True ($roundTripQuestIds[0] -eq "plot_kill_necromancer_3") "Roundtrip decoded quest board should preserve initialized fixed quest order."
 
 Write-Host "PASS: managed action save applier dry-run and decoded wallet/trinket/roster/skill/upgrade/town/town-event/quest/policy write assertions passed."

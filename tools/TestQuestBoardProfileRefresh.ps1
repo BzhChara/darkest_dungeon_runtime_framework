@@ -163,7 +163,7 @@ try {
     Assert-True (Test-Path -LiteralPath ([string]$writeReport.backupPath) -PathType Leaf) "Write refresh should create a backup."
 
     $questIds = @(Read-QuestIds)
-    Assert-True ($questIds.Count -eq 2) "Quest board refresh should write two fixed boss quests."
+    Assert-True ($questIds.Count -eq 8) "Quest board refresh should write eight fixed boss quests."
     Assert-True ($questIds[0] -eq "plot_kill_necromancer_3") "Quest board refresh should keep the first fixed quest."
     Assert-True ($questIds[1] -eq "plot_kill_prophet_3") "Quest board refresh should keep the second fixed quest."
 

@@ -135,7 +135,7 @@ Assert-True ([bool]$state.initialized) "Initialization should mark the profile i
 Assert-True ($state.phase -eq "boss_gauntlet") "Initialization should enter boss_gauntlet phase."
 Assert-True ([int]$state.wallet.gold -eq 20000) "Initialization should set gold to 20000."
 Assert-True ([bool]$state.trinketSaleDisabled) "Initialization should disable trinket selling in sidecar state."
-Assert-True ((Convert-ToArray $state.fixedQuestIds).Count -eq 2) "Initialization should load the fixed boss quest ids from the definition."
+Assert-True ((Convert-ToArray $state.fixedQuestIds).Count -eq 8) "Initialization should load the fixed boss quest ids from the definition."
 Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necromancer_3") "Fixed quest ids should include the Necromancer fixture quest."
 Assert-True ([bool]$state.finaleDoesNotReviveDeadHeroes) "Definition should record that finale unlock does not revive dead heroes."
 
@@ -240,6 +240,45 @@ Assert-True ([int]$state.wallet.gold -eq 30000) "Failed attempt should not pay t
 Assert-True ($state.phase -eq "boss_gauntlet") "Failed attempt should keep the boss gauntlet phase."
 Assert-True ($null -eq $state.activeSelection) "Failed attempt should clear active selection."
 
+$remainingBossQuestIdsBeforeProphetFinale = @(
+    "plot_kill_formless_flesh_3",
+    "plot_kill_swine_prince_3",
+    "plot_kill_brigand_cannon_3",
+    "plot_kill_hag_3",
+    "plot_kill_drowned_crew_3",
+    "plot_kill_siren_3"
+)
+
+$autoIndex = 0
+foreach ($questId in $remainingBossQuestIdsBeforeProphetFinale) {
+    $autoIndex++
+    $selectionPayloadPath = Write-JsonPayload "selection_auto_success_$autoIndex.json" ([pscustomobject]@{
+        questId = $questId
+        selectedHeroIds = @(
+            "hero_auto_$($autoIndex)_1",
+            "hero_auto_$($autoIndex)_2",
+            "hero_auto_$($autoIndex)_3",
+            "hero_auto_$($autoIndex)_4"
+        )
+        selectedTrinketIds = @(
+            "trinket_auto_$($autoIndex)_1",
+            "trinket_auto_$($autoIndex)_2"
+        )
+    })
+    Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "quest.selection_confirmed", "--event-payload-file", $selectionPayloadPath))
+
+    $successPayloadPath = Write-JsonPayload "attempt_auto_success_$autoIndex.json" ([pscustomobject]@{
+        questId = $questId
+        success = $true
+        attemptId = "attempt_auto_success_$autoIndex"
+    })
+    Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $successPayloadPath))
+}
+
+$state = Read-BossGauntletState
+Assert-True ($state.phase -eq "boss_gauntlet") "Completing all but one fixed boss should stay in boss_gauntlet phase."
+Assert-True ((Convert-ToArray $state.completedQuestIds).Count -eq 7) "Seven fixed boss quests should be completed before the final prerequisite boss."
+
 $secondSuccessSelectionPayloadPath = Write-JsonPayload "selection_prophet_success.json" ([pscustomobject]@{
     questId = "plot_kill_prophet_3"
     selectedHeroIds = @("hero_9", "hero_10", "hero_11", "hero_12")
@@ -255,9 +294,9 @@ $secondSuccessPayloadPath = Write-JsonPayload "attempt_prophet_success.json" ([p
 Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $secondSuccessPayloadPath))
 $state = Read-BossGauntletState
 Assert-True ($state.phase -eq "darkest_finale") "Completing all fixed bosses should unlock darkest_finale."
-Assert-True ((Convert-ToArray $state.completedQuestIds).Count -eq 2) "Both fixed boss quests should be completed."
-Assert-True ((Convert-ToArray $state.attempts).Count -eq 3) "The final successful attempt should be recorded."
-Assert-True ([int]$state.wallet.gold -eq 40000) "The final successful attempt should pay exactly one more victory reward."
+Assert-True ((Convert-ToArray $state.completedQuestIds).Count -eq 8) "All fixed boss quests should be completed."
+Assert-True ((Convert-ToArray $state.attempts).Count -eq 9) "The final successful attempt should be recorded."
+Assert-True ([int]$state.wallet.gold -eq 100000) "Every successful prerequisite boss should pay the configured victory reward once."
 Assert-True ((Convert-ToArray $state.consumedHeroIds).Count -eq 0) "Finale unlock should clear sidecar hero reuse restrictions."
 Assert-True ((Convert-ToArray $state.consumedTrinketIds).Count -eq 0) "Finale unlock should clear sidecar trinket reuse restrictions."
 Assert-True ((Convert-ToArray $state.observedDeadHeroIds) -contains "dead_hero_1") "Finale unlock should not erase observed dead hero state."
@@ -480,9 +519,9 @@ Invoke-Loader -LoaderArgs ($bridgeArgs + @("--infer-save-events", "--save-state-
 $bridgeState = Read-BossGauntletState -Root $bridgeStateRoot
 Assert-True ((Convert-ToArray $bridgeState.attempts).Count -eq 3) "Save bridge should record the retry success as a new attempt."
 Assert-True ((Convert-ToArray $bridgeState.completedQuestIds) -contains "plot_kill_prophet_3") "Save bridge should complete the second boss after retry success."
-Assert-True ($bridgeState.phase -eq "darkest_finale") "Save bridge should unlock darkest_finale after all fixed bosses are completed."
-Assert-True ((Convert-ToArray $bridgeState.consumedHeroIds).Count -eq 0) "Finale unlock should clear pre-finale hero restrictions in save bridge flow."
-Assert-True ((Convert-ToArray $bridgeState.consumedTrinketIds).Count -eq 0) "Finale unlock should clear pre-finale trinket restrictions in save bridge flow."
+Assert-True ($bridgeState.phase -eq "boss_gauntlet") "Save bridge should not unlock darkest_finale until all fixed bosses are completed."
+Assert-True ((Convert-ToArray $bridgeState.consumedHeroIds).Count -eq 12) "Pre-finale hero restrictions should remain until all fixed bosses are completed."
+Assert-True ((Convert-ToArray $bridgeState.consumedTrinketIds).Count -eq 16) "Pre-finale trinket restrictions should remain until all fixed bosses are completed."
 Assert-True ($bridgeState.lastResolvedAttemptId -eq "3") "Save bridge should update the last resolved attempt id after retry success."
 
 Write-Host "PASS: boss gauntlet contract state assertions passed."

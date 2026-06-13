@@ -42,7 +42,13 @@
   "finaleDoesNotReviveDeadHeroes": true,
   "fixedQuestIds": [
     "plot_kill_necromancer_3",
-    "plot_kill_prophet_3"
+    "plot_kill_prophet_3",
+    "plot_kill_formless_flesh_3",
+    "plot_kill_swine_prince_3",
+    "plot_kill_brigand_cannon_3",
+    "plot_kill_hag_3",
+    "plot_kill_drowned_crew_3",
+    "plot_kill_siren_3"
   ],
   "fixedBossQuests": [
     {
@@ -56,6 +62,48 @@
       "id": "plot_kill_prophet_3",
       "region": "crypts",
       "boss": "prophet",
+      "difficulty": "highest",
+      "source": "content_query"
+    },
+    {
+      "id": "plot_kill_formless_flesh_3",
+      "region": "warrens",
+      "boss": "formless_flesh",
+      "difficulty": "highest",
+      "source": "content_query"
+    },
+    {
+      "id": "plot_kill_swine_prince_3",
+      "region": "warrens",
+      "boss": "swine_prince",
+      "difficulty": "highest",
+      "source": "content_query"
+    },
+    {
+      "id": "plot_kill_brigand_cannon_3",
+      "region": "weald",
+      "boss": "brigand_cannon",
+      "difficulty": "highest",
+      "source": "content_query"
+    },
+    {
+      "id": "plot_kill_hag_3",
+      "region": "weald",
+      "boss": "hag",
+      "difficulty": "highest",
+      "source": "content_query"
+    },
+    {
+      "id": "plot_kill_drowned_crew_3",
+      "region": "cove",
+      "boss": "drowned_crew",
+      "difficulty": "highest",
+      "source": "content_query"
+    },
+    {
+      "id": "plot_kill_siren_3",
+      "region": "cove",
+      "boss": "siren",
       "difficulty": "highest",
       "source": "content_query"
     }

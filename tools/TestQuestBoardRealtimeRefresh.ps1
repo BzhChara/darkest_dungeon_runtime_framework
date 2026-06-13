@@ -224,7 +224,7 @@ try {
     }
 
     $questIds = @(Read-QuestIds)
-    Assert-True ($questIds.Count -eq 2) "Realtime quest board refresh should write two fixed boss quests."
+    Assert-True ($questIds.Count -eq 8) "Realtime quest board refresh should write eight fixed boss quests."
     Assert-True ($questIds[0] -eq "plot_kill_necromancer_3") "Realtime quest board refresh should keep the first fixed quest."
     Assert-True ($questIds[1] -eq "plot_kill_prophet_3") "Realtime quest board refresh should keep the second fixed quest."
 

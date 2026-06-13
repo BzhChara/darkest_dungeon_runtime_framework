@@ -218,7 +218,7 @@ internal static partial class ManagedActionSaveApplier
             artifact,
             file.Path,
             [
-                $"ensure {result.SourceCount} {itemKind} ids from {source} amount={count}",
+                $"ensure {result.SourceCount} {itemKind} ids from {source} copies={count}",
                 $"added={result.AddedCount} updated={result.UpdatedCount} unchanged={result.UnchangedCount}"
             ]);
     }
@@ -233,6 +233,112 @@ internal static partial class ManagedActionSaveApplier
     }
 
     private static InventoryEnsureResult EnsureInventoryItemCounts(
+        JsonObject items,
+        IReadOnlyList<string> itemIds,
+        string itemKind,
+        int count,
+        bool writeChanges)
+    {
+        if (itemKind.Equals("trinket", StringComparison.OrdinalIgnoreCase))
+        {
+            return EnsureNonStackableInventoryItemCounts(items, itemIds, itemKind, count, writeChanges);
+        }
+
+        return EnsureStackableInventoryItemCounts(items, itemIds, itemKind, count, writeChanges);
+    }
+
+    private static InventoryEnsureResult EnsureNonStackableInventoryItemCounts(
+        JsonObject items,
+        IReadOnlyList<string> itemIds,
+        string itemKind,
+        int count,
+        bool writeChanges)
+    {
+        var targetIds = new HashSet<string>(itemIds, StringComparer.OrdinalIgnoreCase);
+        var entriesById = new Dictionary<string, List<JsonObject>>(StringComparer.OrdinalIgnoreCase);
+        var maxNumericKey = -1;
+        foreach (var pair in items)
+        {
+            if (int.TryParse(pair.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericKey))
+            {
+                maxNumericKey = Math.Max(maxNumericKey, numericKey);
+            }
+
+            if (pair.Value is JsonObject candidate &&
+                ReadOptionalString(candidate, "type").Equals(itemKind, StringComparison.OrdinalIgnoreCase))
+            {
+                var id = ReadOptionalString(candidate, "id");
+                if (!string.IsNullOrWhiteSpace(id) && targetIds.Contains(id))
+                {
+                    if (!entriesById.TryGetValue(id, out var entries))
+                    {
+                        entries = [];
+                        entriesById[id] = entries;
+                    }
+
+                    entries.Add(candidate);
+                }
+            }
+        }
+
+        var added = 0;
+        var updated = 0;
+        var unchanged = 0;
+        foreach (var itemId in itemIds)
+        {
+            entriesById.TryGetValue(itemId, out var existingEntries);
+            existingEntries ??= [];
+
+            var normalized = NormalizeNonStackableEntryAmounts(existingEntries, writeChanges);
+            updated += normalized;
+
+            var missing = Math.Max(0, count - existingEntries.Count);
+            if (writeChanges)
+            {
+                for (var i = 0; i < missing; i++)
+                {
+                    maxNumericKey++;
+                    items[maxNumericKey.ToString(CultureInfo.InvariantCulture)] = new JsonObject
+                    {
+                        ["id"] = itemId,
+                        ["type"] = itemKind,
+                        ["amount"] = 1
+                    };
+                }
+            }
+
+            added += missing;
+            if (missing == 0 && normalized == 0)
+            {
+                unchanged++;
+            }
+        }
+
+        return new InventoryEnsureResult(itemIds.Count, added, updated, unchanged);
+    }
+
+    private static int NormalizeNonStackableEntryAmounts(IReadOnlyList<JsonObject> entries, bool writeChanges)
+    {
+        var updated = 0;
+        foreach (var entry in entries)
+        {
+            if (ReadOptionalInt(entry, "amount") == 1)
+            {
+                continue;
+            }
+
+            if (writeChanges)
+            {
+                entry["amount"] = 1;
+            }
+
+            updated++;
+        }
+
+        return updated;
+    }
+
+    private static InventoryEnsureResult EnsureStackableInventoryItemCounts(
         JsonObject items,
         IReadOnlyList<string> itemIds,
         string itemKind,

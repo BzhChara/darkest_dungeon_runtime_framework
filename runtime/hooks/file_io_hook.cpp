@@ -46,6 +46,12 @@ using SetFileAttributesAFn = BOOL(WINAPI*)(LPCSTR, DWORD);
 using CloseHandleFn = BOOL(WINAPI*)(HANDLE);
 using GetFileSizeFn = DWORD(WINAPI*)(HANDLE, LPDWORD);
 using GetFileSizeExFn = BOOL(WINAPI*)(HANDLE, PLARGE_INTEGER);
+using GetFileAttributesExWFn = BOOL(WINAPI*)(LPCWSTR, GET_FILEEX_INFO_LEVELS, LPVOID);
+using GetFileAttributesExAFn = BOOL(WINAPI*)(LPCSTR, GET_FILEEX_INFO_LEVELS, LPVOID);
+using FindFirstFileWFn = HANDLE(WINAPI*)(LPCWSTR, LPWIN32_FIND_DATAW);
+using FindFirstFileAFn = HANDLE(WINAPI*)(LPCSTR, LPWIN32_FIND_DATAA);
+using FindFirstFileExWFn = HANDLE(WINAPI*)(LPCWSTR, FINDEX_INFO_LEVELS, LPVOID, FINDEX_SEARCH_OPS, LPVOID, DWORD);
+using FindFirstFileExAFn = HANDLE(WINAPI*)(LPCSTR, FINDEX_INFO_LEVELS, LPVOID, FINDEX_SEARCH_OPS, LPVOID, DWORD);
 using SetFilePointerFn = DWORD(WINAPI*)(HANDLE, LONG, PLONG, DWORD);
 using SetFilePointerExFn = BOOL(WINAPI*)(HANDLE, LARGE_INTEGER, PLARGE_INTEGER, DWORD);
 using CrtOpenFn = int(__cdecl*)(const char*, int, int);
@@ -95,6 +101,18 @@ GetFileSizeFn g_originalKernel32GetFileSize = nullptr;
 GetFileSizeFn g_originalKernelBaseGetFileSize = nullptr;
 GetFileSizeExFn g_originalKernel32GetFileSizeEx = nullptr;
 GetFileSizeExFn g_originalKernelBaseGetFileSizeEx = nullptr;
+GetFileAttributesExWFn g_originalKernel32GetFileAttributesExW = nullptr;
+GetFileAttributesExAFn g_originalKernel32GetFileAttributesExA = nullptr;
+GetFileAttributesExWFn g_originalKernelBaseGetFileAttributesExW = nullptr;
+GetFileAttributesExAFn g_originalKernelBaseGetFileAttributesExA = nullptr;
+FindFirstFileWFn g_originalKernel32FindFirstFileW = nullptr;
+FindFirstFileAFn g_originalKernel32FindFirstFileA = nullptr;
+FindFirstFileWFn g_originalKernelBaseFindFirstFileW = nullptr;
+FindFirstFileAFn g_originalKernelBaseFindFirstFileA = nullptr;
+FindFirstFileExWFn g_originalKernel32FindFirstFileExW = nullptr;
+FindFirstFileExAFn g_originalKernel32FindFirstFileExA = nullptr;
+FindFirstFileExWFn g_originalKernelBaseFindFirstFileExW = nullptr;
+FindFirstFileExAFn g_originalKernelBaseFindFirstFileExA = nullptr;
 SetFilePointerFn g_originalKernel32SetFilePointer = nullptr;
 SetFilePointerFn g_originalKernelBaseSetFilePointer = nullptr;
 SetFilePointerExFn g_originalKernel32SetFilePointerEx = nullptr;
@@ -213,6 +231,12 @@ bool IsFullyQualifiedPath(const std::wstring& path)
     }
 
     return !path.empty() && path[0] == L'\\';
+}
+
+void SplitFileSize(std::uint64_t size, DWORD& high, DWORD& low)
+{
+    high = static_cast<DWORD>((size >> 32) & 0xffffffffu);
+    low = static_cast<DWORD>(size & 0xffffffffu);
 }
 
 std::wstring GetEnvironmentString(const wchar_t* name)
@@ -915,24 +939,44 @@ GetFileSizeExFn OriginalGetFileSizeEx()
     return g_originalKernelBaseGetFileSizeEx ? g_originalKernelBaseGetFileSizeEx : g_originalKernel32GetFileSizeEx;
 }
 
+GetFileAttributesExWFn OriginalGetFileAttributesExW()
+{
+    return g_originalKernelBaseGetFileAttributesExW ? g_originalKernelBaseGetFileAttributesExW : g_originalKernel32GetFileAttributesExW;
+}
+
+GetFileAttributesExAFn OriginalGetFileAttributesExA()
+{
+    return g_originalKernelBaseGetFileAttributesExA ? g_originalKernelBaseGetFileAttributesExA : g_originalKernel32GetFileAttributesExA;
+}
+
+FindFirstFileWFn OriginalFindFirstFileW()
+{
+    return g_originalKernelBaseFindFirstFileW ? g_originalKernelBaseFindFirstFileW : g_originalKernel32FindFirstFileW;
+}
+
+FindFirstFileAFn OriginalFindFirstFileA()
+{
+    return g_originalKernelBaseFindFirstFileA ? g_originalKernelBaseFindFirstFileA : g_originalKernel32FindFirstFileA;
+}
+
+FindFirstFileExWFn OriginalFindFirstFileExW()
+{
+    return g_originalKernelBaseFindFirstFileExW ? g_originalKernelBaseFindFirstFileExW : g_originalKernel32FindFirstFileExW;
+}
+
+FindFirstFileExAFn OriginalFindFirstFileExA()
+{
+    return g_originalKernelBaseFindFirstFileExA ? g_originalKernelBaseFindFirstFileExA : g_originalKernel32FindFirstFileExA;
+}
+
 SetFilePointerExFn OriginalSetFilePointerEx()
 {
     return g_originalKernelBaseSetFilePointerEx ? g_originalKernelBaseSetFilePointerEx : g_originalKernel32SetFilePointerEx;
 }
 
-const VirtualRule* FindVirtualRule(const std::wstring& path, DWORD desiredAccess, DWORD creationDisposition)
+const VirtualRule* FindVirtualRuleByPath(const std::wstring& path)
 {
     if (!g_virtualFileEnabled || g_virtualRules.empty())
-    {
-        return nullptr;
-    }
-
-    if (creationDisposition != OPEN_EXISTING)
-    {
-        return nullptr;
-    }
-
-    if ((desiredAccess & GENERIC_WRITE) != 0)
     {
         return nullptr;
     }
@@ -948,6 +992,21 @@ const VirtualRule* FindVirtualRule(const std::wstring& path, DWORD desiredAccess
     }
 
     return nullptr;
+}
+
+const VirtualRule* FindVirtualRule(const std::wstring& path, DWORD desiredAccess, DWORD creationDisposition)
+{
+    if (creationDisposition != OPEN_EXISTING)
+    {
+        return nullptr;
+    }
+
+    if ((desiredAccess & GENERIC_WRITE) != 0)
+    {
+        return nullptr;
+    }
+
+    return FindVirtualRuleByPath(path);
 }
 
 bool ReadOriginalFileBytes(const std::wstring& path, std::vector<std::uint8_t>& bytes)
@@ -1022,6 +1081,54 @@ std::size_t ReplaceAll(std::vector<std::uint8_t>& bytes, const std::string& find
 
     bytes.assign(text.begin(), text.end());
     return replacements;
+}
+
+bool TryBuildVirtualBytesForRule(
+    const std::wstring& path,
+    const VirtualRule& rule,
+    std::vector<std::uint8_t>& bytes,
+    std::size_t& sourceSize,
+    std::size_t& replacements)
+{
+    std::wstring sourcePath = rule.sourcePath.empty() ? path : rule.sourcePath;
+    if (!ReadOriginalFileBytes(sourcePath, bytes))
+    {
+        return false;
+    }
+
+    sourceSize = bytes.size();
+    replacements = 0;
+    for (const ReplacementRule& replacement : rule.replacements)
+    {
+        replacements += ReplaceAll(bytes, replacement.find, replacement.replace);
+    }
+
+    if (!rule.replacements.empty() && replacements == 0)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool TryGetVirtualFileSize(const std::wstring& path, std::uint64_t& size)
+{
+    const VirtualRule* rule = FindVirtualRuleByPath(path);
+    if (rule == nullptr)
+    {
+        return false;
+    }
+
+    std::vector<std::uint8_t> bytes;
+    std::size_t sourceSize = 0;
+    std::size_t replacements = 0;
+    if (!TryBuildVirtualBytesForRule(path, *rule, bytes, sourceSize, replacements))
+    {
+        return false;
+    }
+
+    size = static_cast<std::uint64_t>(bytes.size());
+    return true;
 }
 
 std::wstring BuildVirtualTempFilePath()
@@ -1131,7 +1238,9 @@ HANDLE CreateVirtualFileHandle(const std::wstring& path, DWORD desiredAccess, DW
 
     std::vector<std::uint8_t> bytes;
     std::wstring sourcePath = rule->sourcePath.empty() ? path : rule->sourcePath;
-    if (!ReadOriginalFileBytes(sourcePath, bytes))
+    std::size_t sourceSize = 0;
+    std::size_t replacements = 0;
+    if (!TryBuildVirtualBytesForRule(path, *rule, bytes, sourceSize, replacements))
     {
         if (rule->sourcePath.empty())
         {
@@ -1141,19 +1250,6 @@ HANDLE CreateVirtualFileHandle(const std::wstring& path, DWORD desiredAccess, DW
         {
             Logger::Warn(L"virtual-file failed to read source: target=" + path + L" source=" + sourcePath);
         }
-        return INVALID_HANDLE_VALUE;
-    }
-
-    std::size_t sourceSize = bytes.size();
-    std::size_t replacements = 0;
-    for (const ReplacementRule& replacement : rule->replacements)
-    {
-        replacements += ReplaceAll(bytes, replacement.find, replacement.replace);
-    }
-
-    if (!rule->replacements.empty() && replacements == 0)
-    {
-        Logger::Warn(L"virtual-file rule matched but no replacement text was found: " + path);
         return INVALID_HANDLE_VALUE;
     }
 
@@ -2017,6 +2113,179 @@ BOOL CallOriginalGetFileSizeEx(GetFileSizeExFn original, HANDLE handle, PLARGE_I
     return TRUE;
 }
 
+void ApplyVirtualSizeToFindData(WIN32_FIND_DATAW& data, std::uint64_t size)
+{
+    SplitFileSize(size, data.nFileSizeHigh, data.nFileSizeLow);
+}
+
+void ApplyVirtualSizeToFindData(WIN32_FIND_DATAA& data, std::uint64_t size)
+{
+    SplitFileSize(size, data.nFileSizeHigh, data.nFileSizeLow);
+}
+
+void ApplyVirtualSizeToAttributeData(WIN32_FILE_ATTRIBUTE_DATA& data, std::uint64_t size)
+{
+    SplitFileSize(size, data.nFileSizeHigh, data.nFileSizeLow);
+}
+
+BOOL CallOriginalGetFileAttributesExW(
+    GetFileAttributesExWFn original,
+    LPCWSTR fileName,
+    GET_FILEEX_INFO_LEVELS infoLevelId,
+    LPVOID fileInformation)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    BOOL result = original(fileName, infoLevelId, fileInformation);
+    if (!result || infoLevelId != GetFileExInfoStandard || fileInformation == nullptr || fileName == nullptr)
+    {
+        return result;
+    }
+
+    std::uint64_t virtualSize = 0;
+    if (TryGetVirtualFileSize(fileName, virtualSize))
+    {
+        ApplyVirtualSizeToAttributeData(*reinterpret_cast<WIN32_FILE_ATTRIBUTE_DATA*>(fileInformation), virtualSize);
+    }
+
+    return result;
+}
+
+BOOL CallOriginalGetFileAttributesExA(
+    GetFileAttributesExAFn original,
+    LPCSTR fileName,
+    GET_FILEEX_INFO_LEVELS infoLevelId,
+    LPVOID fileInformation)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return FALSE;
+    }
+
+    BOOL result = original(fileName, infoLevelId, fileInformation);
+    if (!result || infoLevelId != GetFileExInfoStandard || fileInformation == nullptr || fileName == nullptr)
+    {
+        return result;
+    }
+
+    std::uint64_t virtualSize = 0;
+    if (TryGetVirtualFileSize(AnsiToWide(fileName), virtualSize))
+    {
+        ApplyVirtualSizeToAttributeData(*reinterpret_cast<WIN32_FILE_ATTRIBUTE_DATA*>(fileInformation), virtualSize);
+    }
+
+    return result;
+}
+
+HANDLE CallOriginalFindFirstFileW(FindFirstFileWFn original, LPCWSTR fileName, LPWIN32_FIND_DATAW findFileData)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE result = original(fileName, findFileData);
+    if (result != INVALID_HANDLE_VALUE && findFileData != nullptr && fileName != nullptr)
+    {
+        std::uint64_t virtualSize = 0;
+        if (TryGetVirtualFileSize(fileName, virtualSize))
+        {
+            ApplyVirtualSizeToFindData(*findFileData, virtualSize);
+        }
+    }
+
+    return result;
+}
+
+HANDLE CallOriginalFindFirstFileA(FindFirstFileAFn original, LPCSTR fileName, LPWIN32_FIND_DATAA findFileData)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE result = original(fileName, findFileData);
+    if (result != INVALID_HANDLE_VALUE && findFileData != nullptr && fileName != nullptr)
+    {
+        std::uint64_t virtualSize = 0;
+        if (TryGetVirtualFileSize(AnsiToWide(fileName), virtualSize))
+        {
+            ApplyVirtualSizeToFindData(*findFileData, virtualSize);
+        }
+    }
+
+    return result;
+}
+
+HANDLE CallOriginalFindFirstFileExW(
+    FindFirstFileExWFn original,
+    LPCWSTR fileName,
+    FINDEX_INFO_LEVELS infoLevelId,
+    LPVOID findFileData,
+    FINDEX_SEARCH_OPS searchOp,
+    LPVOID searchFilter,
+    DWORD additionalFlags)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE result = original(fileName, infoLevelId, findFileData, searchOp, searchFilter, additionalFlags);
+    if (result != INVALID_HANDLE_VALUE &&
+        (infoLevelId == FindExInfoStandard || infoLevelId == FindExInfoBasic) &&
+        findFileData != nullptr &&
+        fileName != nullptr)
+    {
+        std::uint64_t virtualSize = 0;
+        if (TryGetVirtualFileSize(fileName, virtualSize))
+        {
+            ApplyVirtualSizeToFindData(*reinterpret_cast<WIN32_FIND_DATAW*>(findFileData), virtualSize);
+        }
+    }
+
+    return result;
+}
+
+HANDLE CallOriginalFindFirstFileExA(
+    FindFirstFileExAFn original,
+    LPCSTR fileName,
+    FINDEX_INFO_LEVELS infoLevelId,
+    LPVOID findFileData,
+    FINDEX_SEARCH_OPS searchOp,
+    LPVOID searchFilter,
+    DWORD additionalFlags)
+{
+    if (original == nullptr)
+    {
+        SetLastError(ERROR_INVALID_FUNCTION);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE result = original(fileName, infoLevelId, findFileData, searchOp, searchFilter, additionalFlags);
+    if (result != INVALID_HANDLE_VALUE &&
+        (infoLevelId == FindExInfoStandard || infoLevelId == FindExInfoBasic) &&
+        findFileData != nullptr &&
+        fileName != nullptr)
+    {
+        std::uint64_t virtualSize = 0;
+        if (TryGetVirtualFileSize(AnsiToWide(fileName), virtualSize))
+        {
+            ApplyVirtualSizeToFindData(*reinterpret_cast<WIN32_FIND_DATAA*>(findFileData), virtualSize);
+        }
+    }
+
+    return result;
+}
+
 std::uint64_t SeekVirtualFile(VirtualFile& virtualFile, LARGE_INTEGER distance, DWORD moveMethod, bool& ok)
 {
     LONGLONG base = 0;
@@ -2213,6 +2482,42 @@ BOOL WINAPI name(HANDLE file, PLARGE_INTEGER size) \
     return CallOriginalGetFileSizeEx(original, file, size); \
 }
 
+#define DEFINE_GETFILEATTRIBUTESEXW_DETOUR(name, original) \
+BOOL WINAPI name(LPCWSTR fileName, GET_FILEEX_INFO_LEVELS infoLevelId, LPVOID fileInformation) \
+{ \
+    return CallOriginalGetFileAttributesExW(original, fileName, infoLevelId, fileInformation); \
+}
+
+#define DEFINE_GETFILEATTRIBUTESEXA_DETOUR(name, original) \
+BOOL WINAPI name(LPCSTR fileName, GET_FILEEX_INFO_LEVELS infoLevelId, LPVOID fileInformation) \
+{ \
+    return CallOriginalGetFileAttributesExA(original, fileName, infoLevelId, fileInformation); \
+}
+
+#define DEFINE_FINDFIRSTFILEW_DETOUR(name, original) \
+HANDLE WINAPI name(LPCWSTR fileName, LPWIN32_FIND_DATAW findFileData) \
+{ \
+    return CallOriginalFindFirstFileW(original, fileName, findFileData); \
+}
+
+#define DEFINE_FINDFIRSTFILEA_DETOUR(name, original) \
+HANDLE WINAPI name(LPCSTR fileName, LPWIN32_FIND_DATAA findFileData) \
+{ \
+    return CallOriginalFindFirstFileA(original, fileName, findFileData); \
+}
+
+#define DEFINE_FINDFIRSTFILEEXW_DETOUR(name, original) \
+HANDLE WINAPI name(LPCWSTR fileName, FINDEX_INFO_LEVELS infoLevelId, LPVOID findFileData, FINDEX_SEARCH_OPS searchOp, LPVOID searchFilter, DWORD additionalFlags) \
+{ \
+    return CallOriginalFindFirstFileExW(original, fileName, infoLevelId, findFileData, searchOp, searchFilter, additionalFlags); \
+}
+
+#define DEFINE_FINDFIRSTFILEEXA_DETOUR(name, original) \
+HANDLE WINAPI name(LPCSTR fileName, FINDEX_INFO_LEVELS infoLevelId, LPVOID findFileData, FINDEX_SEARCH_OPS searchOp, LPVOID searchFilter, DWORD additionalFlags) \
+{ \
+    return CallOriginalFindFirstFileExA(original, fileName, infoLevelId, findFileData, searchOp, searchFilter, additionalFlags); \
+}
+
 #define DEFINE_SETFILEPOINTER_DETOUR(name, original) \
 DWORD WINAPI name(HANDLE file, LONG distanceLow, PLONG distanceHigh, DWORD moveMethod) \
 { \
@@ -2288,6 +2593,18 @@ DEFINE_GETFILESIZE_DETOUR(DetourKernel32GetFileSize, g_originalKernel32GetFileSi
 DEFINE_GETFILESIZE_DETOUR(DetourKernelBaseGetFileSize, g_originalKernelBaseGetFileSize)
 DEFINE_GETFILESIZEEX_DETOUR(DetourKernel32GetFileSizeEx, g_originalKernel32GetFileSizeEx)
 DEFINE_GETFILESIZEEX_DETOUR(DetourKernelBaseGetFileSizeEx, g_originalKernelBaseGetFileSizeEx)
+DEFINE_GETFILEATTRIBUTESEXW_DETOUR(DetourKernel32GetFileAttributesExW, g_originalKernel32GetFileAttributesExW)
+DEFINE_GETFILEATTRIBUTESEXA_DETOUR(DetourKernel32GetFileAttributesExA, g_originalKernel32GetFileAttributesExA)
+DEFINE_GETFILEATTRIBUTESEXW_DETOUR(DetourKernelBaseGetFileAttributesExW, g_originalKernelBaseGetFileAttributesExW)
+DEFINE_GETFILEATTRIBUTESEXA_DETOUR(DetourKernelBaseGetFileAttributesExA, g_originalKernelBaseGetFileAttributesExA)
+DEFINE_FINDFIRSTFILEW_DETOUR(DetourKernel32FindFirstFileW, g_originalKernel32FindFirstFileW)
+DEFINE_FINDFIRSTFILEA_DETOUR(DetourKernel32FindFirstFileA, g_originalKernel32FindFirstFileA)
+DEFINE_FINDFIRSTFILEW_DETOUR(DetourKernelBaseFindFirstFileW, g_originalKernelBaseFindFirstFileW)
+DEFINE_FINDFIRSTFILEA_DETOUR(DetourKernelBaseFindFirstFileA, g_originalKernelBaseFindFirstFileA)
+DEFINE_FINDFIRSTFILEEXW_DETOUR(DetourKernel32FindFirstFileExW, g_originalKernel32FindFirstFileExW)
+DEFINE_FINDFIRSTFILEEXA_DETOUR(DetourKernel32FindFirstFileExA, g_originalKernel32FindFirstFileExA)
+DEFINE_FINDFIRSTFILEEXW_DETOUR(DetourKernelBaseFindFirstFileExW, g_originalKernelBaseFindFirstFileExW)
+DEFINE_FINDFIRSTFILEEXA_DETOUR(DetourKernelBaseFindFirstFileExA, g_originalKernelBaseFindFirstFileExA)
 DEFINE_SETFILEPOINTER_DETOUR(DetourKernel32SetFilePointer, g_originalKernel32SetFilePointer)
 DEFINE_SETFILEPOINTER_DETOUR(DetourKernelBaseSetFilePointer, g_originalKernelBaseSetFilePointer)
 DEFINE_SETFILEPOINTEREX_DETOUR(DetourKernel32SetFilePointerEx, g_originalKernel32SetFilePointerEx)
@@ -2393,6 +2710,18 @@ void FileIoHook::InitializeFromEnvironment()
     createdAny |= CreateApiHook(L"KernelBase.dll", "GetFileSize", reinterpret_cast<LPVOID>(&DetourKernelBaseGetFileSize), reinterpret_cast<LPVOID*>(&g_originalKernelBaseGetFileSize));
     createdAny |= CreateApiHook(L"kernel32.dll", "GetFileSizeEx", reinterpret_cast<LPVOID>(&DetourKernel32GetFileSizeEx), reinterpret_cast<LPVOID*>(&g_originalKernel32GetFileSizeEx));
     createdAny |= CreateApiHook(L"KernelBase.dll", "GetFileSizeEx", reinterpret_cast<LPVOID>(&DetourKernelBaseGetFileSizeEx), reinterpret_cast<LPVOID*>(&g_originalKernelBaseGetFileSizeEx));
+    createdAny |= CreateApiHook(L"kernel32.dll", "GetFileAttributesExW", reinterpret_cast<LPVOID>(&DetourKernel32GetFileAttributesExW), reinterpret_cast<LPVOID*>(&g_originalKernel32GetFileAttributesExW));
+    createdAny |= CreateApiHook(L"kernel32.dll", "GetFileAttributesExA", reinterpret_cast<LPVOID>(&DetourKernel32GetFileAttributesExA), reinterpret_cast<LPVOID*>(&g_originalKernel32GetFileAttributesExA));
+    createdAny |= CreateApiHook(L"KernelBase.dll", "GetFileAttributesExW", reinterpret_cast<LPVOID>(&DetourKernelBaseGetFileAttributesExW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseGetFileAttributesExW));
+    createdAny |= CreateApiHook(L"KernelBase.dll", "GetFileAttributesExA", reinterpret_cast<LPVOID>(&DetourKernelBaseGetFileAttributesExA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseGetFileAttributesExA));
+    createdAny |= CreateApiHook(L"kernel32.dll", "FindFirstFileW", reinterpret_cast<LPVOID>(&DetourKernel32FindFirstFileW), reinterpret_cast<LPVOID*>(&g_originalKernel32FindFirstFileW));
+    createdAny |= CreateApiHook(L"kernel32.dll", "FindFirstFileA", reinterpret_cast<LPVOID>(&DetourKernel32FindFirstFileA), reinterpret_cast<LPVOID*>(&g_originalKernel32FindFirstFileA));
+    createdAny |= CreateApiHook(L"KernelBase.dll", "FindFirstFileW", reinterpret_cast<LPVOID>(&DetourKernelBaseFindFirstFileW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseFindFirstFileW));
+    createdAny |= CreateApiHook(L"KernelBase.dll", "FindFirstFileA", reinterpret_cast<LPVOID>(&DetourKernelBaseFindFirstFileA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseFindFirstFileA));
+    createdAny |= CreateApiHook(L"kernel32.dll", "FindFirstFileExW", reinterpret_cast<LPVOID>(&DetourKernel32FindFirstFileExW), reinterpret_cast<LPVOID*>(&g_originalKernel32FindFirstFileExW));
+    createdAny |= CreateApiHook(L"kernel32.dll", "FindFirstFileExA", reinterpret_cast<LPVOID>(&DetourKernel32FindFirstFileExA), reinterpret_cast<LPVOID*>(&g_originalKernel32FindFirstFileExA));
+    createdAny |= CreateApiHook(L"KernelBase.dll", "FindFirstFileExW", reinterpret_cast<LPVOID>(&DetourKernelBaseFindFirstFileExW), reinterpret_cast<LPVOID*>(&g_originalKernelBaseFindFirstFileExW));
+    createdAny |= CreateApiHook(L"KernelBase.dll", "FindFirstFileExA", reinterpret_cast<LPVOID>(&DetourKernelBaseFindFirstFileExA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseFindFirstFileExA));
     createdAny |= CreateApiHook(L"kernel32.dll", "SetFilePointer", reinterpret_cast<LPVOID>(&DetourKernel32SetFilePointer), reinterpret_cast<LPVOID*>(&g_originalKernel32SetFilePointer));
     createdAny |= CreateApiHook(L"KernelBase.dll", "SetFilePointer", reinterpret_cast<LPVOID>(&DetourKernelBaseSetFilePointer), reinterpret_cast<LPVOID*>(&g_originalKernelBaseSetFilePointer));
     createdAny |= CreateApiHook(L"kernel32.dll", "SetFilePointerEx", reinterpret_cast<LPVOID>(&DetourKernel32SetFilePointerEx), reinterpret_cast<LPVOID*>(&g_originalKernel32SetFilePointerEx));
