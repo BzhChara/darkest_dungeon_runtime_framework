@@ -14,6 +14,7 @@ internal sealed class PatchPlan
         IReadOnlyList<FactEventRuleSource> sourceFactEventRules,
         IReadOnlyList<FactEventRuleSkip> skippedFactEventRules,
         IReadOnlyList<ContentReferenceValidationReport> contentReferenceReports,
+        IReadOnlyList<QuestBoardPolicyValidationReport> questBoardPolicyReports,
         IReadOnlyList<VirtualFileRule> effectiveVirtualFileRules,
         IReadOnlyList<PatchCompileIssue> compileIssues)
     {
@@ -28,6 +29,7 @@ internal sealed class PatchPlan
         SourceFactEventRules = sourceFactEventRules;
         SkippedFactEventRules = skippedFactEventRules;
         ContentReferenceReports = contentReferenceReports;
+        QuestBoardPolicyReports = questBoardPolicyReports;
         EffectiveVirtualFileRules = effectiveVirtualFileRules;
         CompileIssues = compileIssues;
     }
@@ -43,6 +45,7 @@ internal sealed class PatchPlan
     public IReadOnlyList<FactEventRuleSource> SourceFactEventRules { get; }
     public IReadOnlyList<FactEventRuleSkip> SkippedFactEventRules { get; }
     public IReadOnlyList<ContentReferenceValidationReport> ContentReferenceReports { get; }
+    public IReadOnlyList<QuestBoardPolicyValidationReport> QuestBoardPolicyReports { get; }
     public IReadOnlyList<VirtualFileRule> EffectiveVirtualFileRules { get; }
     public IReadOnlyList<PatchCompileIssue> CompileIssues { get; }
     public bool HasCompileErrors => CompileIssues.Any(issue => issue.IsError);
@@ -58,8 +61,18 @@ internal sealed class PatchPlan
                 $"priority={manifest.Priority} capabilities={FormatLogList(manifest.Capabilities)} " +
                 $"virtualRules={manifest.VirtualFileRuleCount} mapTemplates={manifest.MapTemplateRuleCount} " +
                 $"mapLayoutTemplates={manifest.MapLayoutTemplateRuleCount} questChains={manifest.QuestChainRuleCount} " +
-                $"contentRefs={manifest.ContentReferenceRuleCount} eventRules={manifest.EventRuleCount} " +
+                $"questBoardPolicies={manifest.QuestBoardPolicyRuleCount} contentRefs={manifest.ContentReferenceRuleCount} eventRules={manifest.EventRuleCount} " +
                 $"factEventRules={manifest.FactEventRuleCount} path={manifest.Path}");
+        }
+
+        log.Info($"Quest board policy reports: {QuestBoardPolicyReports.Count}");
+        foreach (var report in QuestBoardPolicyReports)
+        {
+            log.Info(
+                $"quest-board-policy-summary plugin={report.PluginId} id={report.Id} mode={report.Mode} entries={report.EntryCount} " +
+                $"fixedEntries={report.FixedEntryCount} randomEntries={report.RandomEntryCount} " +
+                $"triggers={FormatLogList(report.RefreshTriggers)} succeeded={report.Succeeded} " +
+                $"issues={report.Issues.Count} report={QuoteLogValue(report.ReportPath)}");
         }
 
         log.Info($"Content reference reports: {ContentReferenceReports.Count}");
@@ -131,7 +144,8 @@ internal sealed class PatchPlan
                 $"name={manifest.Name} phase={manifest.Phase} priority={manifest.Priority} " +
                 $"capabilities={FormatLogList(manifest.Capabilities)} virtualRules={manifest.VirtualFileRuleCount} " +
                 $"mapTemplates={manifest.MapTemplateRuleCount} mapLayoutTemplates={manifest.MapLayoutTemplateRuleCount} " +
-                $"questChains={manifest.QuestChainRuleCount} contentRefs={manifest.ContentReferenceRuleCount} " +
+                $"questChains={manifest.QuestChainRuleCount} questBoardPolicies={manifest.QuestBoardPolicyRuleCount} " +
+                $"contentRefs={manifest.ContentReferenceRuleCount} " +
                 $"eventRules={manifest.EventRuleCount} factEventRules={manifest.FactEventRuleCount} " +
                 $"skipReason={QuoteLogValue(manifest.SkipReason)} path={manifest.Path}");
         }
@@ -169,6 +183,31 @@ internal sealed class PatchPlan
                     $"matches={reference.Matches.Count} candidates={reference.CandidateCount} " +
                     $"duplicates={reference.HasDuplicateCandidates} firstProvider={QuoteLogValue(firstMatch?.Provider ?? string.Empty)} " +
                     $"firstPath={QuoteLogValue(firstMatch?.SourcePath ?? string.Empty)} source={QuoteLogValue(reference.SourcePath)}");
+            }
+        }
+
+        foreach (var report in QuestBoardPolicyReports)
+        {
+            log.Info(
+                $"patch-explain-quest-board-policy plugin={report.PluginId} id={report.Id} mode={report.Mode} " +
+                $"entries={report.EntryCount} fixedEntries={report.FixedEntryCount} randomEntries={report.RandomEntryCount} " +
+                $"triggers={FormatLogList(report.RefreshTriggers)} succeeded={report.Succeeded} " +
+                $"issues={report.Issues.Count} report={QuoteLogValue(report.ReportPath)}");
+
+            foreach (var entry in report.Entries)
+            {
+                log.Info(
+                    $"patch-explain-quest-board-policy-entry plugin={report.PluginId} policy={report.Id} index={entry.Index} " +
+                    $"id={QuoteLogValue(entry.Id)} questId={QuoteLogValue(entry.QuestId)} " +
+                    $"sourceQuestId={QuoteLogValue(entry.SourceQuestId)} effectiveQuestId={QuoteLogValue(entry.EffectiveQuestId)} " +
+                    $"pool={QuoteLogValue(entry.Pool)} weight={entry.Weight?.ToString(CultureInfo.InvariantCulture) ?? "\"\""} " +
+                    $"onCompleted={entry.OnCompleted} required={entry.Required} " +
+                    $"completedQuests={FormatLogList(entry.AvailableWhen.CompletedQuests)} " +
+                    $"notCompletedQuests={FormatLogList(entry.AvailableWhen.NotCompletedQuests)} " +
+                    $"weekGte={entry.AvailableWhen.WeekGte?.ToString(CultureInfo.InvariantCulture) ?? "\"\""} " +
+                    $"weekLte={entry.AvailableWhen.WeekLte?.ToString(CultureInfo.InvariantCulture) ?? "\"\""} " +
+                    $"weekEq={entry.AvailableWhen.WeekEq?.ToString(CultureInfo.InvariantCulture) ?? "\"\""} " +
+                    $"phase={QuoteLogValue(entry.AvailableWhen.Phase)} stateKey={QuoteLogValue(entry.AvailableWhen.StateKey)}");
             }
         }
 
@@ -339,6 +378,7 @@ internal sealed record PatchManifestInfo(
     int MapTemplateRuleCount,
     int MapLayoutTemplateRuleCount,
     int QuestChainRuleCount,
+    int QuestBoardPolicyRuleCount,
     int ContentReferenceRuleCount,
     int EventRuleCount,
     int FactEventRuleCount,
@@ -404,6 +444,7 @@ internal sealed class PluginManifestCandidate
     public int MapTemplateRuleCount => Manifest.MapTemplates.Length;
     public int MapLayoutTemplateRuleCount => Manifest.MapLayoutTemplates.Length;
     public int QuestChainRuleCount => Manifest.QuestChains.Length;
+    public int QuestBoardPolicyRuleCount => Manifest.QuestBoardPolicies.Length;
     public int ContentReferenceRuleCount => Manifest.ContentRefs.EnumerateRules().Count() + Manifest.Modules.ContentRefs.Length;
     public int EventRuleCount => Manifest.EventRules.Length;
     public int FactEventRuleCount => Manifest.FactEventRules.Length;

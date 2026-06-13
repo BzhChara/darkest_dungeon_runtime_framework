@@ -54,6 +54,7 @@ The framework should provide first-class primitives for combining external conte
 | `encounters` | define exact monster lineups by referenced monster ids, rank positions, and selection conditions |
 | `spawnPools` | add, replace, remove, or reweight encounter ids for a dungeon, difficulty, phase, or quest |
 | `questChains` | define stage order, unlock conditions, quest-board behavior, and phase transitions |
+| `questBoardPolicies` | define quest-board eligibility, refresh triggers, completion handling, and scheduling facts over referenced quests |
 | `mapLayoutTemplates` | define topology, room/corridor routes, tile content, and references to encounters or curios |
 | `lootPolicies` | choose which existing loot tables or item ids are awarded by phase, stage, result, or rule |
 | `resourcePolicies` | control starting resources, reward resources, consumption, and recovery rules |
@@ -230,21 +231,26 @@ Example shape:
       { "id": "ghost_samurai_A", "provider": "workshop", "required": true }
     ]
   },
-  "questBoardPolicy": {
-    "mode": "mixed",
-    "refreshTriggers": ["immediateOnQuestComplete", "onWeekAdvance"],
-    "entries": [
-      {
-        "questId": "plot_samurai",
-        "availableWhen": {
-          "completedQuest": "plot_lions",
-          "weekGte": 5
-        },
-        "onCompleted": "remove"
-      }
-    ]
-  }
+  "questBoardPolicies": [
+    {
+      "id": "samurai_board_policy",
+      "mode": "mixed",
+      "refreshTriggers": ["immediateOnQuestComplete", "onWeekAdvance"],
+      "entries": [
+        {
+          "questId": "plot_samurai",
+          "availableWhen": {
+            "completedQuest": "plot_lions",
+            "weekGte": 5
+          },
+          "onCompleted": "remove"
+        }
+      ]
+    }
+  ]
 }
 ```
 
 The exact schema can evolve, but the boundary should stay stable: static content packs provide ids and files; the framework decides if, when, and how those ids participate in runtime gameplay.
+
+`questBoardPolicies` now has a first validation/reporting slice. It writes structured facts under `modStateDirectory/_quest_board_policies/<plugin-id>/` and appears in `--explain-patches`; it does not yet generate the live board by itself. See `docs/quest_board_policies.md`.

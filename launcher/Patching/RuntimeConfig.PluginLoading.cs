@@ -11,6 +11,7 @@ internal sealed partial class RuntimeConfig
         var sourceFactEventRules = new List<FactEventRuleSource>();
         var skippedFactEventRules = new List<FactEventRuleSkip>();
         var stateSchemas = new List<PluginStateSchemaSource>();
+        var questBoardPolicyReports = new List<QuestBoardPolicyValidationReport>();
         var compileIssues = new List<PatchCompileIssue>();
         var manifestName = string.IsNullOrWhiteSpace(PluginPatchManifestName) ? "patches.json" : PluginPatchManifestName;
         var pluginCandidates = DiscoverPluginPatchManifests(projectRoot, manifestName, log).ToList();
@@ -64,9 +65,16 @@ internal sealed partial class RuntimeConfig
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
                 $"virtualRules={plugin.VirtualFileRuleCount} mapTemplates={plugin.MapTemplateRuleCount} " +
                 $"mapLayoutTemplates={plugin.MapLayoutTemplateRuleCount} questChains={plugin.QuestChainRuleCount} " +
-                $"contentRefs={plugin.ContentReferenceRuleCount} eventRules={plugin.EventRuleCount} " +
+                $"questBoardPolicies={plugin.QuestBoardPolicyRuleCount} contentRefs={plugin.ContentReferenceRuleCount} eventRules={plugin.EventRuleCount} " +
                 $"factEventRules={plugin.FactEventRuleCount} path={plugin.Path}");
             AddQuestChainReports(
+                compileIssues,
+                plugin,
+                activePluginIds,
+                activeCapabilities,
+                log);
+            AddQuestBoardPolicyReports(
+                questBoardPolicyReports,
                 compileIssues,
                 plugin,
                 activePluginIds,
@@ -131,6 +139,7 @@ internal sealed partial class RuntimeConfig
             sourceFactEventRules,
             skippedFactEventRules,
             contentReferenceValidation.Reports,
+            questBoardPolicyReports,
             BuildEffectiveVirtualRules(projectRoot, sourceRules, compileIssues, log),
             compileIssues);
     }
@@ -212,6 +221,60 @@ internal sealed partial class RuntimeConfig
                     ruleIndex,
                     0,
                     $"questChains/{chain.Id}",
+                    $"{issue.Code} at {issue.Path}: {issue.Message}");
+            }
+        }
+    }
+
+    private void AddQuestBoardPolicyReports(
+        List<QuestBoardPolicyValidationReport> reports,
+        List<PatchCompileIssue> compileIssues,
+        PluginManifestCandidate plugin,
+        IReadOnlySet<string> activePluginIds,
+        IReadOnlySet<string> activeCapabilities,
+        LauncherLog log)
+    {
+        var reportDirectory = Path.Combine(ModStateDirectory, "_quest_board_policies", SafeFileName(plugin.Id));
+        for (var index = 0; index < plugin.Manifest.QuestBoardPolicies.Length; index++)
+        {
+            var policy = plugin.Manifest.QuestBoardPolicies[index];
+            var ruleIndex = index + 1;
+            var condition = EvaluatePatchCondition(policy.When, activePluginIds, activeCapabilities);
+            if (!condition.Matched)
+            {
+                log.Info(
+                    $"quest-board-policy-skipped source={plugin.SourceName} rule={ruleIndex} " +
+                    $"id={QuoteLogValue(policy.Id)} reason={QuoteLogValue(condition.Reason)}");
+                continue;
+            }
+
+            var reportBaseName = $"{ruleIndex:000}_{SafeFileName(string.IsNullOrWhiteSpace(policy.Id) ? "quest_board_policy" : policy.Id)}";
+            var reportPath = Path.Combine(reportDirectory, reportBaseName + ".validation.json");
+            var report = QuestBoardPolicyValidator.WriteValidationReport(
+                policy,
+                ruleIndex,
+                plugin.Id,
+                plugin.SourceName,
+                plugin.Path,
+                reportPath);
+            reports.Add(report);
+
+            log.Info(
+                $"quest-board-policy source={plugin.SourceName} rule={ruleIndex} " +
+                $"id={QuoteLogValue(policy.Id)} mode={QuoteLogValue(report.Mode)} " +
+                $"entries={report.EntryCount} triggers={FormatLogList(report.RefreshTriggers)} " +
+                $"succeeded={report.Succeeded} issues={report.Issues.Count} report={QuoteLogValue(reportPath)}");
+
+            foreach (var issue in report.Issues.Where(issue => issue.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)))
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    $"questBoardPolicies/{policy.Id}",
                     $"{issue.Code} at {issue.Path}: {issue.Message}");
             }
         }
@@ -667,6 +730,7 @@ internal sealed partial class RuntimeConfig
                 candidate.MapTemplateRuleCount,
                 candidate.MapLayoutTemplateRuleCount,
                 candidate.QuestChainRuleCount,
+                candidate.QuestBoardPolicyRuleCount,
                 candidate.ContentReferenceRuleCount,
                 candidate.EventRuleCount,
                 candidate.FactEventRuleCount,

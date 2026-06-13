@@ -56,6 +56,9 @@ internal sealed class PluginPatchManifest
     [JsonPropertyName("questChains")]
     public QuestChainRule[] QuestChains { get; set; } = [];
 
+    [JsonPropertyName("questBoardPolicies")]
+    public QuestBoardPolicyRule[] QuestBoardPolicies { get; set; } = [];
+
     [JsonPropertyName("eventRules")]
     public RuntimeEventRule[] EventRules { get; set; } = [];
 
@@ -95,6 +98,7 @@ internal sealed class PluginPatchManifest
             manifest.MapTemplates ??= [];
             manifest.MapLayoutTemplates ??= [];
             manifest.QuestChains ??= [];
+            manifest.QuestBoardPolicies ??= [];
             manifest.EventRules ??= [];
             manifest.FactEventRules ??= [];
             manifest.StateSchema ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
@@ -145,6 +149,31 @@ internal sealed class PluginPatchManifest
                     stage.MapTemplateId ??= string.Empty;
                     stage.Region ??= string.Empty;
                     stage.Tags ??= [];
+                }
+            }
+
+            foreach (var policy in manifest.QuestBoardPolicies)
+            {
+                policy.Id ??= string.Empty;
+                policy.Name ??= string.Empty;
+                policy.Mode ??= string.Empty;
+                policy.RefreshTriggers ??= [];
+                policy.Entries ??= [];
+                foreach (var entry in policy.Entries)
+                {
+                    entry.Id ??= string.Empty;
+                    entry.QuestId ??= string.Empty;
+                    entry.SourceQuestId ??= string.Empty;
+                    entry.Pool ??= string.Empty;
+                    entry.OnCompleted ??= string.Empty;
+                    entry.AvailableWhen ??= new QuestBoardPolicyAvailableWhenRule();
+                    entry.AvailableWhen.CompletedQuest ??= string.Empty;
+                    entry.AvailableWhen.CompletedQuests ??= [];
+                    entry.AvailableWhen.NotCompletedQuest ??= string.Empty;
+                    entry.AvailableWhen.NotCompletedQuests ??= [];
+                    entry.AvailableWhen.Phase ??= string.Empty;
+                    entry.AvailableWhen.StateKey ??= string.Empty;
+                    entry.AvailableWhen.StateEquals ??= string.Empty;
                 }
             }
 
@@ -639,6 +668,87 @@ internal sealed class QuestChainStageRule
 
     [JsonPropertyName("tags")]
     public string[] Tags { get; set; } = [];
+}
+
+internal sealed class QuestBoardPolicyRule
+{
+    [JsonPropertyName("when")]
+    public PatchCondition? When { get; set; }
+
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("mode")]
+    public string Mode { get; set; } = string.Empty;
+
+    [JsonPropertyName("refreshTriggers")]
+    public string[] RefreshTriggers { get; set; } = [];
+
+    [JsonPropertyName("entries")]
+    public QuestBoardPolicyEntryRule[] Entries { get; set; } = [];
+}
+
+internal sealed class QuestBoardPolicyEntryRule
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("questId")]
+    public string QuestId { get; set; } = string.Empty;
+
+    [JsonPropertyName("sourceQuestId")]
+    public string SourceQuestId { get; set; } = string.Empty;
+
+    [JsonPropertyName("pool")]
+    public string Pool { get; set; } = string.Empty;
+
+    [JsonPropertyName("weight")]
+    public int? Weight { get; set; }
+
+    [JsonPropertyName("availableWhen")]
+    public QuestBoardPolicyAvailableWhenRule AvailableWhen { get; set; } = new();
+
+    [JsonPropertyName("onCompleted")]
+    public string OnCompleted { get; set; } = string.Empty;
+
+    [JsonPropertyName("required")]
+    public bool? Required { get; set; }
+}
+
+internal sealed class QuestBoardPolicyAvailableWhenRule
+{
+    [JsonPropertyName("completedQuest")]
+    public string CompletedQuest { get; set; } = string.Empty;
+
+    [JsonPropertyName("completedQuests")]
+    public string[] CompletedQuests { get; set; } = [];
+
+    [JsonPropertyName("notCompletedQuest")]
+    public string NotCompletedQuest { get; set; } = string.Empty;
+
+    [JsonPropertyName("notCompletedQuests")]
+    public string[] NotCompletedQuests { get; set; } = [];
+
+    [JsonPropertyName("weekGte")]
+    public int? WeekGte { get; set; }
+
+    [JsonPropertyName("weekLte")]
+    public int? WeekLte { get; set; }
+
+    [JsonPropertyName("weekEq")]
+    public int? WeekEq { get; set; }
+
+    [JsonPropertyName("phase")]
+    public string Phase { get; set; } = string.Empty;
+
+    [JsonPropertyName("stateKey")]
+    public string StateKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("stateEquals")]
+    public string StateEquals { get; set; } = string.Empty;
 }
 
 internal sealed class PatchCondition

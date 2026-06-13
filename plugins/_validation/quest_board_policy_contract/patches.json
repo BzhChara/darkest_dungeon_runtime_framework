@@ -1,0 +1,65 @@
+{
+  "id": "validation.quest_board_policy_contract",
+  "name": "Validation - Quest Board Policy Contract",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [
+    "quest_board.policy"
+  ],
+  "phase": "normal",
+  "priority": 18,
+  "contentRefs": {
+    "quests": [
+      {
+        "id": "plot_kill_necromancer_3",
+        "provider": "base",
+        "required": true
+      },
+      {
+        "id": "plot_kill_prophet_3",
+        "provider": "base",
+        "required": true
+      }
+    ]
+  },
+  "questBoardPolicies": [
+    {
+      "id": "validation_boss_gates",
+      "name": "Validation Boss Gates",
+      "mode": "mixed",
+      "refreshTriggers": [
+        "onProfileInitialize",
+        "onWeekAdvance",
+        "immediateOnQuestComplete"
+      ],
+      "entries": [
+        {
+          "id": "champion_necromancer_available_at_week_5",
+          "questId": "plot_kill_necromancer_3",
+          "availableWhen": {
+            "weekGte": 5
+          },
+          "onCompleted": "remove"
+        },
+        {
+          "id": "champion_prophet_after_necromancer",
+          "questId": "plot_kill_prophet_3",
+          "pool": "champion_boss_followups",
+          "weight": 2,
+          "availableWhen": {
+            "completedQuest": "plot_kill_necromancer_3",
+            "weekGte": 6
+          },
+          "onCompleted": "replace"
+        }
+      ]
+    }
+  ],
+  "virtualFileRules": [],
+  "mapTemplates": [],
+  "mapLayoutTemplates": [],
+  "questChains": [],
+  "eventRules": [],
+  "factEventRules": [],
+  "stateSchema": {}
+}

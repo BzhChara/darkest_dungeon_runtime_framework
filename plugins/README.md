@@ -8,7 +8,7 @@
 plugins/<plugin-id>/patches.json
 ```
 
-`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、关卡/章节顺序 `questChains`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。`questChains` 会校验固定顺序 stage、解锁条件和地图模板引用，并写出 sidecar 验证报告；当显式设置 `questBoard.enabled=true` 时，还会生成确定路径的 `questBoard.replaceWithFixedSet` managed action artifact，供启动前内容 overlay、任务板预览、runtime 存档 overlay、显式 decoded-save 写入、受控 profile 任务板刷新，或 save watcher 在 live `persist.quest.json` 变化后自动重刷复用。后续复杂插件不应把所有内容都堆进 `patches.json`；`patches.json` 应作为入口索引，引用 quests/maps/encounters/spawn_pools/contentRefs 等领域文件。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、关卡/章节顺序 `questChains`、任务板调度声明 `questBoardPolicies`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。`questChains` 会校验固定顺序 stage、解锁条件和地图模板引用，并写出 sidecar 验证报告；当显式设置 `questBoard.enabled=true` 时，还会生成确定路径的 `questBoard.replaceWithFixedSet` managed action artifact，供启动前内容 overlay、任务板预览、runtime 存档 overlay、显式 decoded-save 写入、受控 profile 任务板刷新，或 save watcher 在 live `persist.quest.json` 变化后自动重刷复用。`questBoardPolicies` 当前是报告型 primitive：校验任务板可用性条件、刷新触发和完成后处理，写出 sidecar 策略事实，暂不直接改任务板。后续复杂插件不应把所有内容都堆进 `patches.json`；`patches.json` 应作为入口索引，引用 quests/maps/encounters/spawn_pools/contentRefs 等领域文件。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
 
 `eventRules` 可通过 `--emit-event` 执行已实现的安全动作，或为已识别的 managed 动作生成 sidecar artifact。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`；payload 支持有限的通用数组投影，例如 `where` 条件过滤、`whereIn` 成员过滤、展开、字符串化和去重。契约细节见 `docs/capability_rule_contract.md`。
 
@@ -114,6 +114,25 @@ plugins/<plugin-id>/patches.json
       ]
     }
   ],
+  "questBoardPolicies": [
+    {
+      "id": "post_ancestor_board_policy",
+      "name": "Post Ancestor Board Policy",
+      "mode": "mixed",
+      "refreshTriggers": ["onProfileInitialize", "onWeekAdvance", "immediateOnQuestComplete"],
+      "entries": [
+        {
+          "id": "stage_01_after_final_boss",
+          "questId": "plot_dd_4",
+          "availableWhen": {
+            "completedQuest": "plot_final_boss",
+            "weekGte": 5
+          },
+          "onCompleted": "remove"
+        }
+      ]
+    }
+  ],
   "factEventRules": [],
   "eventRules": [],
   "stateSchema": {}
@@ -192,6 +211,15 @@ plugins/author.mod_id/
 - `questBoard.enabled=true` 是显式 opt-in：当前只支持 `mode="replaceWithFixedSet"` 和 `questIdSource="sourceQuestId"`，会把按 stage 顺序得到的原版 plot quest id 写成 `questBoard.replaceWithFixedSet` managed artifact。启动和 `--dry-run` 会把该 artifact 的 active plot quest 同步编译成 `campaign/quest/quest.plot_quests.json` 内容 overlay，将这些 quest 设为早期可用、可重复。
 - 验证报告写入 `modStateDirectory/_quest_chains/<plugin-id>/`；quest-board materialization 报告也写在同目录，managed artifact 写入 `modStateDirectory/_managed_actions/`。这些文件本身不修改原版存档或 UI。
 
+任务板策略：
+
+- `questBoardPolicies[]` 描述任务何时可以出现在任务板，而不是直接定义任务、怪物、地图或美术资源。底层任务内容应优先来自原版、DLC、创意工坊或插件自带 DD 格式文件，并通过 `contentRefs.quests` 声明。
+- `mode` 当前支持 `fixed`、`random`、`mixed`；`refreshTriggers` 当前支持 `onProfileInitialize`、`onWeekAdvance`、`immediateOnQuestComplete`、`manual`。
+- `entries[].availableWhen` 可声明 `completedQuest(s)`、`notCompletedQuest(s)`、`weekGte`、`weekLte`、`weekEq`、`phase`、`stateKey/stateEquals`。
+- `entries[].onCompleted` 当前支持 `keep`、`remove`、`replace`、`advancePhase`。不写时按 `keep` 记录到报告。
+- 当前实现只做 schema 校验、日志解释和 sidecar report，写入 `modStateDirectory/_quest_board_policies/<plugin-id>/`；不会直接修改 `persist.quest.json`、模拟周结算或替换 `questBoard.replaceWithFixedSet`。
+- 详细 schema 见 `docs/quest_board_policies.md`。
+
 第一批能力命名：
 
 - `file.virtualize`
@@ -199,6 +227,7 @@ plugins/author.mod_id/
 - `content.app_config`
 - `content.quest`
 - `quest.chain.define`
+- `quest_board.policy`
 - `content.region`
 - `content.localization`
 - `asset.replace`
@@ -221,6 +250,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 
 - 每个插件的最终 `order`、`status`、`phase`、`priority`、`capabilities` 和跳过原因。
 - 每个插件声明的 `virtualRules`、`mapTemplates` 和 `mapLayoutTemplates` 数量。
+- 每个插件声明的 `questBoardPolicies` 数量，以及启用策略的 mode、refresh trigger、entry 和 availableWhen 摘要。
 - 每条排序边，例如 `mod.a -> mod.b reason=depends`。
 - 重复 id、缺依赖、声明冲突和顺序循环等加载诊断。
 - 每个 `target` 被哪些插件规则修改、哪些规则因 `when` 跳过，以及最终替换来源。
