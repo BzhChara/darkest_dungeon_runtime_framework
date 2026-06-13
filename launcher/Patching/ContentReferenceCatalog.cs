@@ -51,18 +51,27 @@ internal static class ContentReferenceValidator
 
             foreach (var reference in declaration.References)
             {
-                var matches = catalog.Resolve(reference, declaration.Plugin.Id);
+                var resolution = catalog.ResolveDetailed(reference, declaration.Plugin.Id);
+                var matches = resolution.Matches;
+                var candidates = resolution.Candidates;
                 var status = matches.Count > 0
                     ? "satisfied"
                     : reference.Rule.Required ? "missing-required" : "missing-optional";
                 var provider = NormalizeProvider(reference.Rule.Provider);
                 var lookup = reference.Lookup;
                 var matchReports = matches
-                    .Select(match => new ContentReferenceMatchReport(
-                        match.Provider,
-                        match.ProviderId,
-                        match.SourcePath,
-                        match.RelativePath))
+                    .Select(ToMatchReport)
+                    .ToArray();
+                var preferredMatch = matchReports.FirstOrDefault();
+                var candidateReports = candidates
+                    .Select((candidate, index) => new ContentReferenceCandidateReport(
+                        candidate.Provider,
+                        candidate.ProviderId,
+                        candidate.SourcePath,
+                        candidate.RelativePath,
+                        matches.Contains(candidate),
+                        matches.Count > 0 && candidate.Equals(matches[0]),
+                        index))
                     .ToArray();
 
                 referenceReports.Add(new ContentReferenceReportEntry(
@@ -75,7 +84,21 @@ internal static class ContentReferenceValidator
                     status,
                     reference.SourcePath,
                     reference.SourceIndex,
-                    matchReports));
+                    matchReports,
+                    candidates.Count,
+                    candidates.Count > 1,
+                    preferredMatch,
+                    candidateReports));
+
+                if (candidates.Count > 1)
+                {
+                    log.Warn(
+                        $"content-ref duplicate-candidates plugin={declaration.Plugin.Id} category={reference.Category} " +
+                        $"lookup={QuoteLogValue(lookup)} provider={QuoteLogValue(provider)} candidates={candidates.Count} " +
+                        $"matched={matches.Count} preferredProvider={QuoteLogValue(matches.Count > 0 ? matches[0].Provider : string.Empty)} " +
+                        $"preferredPath={QuoteLogValue(matches.Count > 0 ? matches[0].SourcePath : string.Empty)} " +
+                        $"candidateProviders={QuoteLogValue(FormatCandidateProviders(candidates))}");
+                }
 
                 if (matches.Count > 0)
                 {
@@ -123,6 +146,7 @@ internal static class ContentReferenceValidator
                 referenceReports.Count(entry => entry.Status.Equals("satisfied", StringComparison.OrdinalIgnoreCase)),
                 referenceReports.Count(entry => entry.Status.Equals("missing-required", StringComparison.OrdinalIgnoreCase)),
                 referenceReports.Count(entry => entry.Status.Equals("missing-optional", StringComparison.OrdinalIgnoreCase)),
+                referenceReports.Count(entry => entry.HasDuplicateCandidates),
                 reportPath,
                 referenceReports);
 
@@ -132,7 +156,8 @@ internal static class ContentReferenceValidator
             log.Info(
                 $"content-ref-report plugin={declaration.Plugin.Id} refs={report.ReferenceCount} " +
                 $"satisfied={report.SatisfiedCount} missingRequired={report.MissingRequiredCount} " +
-                $"missingOptional={report.MissingOptionalCount} report={QuoteLogValue(reportPath)}");
+                $"missingOptional={report.MissingOptionalCount} duplicateRefs={report.DuplicateReferenceCount} " +
+                $"report={QuoteLogValue(reportPath)}");
         }
 
         return new ContentReferenceValidationBatch(reports, issues);
@@ -309,6 +334,25 @@ internal static class ContentReferenceValidator
         return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static ContentReferenceMatchReport ToMatchReport(ContentReferenceCatalogEntry match)
+    {
+        return new ContentReferenceMatchReport(
+            match.Provider,
+            match.ProviderId,
+            match.SourcePath,
+            match.RelativePath);
+    }
+
+    private static string FormatCandidateProviders(IReadOnlyList<ContentReferenceCatalogEntry> candidates)
+    {
+        return string.Join(
+            ",",
+            candidates.Select(candidate =>
+                string.IsNullOrWhiteSpace(candidate.ProviderId)
+                    ? candidate.Provider
+                    : $"{candidate.Provider}:{candidate.ProviderId}"));
+    }
+
     private static string QuoteLogValue(string value)
     {
         return string.IsNullOrEmpty(value) ? "\"\"" : "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
@@ -374,20 +418,24 @@ internal sealed class ContentReferenceCatalog
 
     public IReadOnlyList<ContentReferenceCatalogEntry> Resolve(DeclaredContentReference reference, string currentPluginId)
     {
+        return ResolveDetailed(reference, currentPluginId).Matches;
+    }
+
+    public ContentReferenceResolution ResolveDetailed(DeclaredContentReference reference, string currentPluginId)
+    {
         if (!_entriesByKey.TryGetValue(BuildKey(reference.Category, reference.Lookup), out var candidates))
         {
-            return [];
+            return new ContentReferenceResolution([], []);
         }
 
         var provider = string.IsNullOrWhiteSpace(reference.Rule.Provider) ? "any" : reference.Rule.Provider.Trim().ToLowerInvariant();
         var expectedPluginId = string.IsNullOrWhiteSpace(reference.Rule.PluginId) ? currentPluginId : reference.Rule.PluginId.Trim();
-
-        return candidates
+        var orderedCandidates = OrderCandidates(candidates).ToArray();
+        var matches = orderedCandidates
             .Where(candidate => ProviderMatches(candidate, provider, reference.Rule.WorkshopId, expectedPluginId))
-            .OrderBy(candidate => ProviderRank(candidate.Provider))
-            .ThenBy(candidate => candidate.ProviderId, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(candidate => candidate.SourcePath, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        return new ContentReferenceResolution(orderedCandidates, matches);
     }
 
     private static bool ProviderMatches(ContentReferenceCatalogEntry candidate, string provider, string workshopId, string pluginId)
@@ -414,6 +462,14 @@ internal sealed class ContentReferenceCatalog
         }
 
         return true;
+    }
+
+    private static IOrderedEnumerable<ContentReferenceCatalogEntry> OrderCandidates(IEnumerable<ContentReferenceCatalogEntry> candidates)
+    {
+        return candidates
+            .OrderBy(candidate => ProviderRank(candidate.Provider))
+            .ThenBy(candidate => candidate.ProviderId, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(candidate => candidate.SourcePath, StringComparer.OrdinalIgnoreCase);
     }
 
     private void ScanContentRoot(string provider, string providerId, string root, string relativeRoot, LauncherLog log)
@@ -932,6 +988,10 @@ internal sealed record ContentReferenceCatalogEntry(
     string SourcePath,
     string RelativePath);
 
+internal sealed record ContentReferenceResolution(
+    IReadOnlyList<ContentReferenceCatalogEntry> Candidates,
+    IReadOnlyList<ContentReferenceCatalogEntry> Matches);
+
 internal sealed record ContentReferenceValidationReport(
     string PluginId,
     string PluginName,
@@ -942,6 +1002,7 @@ internal sealed record ContentReferenceValidationReport(
     int SatisfiedCount,
     int MissingRequiredCount,
     int MissingOptionalCount,
+    int DuplicateReferenceCount,
     string ReportPath,
     IReadOnlyList<ContentReferenceReportEntry> References);
 
@@ -955,10 +1016,23 @@ internal sealed record ContentReferenceReportEntry(
     string Status,
     string SourcePath,
     int SourceIndex,
-    IReadOnlyList<ContentReferenceMatchReport> Matches);
+    IReadOnlyList<ContentReferenceMatchReport> Matches,
+    int CandidateCount,
+    bool HasDuplicateCandidates,
+    ContentReferenceMatchReport? PreferredMatch,
+    IReadOnlyList<ContentReferenceCandidateReport> Candidates);
 
 internal sealed record ContentReferenceMatchReport(
     string Provider,
     string ProviderId,
     string SourcePath,
     string RelativePath);
+
+internal sealed record ContentReferenceCandidateReport(
+    string Provider,
+    string ProviderId,
+    string SourcePath,
+    string RelativePath,
+    bool MatchesRequestedProvider,
+    bool Selected,
+    int ResolutionOrder);

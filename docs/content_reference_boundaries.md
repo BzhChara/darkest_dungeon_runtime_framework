@@ -146,6 +146,8 @@ Supported providers are `base`, `dlc`, `workshop`, and `plugin`. The scanner rea
 
 Validation writes per-plugin reports under `state/.../_content_refs/<pluginId>/content_refs.validation.json` and logs provider/path matches through `--explain-patches`. Missing required references become compile errors. Missing optional references become warnings. No missing reference falls back to unrelated content.
 
+When more than one source provides the same referenced id or path, validation does not block the plugin by default. The report marks the reference with `hasDuplicateCandidates`, records `candidateCount`, keeps the provider-filtered `matches`, stores the ordered `candidates`, and exposes `preferredMatch`. This lets a plugin author see that an original, DLC, Workshop, or plugin source overlaps without losing compatibility.
+
 Current limitations are deliberate:
 
 - `contentRefs` validates existence and provenance only; it does not enable, copy, or install Workshop content.
@@ -160,7 +162,7 @@ Reference validation should follow the plugin-loading philosophy:
 
 - missing required content blocks only the affected module or plugin when possible;
 - missing optional content produces a warning and leaves a deterministic reduced result;
-- duplicate ids are reported with provider and load-order context;
+- duplicate ids are reported with provider, source path, match status, and preferred resolution context;
 - references should never silently fall back to unrelated original content;
 - generated reports should show which provider satisfied each reference.
 

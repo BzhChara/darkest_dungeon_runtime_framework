@@ -68,7 +68,8 @@ internal sealed class PatchPlan
             log.Info(
                 $"content-ref-summary plugin={report.PluginId} refs={report.ReferenceCount} " +
                 $"satisfied={report.SatisfiedCount} missingRequired={report.MissingRequiredCount} " +
-                $"missingOptional={report.MissingOptionalCount} report={QuoteLogValue(report.ReportPath)}");
+                $"missingOptional={report.MissingOptionalCount} duplicateRefs={report.DuplicateReferenceCount} " +
+                $"report={QuoteLogValue(report.ReportPath)}");
         }
 
         log.Info($"Enabled virtual file source rules: {SourceVirtualFileRules.Count}");
@@ -155,7 +156,8 @@ internal sealed class PatchPlan
                 $"patch-explain-content-refs plugin={report.PluginId} refs={report.ReferenceCount} " +
                 $"satisfied={report.SatisfiedCount} missingRequired={report.MissingRequiredCount} " +
                 $"missingOptional={report.MissingOptionalCount} catalogRoots={report.CatalogSourceRootCount} " +
-                $"catalogEntries={report.CatalogEntryCount} report={QuoteLogValue(report.ReportPath)}");
+                $"catalogEntries={report.CatalogEntryCount} duplicateRefs={report.DuplicateReferenceCount} " +
+                $"report={QuoteLogValue(report.ReportPath)}");
 
             foreach (var reference in report.References)
             {
@@ -164,7 +166,8 @@ internal sealed class PatchPlan
                     $"patch-explain-content-ref plugin={report.PluginId} status={reference.Status} " +
                     $"category={reference.Category} lookup={QuoteLogValue(reference.Lookup)} " +
                     $"provider={QuoteLogValue(reference.Provider)} required={reference.Required} " +
-                    $"matches={reference.Matches.Count} firstProvider={QuoteLogValue(firstMatch?.Provider ?? string.Empty)} " +
+                    $"matches={reference.Matches.Count} candidates={reference.CandidateCount} " +
+                    $"duplicates={reference.HasDuplicateCandidates} firstProvider={QuoteLogValue(firstMatch?.Provider ?? string.Empty)} " +
                     $"firstPath={QuoteLogValue(firstMatch?.SourcePath ?? string.Empty)} source={QuoteLogValue(reference.SourcePath)}");
             }
         }

@@ -33,6 +33,16 @@ try {
     Assert-DdrtTrue ([int]$contractReport.satisfiedCount -eq 31) "Validation content refs contract should satisfy every reference."
     Assert-DdrtTrue ([int]$contractReport.missingRequiredCount -eq 0) "Validation content refs contract should not miss required references."
     Assert-DdrtTrue ([int]$contractReport.missingOptionalCount -eq 0) "Validation content refs contract should not miss optional references."
+    Assert-DdrtTrue ([int]$contractReport.duplicateReferenceCount -ge 1) "Validation content refs contract should report duplicate candidate references."
+
+    $bleedCharmRef = @($contractReport.references | Where-Object { $_.category -eq "trinket" -and $_.lookup -eq "bleed_charm" })[0]
+    Assert-DdrtTrue ($null -ne $bleedCharmRef) "Validation content refs contract should include the base bleed_charm reference."
+    Assert-DdrtTrue ([bool]$bleedCharmRef.hasDuplicateCandidates) "bleed_charm should report duplicate content candidates."
+    Assert-DdrtTrue ([int]$bleedCharmRef.candidateCount -ge 2) "bleed_charm should include both base and plugin candidates."
+    Assert-DdrtTrue ($bleedCharmRef.preferredMatch.provider -eq "base") "bleed_charm should prefer the requested base provider."
+    $bleedCharmPluginCandidate = @($bleedCharmRef.candidates | Where-Object { $_.provider -eq "plugin" })[0]
+    Assert-DdrtTrue ($null -ne $bleedCharmPluginCandidate) "bleed_charm duplicate report should include the plugin candidate."
+    Assert-DdrtTrue (-not [bool]$bleedCharmPluginCandidate.matchesRequestedProvider) "The plugin duplicate should not match a provider=base reference."
 
     New-Item -ItemType Directory -Force -Path $pluginRoot | Out-Null
     $manifest = [ordered]@{
@@ -103,6 +113,7 @@ try {
     Assert-DdrtTrue ([int]$missingReport.satisfiedCount -eq 1) "Missing content refs contract should satisfy the base reference."
     Assert-DdrtTrue ([int]$missingReport.missingRequiredCount -eq 1) "Missing content refs contract should report one missing required reference."
     Assert-DdrtTrue ([int]$missingReport.missingOptionalCount -eq 1) "Missing content refs contract should report one missing optional reference."
+    Assert-DdrtTrue ([int]$missingReport.duplicateReferenceCount -eq 0) "Missing content refs contract should not report duplicate candidates."
 
     $exitCode = Invoke-LoaderRaw -LoaderArgs @("--config", $configPath, "--validate-only", "--no-inject")
     Assert-DdrtTrue ($exitCode -ne 0) "Validate-only should fail when a required content reference is missing."
