@@ -38,6 +38,12 @@ internal sealed class PluginPatchManifest
     [JsonPropertyName("conflicts")]
     public string[] Conflicts { get; set; } = [];
 
+    [JsonPropertyName("modules")]
+    public PluginModuleManifest Modules { get; set; } = new();
+
+    [JsonPropertyName("contentRefs")]
+    public ContentReferenceSet ContentRefs { get; set; } = new();
+
     [JsonPropertyName("virtualFileRules")]
     public VirtualFileRule[] VirtualFileRules { get; set; } = [];
 
@@ -81,6 +87,10 @@ internal sealed class PluginPatchManifest
             manifest.LoadAfter ??= [];
             manifest.LoadBefore ??= [];
             manifest.Conflicts ??= [];
+            manifest.Modules ??= new PluginModuleManifest();
+            manifest.Modules.ContentRefs ??= [];
+            manifest.ContentRefs ??= new ContentReferenceSet();
+            manifest.ContentRefs.Normalize();
             manifest.VirtualFileRules ??= [];
             manifest.MapTemplates ??= [];
             manifest.MapLayoutTemplates ??= [];
@@ -210,6 +220,120 @@ internal sealed class PluginPatchManifest
             link.TileId ??= string.Empty;
         }
     }
+}
+
+internal sealed class PluginModuleManifest
+{
+    [JsonPropertyName("contentRefs")]
+    public string[] ContentRefs { get; set; } = [];
+}
+
+internal sealed class ContentReferenceSet
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true
+    };
+
+    [JsonPropertyName("workshop")]
+    public ContentReferenceRule[] Workshop { get; set; } = [];
+
+    [JsonPropertyName("quests")]
+    public ContentReferenceRule[] Quests { get; set; } = [];
+
+    [JsonPropertyName("dungeons")]
+    public ContentReferenceRule[] Dungeons { get; set; } = [];
+
+    [JsonPropertyName("monsters")]
+    public ContentReferenceRule[] Monsters { get; set; } = [];
+
+    [JsonPropertyName("trinkets")]
+    public ContentReferenceRule[] Trinkets { get; set; } = [];
+
+    [JsonPropertyName("mash")]
+    public ContentReferenceRule[] Mash { get; set; } = [];
+
+    [JsonPropertyName("maps")]
+    public ContentReferenceRule[] Maps { get; set; } = [];
+
+    [JsonPropertyName("mapGenerators")]
+    public ContentReferenceRule[] MapGenerators { get; set; } = [];
+
+    public static ContentReferenceSet Load(string path)
+    {
+        try
+        {
+            var json = File.ReadAllText(path, Encoding.UTF8);
+            var refs = JsonSerializer.Deserialize<ContentReferenceSet>(json, JsonOptions)
+                ?? throw new InvalidOperationException($"Content reference file is empty: {path}");
+            refs.Normalize();
+            return refs;
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"Content reference file is invalid: {path}: {ex.Message}", ex);
+        }
+    }
+
+    public void Normalize()
+    {
+        Workshop ??= [];
+        Quests ??= [];
+        Dungeons ??= [];
+        Monsters ??= [];
+        Trinkets ??= [];
+        Mash ??= [];
+        Maps ??= [];
+        MapGenerators ??= [];
+
+        foreach (var reference in EnumerateRules())
+        {
+            reference.Id ??= string.Empty;
+            reference.Path ??= string.Empty;
+            reference.Provider ??= string.Empty;
+            reference.WorkshopId ??= string.Empty;
+            reference.PluginId ??= string.Empty;
+            reference.Label ??= string.Empty;
+        }
+    }
+
+    public IEnumerable<ContentReferenceRule> EnumerateRules()
+    {
+        return Workshop
+            .Concat(Quests)
+            .Concat(Dungeons)
+            .Concat(Monsters)
+            .Concat(Trinkets)
+            .Concat(Mash)
+            .Concat(Maps)
+            .Concat(MapGenerators);
+    }
+}
+
+internal sealed class ContentReferenceRule
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string Path { get; set; } = string.Empty;
+
+    [JsonPropertyName("provider")]
+    public string Provider { get; set; } = string.Empty;
+
+    [JsonPropertyName("workshopId")]
+    public string WorkshopId { get; set; } = string.Empty;
+
+    [JsonPropertyName("pluginId")]
+    public string PluginId { get; set; } = string.Empty;
+
+    [JsonPropertyName("required")]
+    public bool Required { get; set; } = true;
+
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = string.Empty;
 }
 
 internal sealed class VirtualFileRule

@@ -1,0 +1,60 @@
+{
+  "quests": [
+    {
+      "id": "plot_tutorial_crypts",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_plot_quest",
+      "provider": "plugin"
+    }
+  ],
+  "dungeons": [
+    {
+      "id": "crypts",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_dungeon",
+      "provider": "plugin"
+    }
+  ],
+  "monsters": [
+    {
+      "id": "skeleton_common_A",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_monster_A",
+      "provider": "plugin"
+    }
+  ],
+  "trinkets": [
+    {
+      "id": "bleed_charm",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_trinket",
+      "provider": "plugin"
+    }
+  ],
+  "mash": [
+    {
+      "path": "dungeons/content_ref_dungeon/content_ref.1.mash.darkest",
+      "provider": "plugin"
+    }
+  ],
+  "maps": [
+    {
+      "path": "maps/content_ref_probe.dm",
+      "provider": "plugin"
+    }
+  ],
+  "mapGenerators": [
+    {
+      "path": "scripts/content_ref.map_generator.darkest",
+      "provider": "plugin"
+    }
+  ]
+}

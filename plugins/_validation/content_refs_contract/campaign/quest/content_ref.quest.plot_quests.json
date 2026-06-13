@@ -1,0 +1,26 @@
+{
+  "plot_quests": [
+    {
+      "id": "content_ref_plot_quest",
+      "quest": {
+        "type": "explore",
+        "dungeon": "content_ref_dungeon",
+        "difficulty": 1,
+        "length": 1,
+        "goal_ids": [
+          "explore_all_rooms"
+        ],
+        "completion_reward": {
+          "resolve_xp": 2,
+          "resolve_xp_per_wave_kill": 0,
+          "items_definition": {
+            "items": {}
+          },
+          "additional_threshold_trinket_rewards": {},
+          "trinket_retention_ids": [],
+          "max_times_dungeon_xp_awarded": 0
+        }
+      }
+    }
+  ]
+}

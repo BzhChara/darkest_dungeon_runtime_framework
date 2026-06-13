@@ -107,6 +107,42 @@ This keeps creative content authoring separate from runtime logic. A monster fro
 
 The framework should validate that every referenced `monsterId` is present in the active content catalog. If `workshop_beast_hunter` is missing and marked `required`, the affected module or plugin should be reported as blocked instead of silently substituting another monster.
 
+## First Implemented Slice
+
+`contentRefs` is now a manifest/module-level validation primitive. It supports inline `contentRefs` in `patches.json` and file modules through:
+
+```json
+{
+  "modules": {
+    "contentRefs": ["content/refs.json"]
+  }
+}
+```
+
+The first scanner indexes these categories:
+
+| Category | Reference key | Indexed from |
+| --- | --- | --- |
+| `workshop` | `workshopId` or `id` | declared Workshop mod directory |
+| `quests` | `id` | `*.quest.plot_quests.json` `plot_quests[].id` |
+| `dungeons` | `id` | `dungeons/*/*.dungeon.json` parent folder name |
+| `monsters` | `id` | `monsters/**/<id>.info.darkest` file name |
+| `trinkets` | `id` | `*.entries.trinkets.json` string `id` properties |
+| `mash` | `path` | `*.mash.darkest` relative path |
+| `maps` | `path` | `*.dm` relative path |
+| `mapGenerators` | `path` | `*.map_generator.darkest` relative path |
+
+Supported providers are `base`, `dlc`, `workshop`, and `plugin`. The scanner reads original game content, official non-arena DLC directories, declared Workshop IDs, and enabled plugin directories. It intentionally does not scan every installed Workshop mod unless a plugin references a specific Workshop ID.
+
+Validation writes per-plugin reports under `state/.../_content_refs/<pluginId>/content_refs.validation.json` and logs provider/path matches through `--explain-patches`. Missing required references become compile errors. Missing optional references become warnings. No missing reference falls back to unrelated content.
+
+Current limitations are deliberate:
+
+- `contentRefs` validates existence and provenance only; it does not enable, copy, or install Workshop content.
+- `trinkets` indexing is id-property based, so future stricter schema-aware parsing may reduce false positives.
+- Missing required content currently blocks the plugin through the patch compile error path. Finer module-level disablement can be added when individual modules declare their own dependency scopes.
+- `external` provider remains documented but not implemented in the first slice.
+
 ## Missing Content Policy
 
 Reference validation should follow the plugin-loading philosophy:

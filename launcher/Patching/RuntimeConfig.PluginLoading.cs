@@ -22,6 +22,12 @@ internal sealed partial class RuntimeConfig
             .SelectMany(plugin => CleanCapabilityReferences(plugin.Manifest.Capabilities))
             .Select(NormalizeCapability)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var contentReferenceValidation = ContentReferenceValidator.Validate(
+            this,
+            projectRoot,
+            loadPlan.OrderedEnabledPlugins,
+            log);
+        compileIssues.AddRange(contentReferenceValidation.Issues);
 
         AddVirtualRules(sourceRules, skippedRules, VirtualFileRules, "config virtualFileRules", string.Empty, activePluginIds, activeCapabilities);
 
@@ -57,7 +63,8 @@ internal sealed partial class RuntimeConfig
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
                 $"priority={plugin.Manifest.Priority} capabilities={FormatLogList(CleanCapabilityReferences(plugin.Manifest.Capabilities))} " +
                 $"virtualRules={plugin.VirtualFileRuleCount} mapTemplates={plugin.MapTemplateRuleCount} " +
-                $"mapLayoutTemplates={plugin.MapLayoutTemplateRuleCount} questChains={plugin.QuestChainRuleCount} eventRules={plugin.EventRuleCount} " +
+                $"mapLayoutTemplates={plugin.MapLayoutTemplateRuleCount} questChains={plugin.QuestChainRuleCount} " +
+                $"contentRefs={plugin.ContentReferenceRuleCount} eventRules={plugin.EventRuleCount} " +
                 $"factEventRules={plugin.FactEventRuleCount} path={plugin.Path}");
             AddQuestChainReports(
                 compileIssues,
@@ -123,6 +130,7 @@ internal sealed partial class RuntimeConfig
             skippedRuntimeRules,
             sourceFactEventRules,
             skippedFactEventRules,
+            contentReferenceValidation.Reports,
             BuildEffectiveVirtualRules(projectRoot, sourceRules, compileIssues, log),
             compileIssues);
     }
@@ -659,6 +667,7 @@ internal sealed partial class RuntimeConfig
                 candidate.MapTemplateRuleCount,
                 candidate.MapLayoutTemplateRuleCount,
                 candidate.QuestChainRuleCount,
+                candidate.ContentReferenceRuleCount,
                 candidate.EventRuleCount,
                 candidate.FactEventRuleCount,
                 CleanCapabilityReferences(candidate.Manifest.Capabilities).ToArray(),

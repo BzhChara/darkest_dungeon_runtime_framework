@@ -13,6 +13,7 @@ internal sealed class PatchPlan
         IReadOnlyList<RuntimeEventRuleSkip> skippedRuntimeEventRules,
         IReadOnlyList<FactEventRuleSource> sourceFactEventRules,
         IReadOnlyList<FactEventRuleSkip> skippedFactEventRules,
+        IReadOnlyList<ContentReferenceValidationReport> contentReferenceReports,
         IReadOnlyList<VirtualFileRule> effectiveVirtualFileRules,
         IReadOnlyList<PatchCompileIssue> compileIssues)
     {
@@ -26,6 +27,7 @@ internal sealed class PatchPlan
         SkippedRuntimeEventRules = skippedRuntimeEventRules;
         SourceFactEventRules = sourceFactEventRules;
         SkippedFactEventRules = skippedFactEventRules;
+        ContentReferenceReports = contentReferenceReports;
         EffectiveVirtualFileRules = effectiveVirtualFileRules;
         CompileIssues = compileIssues;
     }
@@ -40,6 +42,7 @@ internal sealed class PatchPlan
     public IReadOnlyList<RuntimeEventRuleSkip> SkippedRuntimeEventRules { get; }
     public IReadOnlyList<FactEventRuleSource> SourceFactEventRules { get; }
     public IReadOnlyList<FactEventRuleSkip> SkippedFactEventRules { get; }
+    public IReadOnlyList<ContentReferenceValidationReport> ContentReferenceReports { get; }
     public IReadOnlyList<VirtualFileRule> EffectiveVirtualFileRules { get; }
     public IReadOnlyList<PatchCompileIssue> CompileIssues { get; }
     public bool HasCompileErrors => CompileIssues.Any(issue => issue.IsError);
@@ -54,8 +57,18 @@ internal sealed class PatchPlan
                 $"name={manifest.Name} version={manifest.Version} phase={manifest.Phase} " +
                 $"priority={manifest.Priority} capabilities={FormatLogList(manifest.Capabilities)} " +
                 $"virtualRules={manifest.VirtualFileRuleCount} mapTemplates={manifest.MapTemplateRuleCount} " +
-                $"mapLayoutTemplates={manifest.MapLayoutTemplateRuleCount} questChains={manifest.QuestChainRuleCount} eventRules={manifest.EventRuleCount} " +
+                $"mapLayoutTemplates={manifest.MapLayoutTemplateRuleCount} questChains={manifest.QuestChainRuleCount} " +
+                $"contentRefs={manifest.ContentReferenceRuleCount} eventRules={manifest.EventRuleCount} " +
                 $"factEventRules={manifest.FactEventRuleCount} path={manifest.Path}");
+        }
+
+        log.Info($"Content reference reports: {ContentReferenceReports.Count}");
+        foreach (var report in ContentReferenceReports)
+        {
+            log.Info(
+                $"content-ref-summary plugin={report.PluginId} refs={report.ReferenceCount} " +
+                $"satisfied={report.SatisfiedCount} missingRequired={report.MissingRequiredCount} " +
+                $"missingOptional={report.MissingOptionalCount} report={QuoteLogValue(report.ReportPath)}");
         }
 
         log.Info($"Enabled virtual file source rules: {SourceVirtualFileRules.Count}");
@@ -117,7 +130,7 @@ internal sealed class PatchPlan
                 $"name={manifest.Name} phase={manifest.Phase} priority={manifest.Priority} " +
                 $"capabilities={FormatLogList(manifest.Capabilities)} virtualRules={manifest.VirtualFileRuleCount} " +
                 $"mapTemplates={manifest.MapTemplateRuleCount} mapLayoutTemplates={manifest.MapLayoutTemplateRuleCount} " +
-                $"questChains={manifest.QuestChainRuleCount} " +
+                $"questChains={manifest.QuestChainRuleCount} contentRefs={manifest.ContentReferenceRuleCount} " +
                 $"eventRules={manifest.EventRuleCount} factEventRules={manifest.FactEventRuleCount} " +
                 $"skipReason={QuoteLogValue(manifest.SkipReason)} path={manifest.Path}");
         }
@@ -134,6 +147,26 @@ internal sealed class PatchPlan
             log.Warn(
                 $"patch-explain-load-diagnostic severity={diagnostic.Severity} code={diagnostic.Code} " +
                 $"plugin={diagnostic.PluginId} related={diagnostic.RelatedId} message={QuoteLogValue(diagnostic.Message)}");
+        }
+
+        foreach (var report in ContentReferenceReports)
+        {
+            log.Info(
+                $"patch-explain-content-refs plugin={report.PluginId} refs={report.ReferenceCount} " +
+                $"satisfied={report.SatisfiedCount} missingRequired={report.MissingRequiredCount} " +
+                $"missingOptional={report.MissingOptionalCount} catalogRoots={report.CatalogSourceRootCount} " +
+                $"catalogEntries={report.CatalogEntryCount} report={QuoteLogValue(report.ReportPath)}");
+
+            foreach (var reference in report.References)
+            {
+                var firstMatch = reference.Matches.FirstOrDefault();
+                log.Info(
+                    $"patch-explain-content-ref plugin={report.PluginId} status={reference.Status} " +
+                    $"category={reference.Category} lookup={QuoteLogValue(reference.Lookup)} " +
+                    $"provider={QuoteLogValue(reference.Provider)} required={reference.Required} " +
+                    $"matches={reference.Matches.Count} firstProvider={QuoteLogValue(firstMatch?.Provider ?? string.Empty)} " +
+                    $"firstPath={QuoteLogValue(firstMatch?.SourcePath ?? string.Empty)} source={QuoteLogValue(reference.SourcePath)}");
+            }
         }
 
         foreach (var group in SourceVirtualFileRules.GroupBy(rule => NormalizeTargetKey(rule.Rule.Target)).OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
@@ -303,6 +336,7 @@ internal sealed record PatchManifestInfo(
     int MapTemplateRuleCount,
     int MapLayoutTemplateRuleCount,
     int QuestChainRuleCount,
+    int ContentReferenceRuleCount,
     int EventRuleCount,
     int FactEventRuleCount,
     string[] Capabilities,
@@ -367,6 +401,7 @@ internal sealed class PluginManifestCandidate
     public int MapTemplateRuleCount => Manifest.MapTemplates.Length;
     public int MapLayoutTemplateRuleCount => Manifest.MapLayoutTemplates.Length;
     public int QuestChainRuleCount => Manifest.QuestChains.Length;
+    public int ContentReferenceRuleCount => Manifest.ContentRefs.EnumerateRules().Count() + Manifest.Modules.ContentRefs.Length;
     public int EventRuleCount => Manifest.EventRules.Length;
     public int FactEventRuleCount => Manifest.FactEventRules.Length;
 
