@@ -48,6 +48,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 .\tools\TestQuestBoardProfileRefresh.ps1
 .\tools\TestQuestBoardRealtimeRefresh.ps1
 .\tools\TestManagedActionSaveApplier.ps1
+.\tools\TestProfilePromotion.ps1
 .\tools\TestMapFileInspector.ps1
 .\tools\TestChallengeRunDryRun.ps1 -AssertSample
 .\tools\TestSaveSampleFacts.ps1
