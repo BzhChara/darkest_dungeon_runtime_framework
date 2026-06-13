@@ -127,7 +127,17 @@ The first scanner indexes these categories:
 | `quests` | `id` | `*.quest.plot_quests.json` `plot_quests[].id` |
 | `dungeons` | `id` | `dungeons/*/*.dungeon.json` parent folder name |
 | `monsters` | `id` | `monsters/**/<id>.info.darkest` file name |
+| `heroClasses` | `id` | `heroes/**/<id>.info.darkest` file name |
+| `heroSkills` | `id` or `classId.skillId` | `heroes/**/*.info.darkest` skill declarations |
+| `effects` | `id` | `*.effects.darkest` `effect: .name` entries |
+| `buffs` | `id` | `*.buffs.json` top-level `buffs[].id` |
+| `traits` | `id` | `*trait_library.json` top-level `traits[].id` |
+| `quirks` | `id` | `*quirk_library.json` top-level `quirks[].id` |
 | `trinkets` | `id` | `*.entries.trinkets.json` string `id` properties |
+| `curios` | `id` | `curio_type_library.csv` curio id column |
+| `lootTables` | `id` | `*.loot.json` top-level `loot_tables[].id` |
+| `raidSettings` | `id` or `table.key` | `raid_settings.json` torch and raid rules tables |
+| `localizationKeys` | `id` | `*.string_table.xml` entry ids |
 | `mash` | `path` | `*.mash.darkest` relative path |
 | `maps` | `path` | `*.dm` relative path |
 | `mapGenerators` | `path` | `*.map_generator.darkest` relative path |
@@ -140,6 +150,7 @@ Current limitations are deliberate:
 
 - `contentRefs` validates existence and provenance only; it does not enable, copy, or install Workshop content.
 - `trinkets` indexing is id-property based, so future stricter schema-aware parsing may reduce false positives.
+- `.darkest` and curio CSV indexing is intentionally shallow and extracts stable ids only. It does not validate full gameplay correctness of those files.
 - Missing required content currently blocks the plugin through the patch compile error path. Finer module-level disablement can be added when individual modules declare their own dependency scopes.
 - `external` provider remains documented but not implemented in the first slice.
 

@@ -29,6 +29,66 @@
       "provider": "plugin"
     }
   ],
+  "heroClasses": [
+    {
+      "id": "crusader",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_hero",
+      "provider": "plugin"
+    }
+  ],
+  "heroSkills": [
+    {
+      "id": "crusader.smite",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_hero.content_ref_skill",
+      "provider": "plugin"
+    }
+  ],
+  "effects": [
+    {
+      "id": "Push 1A",
+      "provider": "base"
+    },
+    {
+      "id": "Content Ref Effect",
+      "provider": "plugin"
+    }
+  ],
+  "buffs": [
+    {
+      "id": "never_again_affliction",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_buff",
+      "provider": "plugin"
+    }
+  ],
+  "traits": [
+    {
+      "id": "test",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_trait",
+      "provider": "plugin"
+    }
+  ],
+  "quirks": [
+    {
+      "id": "tough",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_quirk",
+      "provider": "plugin"
+    }
+  ],
   "trinkets": [
     {
       "id": "bleed_charm",
@@ -36,6 +96,46 @@
     },
     {
       "id": "content_ref_trinket",
+      "provider": "plugin"
+    }
+  ],
+  "curios": [
+    {
+      "id": "unlocked_strongbox",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref_curio",
+      "provider": "plugin"
+    }
+  ],
+  "lootTables": [
+    {
+      "id": "B",
+      "provider": "base"
+    },
+    {
+      "id": "CONTENT_REF_LOOT",
+      "provider": "plugin"
+    }
+  ],
+  "raidSettings": [
+    {
+      "id": "torchSettings.default",
+      "provider": "base"
+    },
+    {
+      "id": "torchSettings.content_ref",
+      "provider": "plugin"
+    }
+  ],
+  "localizationKeys": [
+    {
+      "id": "hero_class_name_crusader",
+      "provider": "base"
+    },
+    {
+      "id": "content_ref.localization",
       "provider": "plugin"
     }
   ],

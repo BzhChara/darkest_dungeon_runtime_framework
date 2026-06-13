@@ -1,0 +1,14 @@
+{
+  "torch_settings_data_table": [
+    {
+      "key": "content_ref",
+      "data": {}
+    }
+  ],
+  "raid_rules_override_data_table": [
+    {
+      "key": "content_ref_rules",
+      "data": {}
+    }
+  ]
+}

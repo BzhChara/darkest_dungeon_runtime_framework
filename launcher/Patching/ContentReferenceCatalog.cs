@@ -1,3 +1,6 @@
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
+
 namespace DDRuntimeLoader;
 
 internal static class ContentReferenceValidator
@@ -227,7 +230,17 @@ internal static class ContentReferenceValidator
         AddCategory(output, "quest", set.Quests, sourcePath, sourceIndex);
         AddCategory(output, "dungeon", set.Dungeons, sourcePath, sourceIndex);
         AddCategory(output, "monster", set.Monsters, sourcePath, sourceIndex);
+        AddCategory(output, "heroClass", set.HeroClasses, sourcePath, sourceIndex);
+        AddCategory(output, "heroSkill", set.HeroSkills, sourcePath, sourceIndex);
+        AddCategory(output, "effect", set.Effects, sourcePath, sourceIndex);
+        AddCategory(output, "buff", set.Buffs, sourcePath, sourceIndex);
+        AddCategory(output, "trait", set.Traits, sourcePath, sourceIndex);
+        AddCategory(output, "quirk", set.Quirks, sourcePath, sourceIndex);
         AddCategory(output, "trinket", set.Trinkets, sourcePath, sourceIndex);
+        AddCategory(output, "curio", set.Curios, sourcePath, sourceIndex);
+        AddCategory(output, "lootTable", set.LootTables, sourcePath, sourceIndex);
+        AddCategory(output, "raidSetting", set.RaidSettings, sourcePath, sourceIndex);
+        AddCategory(output, "localizationKey", set.LocalizationKeys, sourcePath, sourceIndex);
         AddCategory(output, "mash", set.Mash, sourcePath, sourceIndex);
         AddCategory(output, "map", set.Maps, sourcePath, sourceIndex);
         AddCategory(output, "mapGenerator", set.MapGenerators, sourcePath, sourceIndex);
@@ -304,6 +317,14 @@ internal static class ContentReferenceValidator
 
 internal sealed class ContentReferenceCatalog
 {
+    private static readonly Regex HeroSkillPattern = new(
+        @"(?:combat_skill|combat_move_skill|camping_skill):[^\r\n]*?\.id\s+""([^""]+)""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex EffectNamePattern = new(
+        @"effect:\s+\.name\s+""([^""]+)""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     private static readonly JsonDocumentOptions JsonOptions = new()
     {
         AllowTrailingCommas = true,
@@ -411,8 +432,21 @@ internal sealed class ContentReferenceCatalog
         TryScanFiles(root, "quest.plot_quests.json", provider, file => AddPlotQuestEntries(file, provider, providerId, relativeRoot, log), log);
         TryScanFiles(root, "*.quest.plot_quests.json", provider, file => AddPlotQuestEntries(file, provider, providerId, relativeRoot, log), log);
         TryScanFiles(root, "*.dungeon.json", provider, file => AddDungeonEntry(file, provider, providerId, relativeRoot), log);
-        TryScanFiles(root, "*.info.darkest", provider, file => AddMonsterEntry(file, provider, providerId, relativeRoot), log);
+        TryScanFiles(root, "*.info.darkest", provider, file =>
+        {
+            AddMonsterEntry(file, provider, providerId, relativeRoot);
+            AddHeroClassAndSkillEntries(file, provider, providerId, relativeRoot, log);
+        }, log);
+        TryScanFiles(root, "*.effects.darkest", provider, file => AddEffectEntries(file, provider, providerId, relativeRoot, log), log);
+        TryScanFiles(root, "*.buffs.json", provider, file => AddRootArrayIdEntries("buff", "buffs", file, provider, providerId, relativeRoot, log), log);
+        TryScanFiles(root, "*trait_library.json", provider, file => AddRootArrayIdEntries("trait", "traits", file, provider, providerId, relativeRoot, log), log);
+        TryScanFiles(root, "*quirk_library.json", provider, file => AddRootArrayIdEntries("quirk", "quirks", file, provider, providerId, relativeRoot, log), log);
         TryScanFiles(root, "*.entries.trinkets.json", provider, file => AddTrinketEntries(file, provider, providerId, relativeRoot, log), log);
+        TryScanFiles(root, "curio_type_library.csv", provider, file => AddCurioEntries(file, provider, providerId, relativeRoot, log), log);
+        TryScanFiles(root, "loot.json", provider, file => AddLootTableEntries(file, provider, providerId, relativeRoot, log), log);
+        TryScanFiles(root, "*.loot.json", provider, file => AddLootTableEntries(file, provider, providerId, relativeRoot, log), log);
+        TryScanFiles(root, "raid_settings.json", provider, file => AddRaidSettingEntries(file, provider, providerId, relativeRoot, log), log);
+        TryScanFiles(root, "*.string_table.xml", provider, file => AddLocalizationKeyEntries(file, provider, providerId, relativeRoot, log), log);
         TryScanFiles(root, "*.mash.darkest", provider, file => AddPathEntry("mash", file, provider, providerId, relativeRoot), log);
         TryScanFiles(root, "*.dm", provider, file => AddPathEntry("map", file, provider, providerId, relativeRoot), log);
         TryScanFiles(root, "*.map_generator.darkest", provider, file => AddPathEntry("mapGenerator", file, provider, providerId, relativeRoot), log);
@@ -436,6 +470,40 @@ internal sealed class ContentReferenceCatalog
         catch (Exception ex)
         {
             log.Warn($"content-catalog-scan-failed root={root} pattern={pattern} message={ex.Message}");
+        }
+    }
+
+    private void AddHeroClassAndSkillEntries(string file, string provider, string providerId, string relativeRoot, LauncherLog log)
+    {
+        var relativePath = GetRelativePath(relativeRoot, file);
+        if (!relativePath.Split('/').Any(part => part.Equals("heroes", StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        var fileName = Path.GetFileName(file);
+        const string suffix = ".info.darkest";
+        if (!fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var heroClassId = fileName[..^suffix.Length];
+        AddEntry("heroClass", heroClassId, provider, providerId, file, relativeRoot, relativePath);
+
+        try
+        {
+            var text = File.ReadAllText(file, Encoding.UTF8);
+            foreach (Match match in HeroSkillPattern.Matches(text))
+            {
+                var skillId = match.Groups[1].Value;
+                AddEntry("heroSkill", skillId, provider, providerId, file, relativeRoot, relativePath);
+                AddEntry("heroSkill", $"{heroClassId}.{skillId}", provider, providerId, file, relativeRoot, relativePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"content-catalog-read-failed category=heroSkill path={file} message={ex.Message}");
         }
     }
 
@@ -465,6 +533,59 @@ internal sealed class ContentReferenceCatalog
         catch (Exception ex)
         {
             log.Warn($"content-catalog-read-failed category=quest path={file} message={ex.Message}");
+        }
+    }
+
+    private void AddEffectEntries(string file, string provider, string providerId, string relativeRoot, LauncherLog log)
+    {
+        try
+        {
+            var relativePath = GetRelativePath(relativeRoot, file);
+            var text = File.ReadAllText(file, Encoding.UTF8);
+            foreach (Match match in EffectNamePattern.Matches(text))
+            {
+                AddEntry("effect", match.Groups[1].Value, provider, providerId, file, relativeRoot, relativePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"content-catalog-read-failed category=effect path={file} message={ex.Message}");
+        }
+    }
+
+    private void AddRootArrayIdEntries(
+        string category,
+        string rootPropertyName,
+        string file,
+        string provider,
+        string providerId,
+        string relativeRoot,
+        LauncherLog log)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(file), JsonOptions);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty(rootPropertyName, out var itemsElement) ||
+                itemsElement.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (var itemElement in itemsElement.EnumerateArray())
+            {
+                if (itemElement.ValueKind == JsonValueKind.Object &&
+                    itemElement.TryGetProperty("id", out var idElement) &&
+                    idElement.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(idElement.GetString()))
+                {
+                    AddEntry(category, idElement.GetString()!, provider, providerId, file, relativeRoot, GetRelativePath(relativeRoot, file));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"content-catalog-read-failed category={category} path={file} message={ex.Message}");
         }
     }
 
@@ -515,6 +636,101 @@ internal sealed class ContentReferenceCatalog
         }
     }
 
+    private void AddCurioEntries(string file, string provider, string providerId, string relativeRoot, LauncherLog log)
+    {
+        try
+        {
+            var relativePath = GetRelativePath(relativeRoot, file);
+            foreach (var line in File.ReadLines(file, Encoding.UTF8))
+            {
+                var parts = line.Split(',');
+                if (parts.Length < 3)
+                {
+                    continue;
+                }
+
+                var id = parts[2].Trim();
+                if (IsContentIdCandidate(id))
+                {
+                    AddEntry("curio", id, provider, providerId, file, relativeRoot, relativePath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"content-catalog-read-failed category=curio path={file} message={ex.Message}");
+        }
+    }
+
+    private void AddLootTableEntries(string file, string provider, string providerId, string relativeRoot, LauncherLog log)
+    {
+        AddRootArrayIdEntries("lootTable", "loot_tables", file, provider, providerId, relativeRoot, log);
+    }
+
+    private void AddRaidSettingEntries(string file, string provider, string providerId, string relativeRoot, LauncherLog log)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(file), JsonOptions);
+            AddRaidSettingKeys(document.RootElement, "torch_settings_data_table", "torchSettings", file, provider, providerId, relativeRoot);
+            AddRaidSettingKeys(document.RootElement, "raid_rules_override_data_table", "raidRulesOverride", file, provider, providerId, relativeRoot);
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"content-catalog-read-failed category=raidSetting path={file} message={ex.Message}");
+        }
+    }
+
+    private void AddRaidSettingKeys(
+        JsonElement rootElement,
+        string tableName,
+        string prefix,
+        string file,
+        string provider,
+        string providerId,
+        string relativeRoot)
+    {
+        if (rootElement.ValueKind != JsonValueKind.Object ||
+            !rootElement.TryGetProperty(tableName, out var tableElement) ||
+            tableElement.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var itemElement in tableElement.EnumerateArray())
+        {
+            if (itemElement.ValueKind == JsonValueKind.Object &&
+                itemElement.TryGetProperty("key", out var keyElement) &&
+                keyElement.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(keyElement.GetString()))
+            {
+                var key = keyElement.GetString()!;
+                AddEntry("raidSetting", key, provider, providerId, file, relativeRoot, GetRelativePath(relativeRoot, file));
+                AddEntry("raidSetting", $"{prefix}.{key}", provider, providerId, file, relativeRoot, GetRelativePath(relativeRoot, file));
+            }
+        }
+    }
+
+    private void AddLocalizationKeyEntries(string file, string provider, string providerId, string relativeRoot, LauncherLog log)
+    {
+        try
+        {
+            var document = XDocument.Load(file, LoadOptions.None);
+            foreach (var entryElement in document.Descendants("entry"))
+            {
+                var id = entryElement.Attribute("id")?.Value;
+                if (!string.IsNullOrWhiteSpace(id))
+                {
+                    AddEntry("localizationKey", id, provider, providerId, file, relativeRoot, GetRelativePath(relativeRoot, file));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"content-catalog-read-failed category=localizationKey path={file} message={ex.Message}");
+        }
+    }
+
     private void AddPathEntry(string category, string file, string provider, string providerId, string relativeRoot)
     {
         var relativePath = GetRelativePath(relativeRoot, file);
@@ -553,6 +769,12 @@ internal sealed class ContentReferenceCatalog
 
         entries.Add(entry);
         EntryCount++;
+    }
+
+    private static bool IsContentIdCandidate(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+            value.All(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' or '.' or '/');
     }
 
     private static IEnumerable<string> EnumerateStringProperties(JsonElement element, string propertyName)

@@ -29,8 +29,8 @@ try {
     $contractReportPath = Join-Path $projectRoot.Path "state\mod_state\_content_refs\validation.content_refs_contract\content_refs.validation.json"
     Assert-DdrtTrue (Test-Path -LiteralPath $contractReportPath -PathType Leaf) "Content refs validation report was not written: $contractReportPath"
     $contractReport = Get-Content -Raw -LiteralPath $contractReportPath | ConvertFrom-Json
-    Assert-DdrtTrue ([int]$contractReport.referenceCount -eq 11) "Validation content refs contract should declare 11 references."
-    Assert-DdrtTrue ([int]$contractReport.satisfiedCount -eq 11) "Validation content refs contract should satisfy every reference."
+    Assert-DdrtTrue ([int]$contractReport.referenceCount -eq 31) "Validation content refs contract should declare 31 references."
+    Assert-DdrtTrue ([int]$contractReport.satisfiedCount -eq 31) "Validation content refs contract should satisfy every reference."
     Assert-DdrtTrue ([int]$contractReport.missingRequiredCount -eq 0) "Validation content refs contract should not miss required references."
     Assert-DdrtTrue ([int]$contractReport.missingOptionalCount -eq 0) "Validation content refs contract should not miss optional references."
 

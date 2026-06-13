@@ -249,8 +249,38 @@ internal sealed class ContentReferenceSet
     [JsonPropertyName("monsters")]
     public ContentReferenceRule[] Monsters { get; set; } = [];
 
+    [JsonPropertyName("heroClasses")]
+    public ContentReferenceRule[] HeroClasses { get; set; } = [];
+
+    [JsonPropertyName("heroSkills")]
+    public ContentReferenceRule[] HeroSkills { get; set; } = [];
+
+    [JsonPropertyName("effects")]
+    public ContentReferenceRule[] Effects { get; set; } = [];
+
+    [JsonPropertyName("buffs")]
+    public ContentReferenceRule[] Buffs { get; set; } = [];
+
+    [JsonPropertyName("traits")]
+    public ContentReferenceRule[] Traits { get; set; } = [];
+
+    [JsonPropertyName("quirks")]
+    public ContentReferenceRule[] Quirks { get; set; } = [];
+
     [JsonPropertyName("trinkets")]
     public ContentReferenceRule[] Trinkets { get; set; } = [];
+
+    [JsonPropertyName("curios")]
+    public ContentReferenceRule[] Curios { get; set; } = [];
+
+    [JsonPropertyName("lootTables")]
+    public ContentReferenceRule[] LootTables { get; set; } = [];
+
+    [JsonPropertyName("raidSettings")]
+    public ContentReferenceRule[] RaidSettings { get; set; } = [];
+
+    [JsonPropertyName("localizationKeys")]
+    public ContentReferenceRule[] LocalizationKeys { get; set; } = [];
 
     [JsonPropertyName("mash")]
     public ContentReferenceRule[] Mash { get; set; } = [];
@@ -283,7 +313,17 @@ internal sealed class ContentReferenceSet
         Quests ??= [];
         Dungeons ??= [];
         Monsters ??= [];
+        HeroClasses ??= [];
+        HeroSkills ??= [];
+        Effects ??= [];
+        Buffs ??= [];
+        Traits ??= [];
+        Quirks ??= [];
         Trinkets ??= [];
+        Curios ??= [];
+        LootTables ??= [];
+        RaidSettings ??= [];
+        LocalizationKeys ??= [];
         Mash ??= [];
         Maps ??= [];
         MapGenerators ??= [];
@@ -305,7 +345,17 @@ internal sealed class ContentReferenceSet
             .Concat(Quests)
             .Concat(Dungeons)
             .Concat(Monsters)
+            .Concat(HeroClasses)
+            .Concat(HeroSkills)
+            .Concat(Effects)
+            .Concat(Buffs)
+            .Concat(Traits)
+            .Concat(Quirks)
             .Concat(Trinkets)
+            .Concat(Curios)
+            .Concat(LootTables)
+            .Concat(RaidSettings)
+            .Concat(LocalizationKeys)
             .Concat(Mash)
             .Concat(Maps)
             .Concat(MapGenerators);
