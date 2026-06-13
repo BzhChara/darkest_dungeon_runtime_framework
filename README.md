@@ -1,60 +1,60 @@
 # Darkest Dungeon Runtime Framework
 
-这是一个面向《Darkest Dungeon 1》Steam Windows 版的运行时 Mod Loader / Hook 框架原型。
+This is a runtime mod loader / hook framework prototype for the Steam Windows version of Darkest Dungeon 1.
 
-当前阶段只做 PoC 骨架：
+The current stage is a PoC skeleton:
 
-- C# 启动器读取配置、校验路径、启动游戏。
-- C# 启动器将 `RuntimeHook.dll` 注入游戏进程。
-- C++ DLL 被加载后写入日志。
-- 文件读取 Hook 使用 MinHook 观察 `CreateFileW/CreateFileA`，只记录匹配扩展名的路径。
-- 事件探针 v0 使用 `CreateFileW/CreateFileA/WriteFile` 和文件生命周期 API 观察文件打开、写入尝试、移动、复制、删除、替换和属性变更，只写日志，不修改任何游戏行为。
+- The C# launcher reads configuration, validates paths, and starts the game.
+- The C# launcher injects `RuntimeHook.dll` into the game process.
+- The C++ DLL writes logs after it is loaded.
+- The file-read hook uses MinHook to observe `CreateFileW/CreateFileA` and logs only paths with matching extensions.
+- Event probe v0 uses `CreateFileW/CreateFileA/WriteFile` plus file lifecycle APIs to observe file open, write attempts, moves, copies, deletes, replacements, and attribute changes. It only writes logs and does not change game behavior.
 
-## 当前边界
+## Current Boundary
 
-第一阶段不做这些事：
+The first stage does not:
 
-- 不修改原版游戏文件。
-- 不修改 Workshop Mod 文件。
-- 不修改存档。
-- 不 Hook 战斗、AI、技能结算或 UI 渲染。
-- 不绕过 Steam、DRM、反作弊或系统安全机制。
+- Modify original game files.
+- Modify Workshop mod files.
+- Modify saves.
+- Hook combat, AI, skill resolution, or UI rendering.
+- Bypass Steam, DRM, anti-cheat, or operating-system security mechanisms.
 
-## 默认目标
+## Default Target
 
-默认配置指向 Steam 版 64 位入口：
+The default configuration points to the Steam 64-bit entry point:
 
 ```text
 E:/Steam/steamapps/common/DarkestDungeon/_windows/win64/Darkest.exe
 ```
 
-如果要测试 32 位版本，需要同时编译 32 位启动器和 32 位 DLL。当前骨架优先支持 x64。
+Testing the 32-bit version requires building both a 32-bit launcher and a 32-bit DLL. The current skeleton prioritizes x64.
 
-`gameArguments` 可用于传递游戏启动参数，例如测试时使用 `["-forcetown"]` 强制回到城镇。默认值为空数组。
+`gameArguments` can pass game launch arguments, such as `["-forcetown"]` during tests to force returning to town. The default value is an empty array.
 
-## 目录结构
+## Directory Layout
 
 ```text
-config/default_config.json      默认配置
-launcher/                       C# 启动器
+config/default_config.json      Default configuration
+launcher/                       C# launcher
 runtime/                        C++ RuntimeHook.dll
-runtime/hooks/                  Hook 模块接口
-plugins/                        插件补丁清单目录
-logs/                           启动器和 DLL 日志
-state/                          框架 sidecar 状态目录，运行生成内容默认不进 git
-docs/architecture.md            架构说明
+runtime/hooks/                  Hook module interfaces
+plugins/                        Plugin patch manifest directory
+logs/                           Launcher and DLL logs
+state/                          Framework sidecar state; generated runtime content is normally not committed
+docs/architecture.md            Architecture notes
 ```
 
-## 构建要求
+## Build Requirements
 
-- .NET SDK 8.0 或更新版本，用于构建启动器。
-- Visual Studio 2026 / Build Tools，安装 Desktop development with C++，用于构建 RuntimeHook.dll。
+- .NET SDK 8.0 or later, used to build the launcher.
+- Visual Studio 2026 / Build Tools with Desktop development with C++, used to build `RuntimeHook.dll`.
 
-不需要 NuGet 包。当前工程使用 VS2026 `v145` 平台工具集。文件 IO 观察 Hook 固定使用 `third_party/minhook` 中的 MinHook `v1.3.4`。
+No NuGet packages are required. The current project uses the VS2026 `v145` platform toolset. File IO observation hooks use MinHook `v1.3.4` from `third_party/minhook`.
 
-## 文件 IO 观察配置
+## File IO Observation Configuration
 
-`config/default_config.json` 中的这些字段控制文件读取日志：
+These fields in `config/default_config.json` control file-read logging:
 
 ```json
 "fileIoHookEnabled": true,
@@ -64,13 +64,13 @@ docs/architecture.md            架构说明
 "fileIoDeduplicate": true
 ```
 
-`fileIoHookEnabled` 是文件 API hook 的总开关。`fileIoObserveOnly` 只控制普通文件打开观察日志；即使它为 `false`，只要启用了事件探针或虚拟文件规则，RuntimeHook 仍会安装必要的文件 hook。需要完全关闭文件 IO Hook 时，把 `fileIoHookEnabled` 改成 `false`。如果需要完全关闭注入，把 `enableInjection` 改成 `false`。
+`fileIoHookEnabled` is the master switch for file API hooks. `fileIoObserveOnly` only controls ordinary file-open observation logs. Even when it is `false`, RuntimeHook still installs the required file hooks if the event probe or virtual file rules are enabled. To fully disable file IO hooks, set `fileIoHookEnabled` to `false`. To fully disable injection, set `enableInjection` to `false`.
 
-默认启动器会使用 `startSuspendedForInjection: true`：先挂起启动游戏，注入并安装 Hook 后再恢复主线程。这样能观察游戏启动早期的资源读取。
+By default, the launcher uses `startSuspendedForInjection: true`: it starts the game suspended, injects and installs hooks, then resumes the main thread. This allows early startup resource reads to be observed.
 
-## 事件探针 v0
+## Event Probe v0
 
-事件探针是后续事件层的最低风险起点。当前只观察文件活动，不拦截、不取消、不改写写入：
+The event probe is the lowest-risk starting point for the future event layer. It currently only observes file activity. It does not intercept, cancel, or rewrite writes:
 
 ```json
 "eventProbeEnabled": true,
@@ -87,7 +87,7 @@ docs/architecture.md            架构说明
 ]
 ```
 
-当前事件名：
+Current event names:
 
 - `data.file_opened`
 - `data.file_write_attempted`
@@ -101,11 +101,11 @@ docs/architecture.md            架构说明
 - `save.file_replace_attempted`
 - `save.file_set_attributes_attempted`
 
-默认采样存档类事件，数据文件和资产事件默认关闭，避免启动期 Mod、localization、layout、贴图和 Steam overlay 日志把事件上限刷满。`eventProbeMaxLogEntries` 控制普通 `data` / `asset` 事件预算，`eventProbeMaxSaveLogEntries` 单独控制 `save` 事件预算，所以存档读写不会被普通文件噪声挤掉。`save` 分类是启发式识别：Steam userdata 下的 `262060/remote/profile_*`、Documents Darkest 下的 `profile_*`，或文件名类似 `persist.*` 时会归为存档类。
+Save events are sampled by default. Data-file and asset events are disabled by default so startup-time mod, localization, layout, texture, and Steam overlay logs do not consume the event budget. `eventProbeMaxLogEntries` controls the ordinary `data` / `asset` event budget. `eventProbeMaxSaveLogEntries` separately controls the `save` event budget, so save reads and writes are not pushed out by ordinary file noise. The `save` category is detected heuristically: files are classified as saves when they are under Steam userdata `262060/remote/profile_*`, under Documents Darkest `profile_*`, or have names like `persist.*`.
 
-## 存档目录 sidecar watcher
+## Save Directory Sidecar Watcher
 
-真实游戏测试显示，`E:/Steam/userdata/.../262060/remote/profile_*` 中的部分存档落盘并不一定由 `Darkest.exe` 进程直接执行，因此注入游戏进程的 DLL 文件 API Hook 可能看不到这些写入。启动器侧 watcher 用于补足这条链路：
+Live game tests showed that some save writes under `E:/Steam/userdata/.../262060/remote/profile_*` are not always performed directly by `Darkest.exe`. A DLL file API hook injected into the game process may therefore miss those writes. The launcher-side watcher fills that gap:
 
 ```json
 "saveWatchEnabled": true,
@@ -114,9 +114,9 @@ docs/architecture.md            架构说明
 "saveEventBridgeDebounceMilliseconds": 1000
 ```
 
-`saveWatchDirectories` 为空时，启动器会从 `gameWorkingDirectory` 推断 Steam 根目录，自动监控现有的 `userdata/*/262060/remote`，并额外监控 `Documents/Darkest`（如果目录存在）。开启 watcher 后，启动器会等待游戏进程退出，并在退出后继续监听 `saveWatchAfterExitSeconds` 秒，用来捕获 Steam 或外部同步进程稍后写入的 `persist.*.json`、`backup` 等存档变化。
+When `saveWatchDirectories` is empty, the launcher infers the Steam root from `gameWorkingDirectory`, watches existing `userdata/*/262060/remote` directories, and also watches `Documents/Darkest` if it exists. When the watcher is enabled, the launcher waits for the game process to exit and then continues listening for `saveWatchAfterExitSeconds` seconds to catch later writes from Steam or external sync processes, such as `persist.*.json` and `backup` changes.
 
-watcher 只记录日志，不修改存档。实时事件和退出快照差异会写入 `logs/launcher.log`，事件名以 `save.sidecar_*` 开头，例如：
+The watcher only logs and does not modify saves. Realtime events and exit snapshot diffs are written to `logs/launcher.log`. Event names start with `save.sidecar_*`, for example:
 
 - `save.sidecar_created`
 - `save.sidecar_changed`
@@ -126,41 +126,41 @@ watcher 只记录日志，不修改存档。实时事件和退出快照差异会
 - `save.sidecar_snapshot_changed`
 - `save.sidecar_snapshot_deleted`
 
-退出快照之后还会输出降噪摘要，按 `profile_*` 和稳定 `.json` 文件聚合，忽略 `.stmp`、`~RF*.TMP` 等中间文件：
+After the exit snapshot, the watcher also emits noise-reduced summaries grouped by `profile_*` and stable `.json` files. Temporary files such as `.stmp` and `~RF*.TMP` are ignored:
 
 - `save.sidecar_session_summary`
 - `save.sidecar_profile_summary`
 - `save.sidecar_profile_files`
 
-例如一次城镇停留可能汇总成 `profile_3` 的 `persist.game.json`、`persist.narration.json` 和 `backup/persist.*.json` 更新，而不需要先从大量临时重命名事件里手动整理。
+For example, a town-stay session may summarize updates to `profile_3` files such as `persist.game.json`, `persist.narration.json`, and `backup/persist.*.json`, without requiring manual cleanup of many temporary rename events.
 
-每次 watcher 会话还会写一个结构化报告：
+Each watcher session also writes a structured report:
 
 ```text
 logs/save_sessions/<sessionId>.json
 ```
 
-报告包含启动/结束时间、游戏进程信息、监控目录、事件计数、快照统计、按 profile 聚合的稳定 JSON 文件变化，以及 `activeProfile` 推断。`activeProfile` 只是一条带 `confidence` 和 `reasons` 的诊断提示：例如 `persist.game.json`、`persist.narration.json` 和大量 `backup/persist.*.json` 一起变化时，更像当前战役 profile；只有 `persist.circus_estate.json`、`persist.rankings.json` 等文件变化时，会降低战役 profile 置信度。框架不会因为这个推断去写存档或阻止启动。
+The report contains start/end time, game process information, watched directories, event counts, snapshot stats, stable JSON file changes grouped by profile, and the inferred `activeProfile`. `activeProfile` is only a diagnostic hint with `confidence` and `reasons`: for example, changes to `persist.game.json`, `persist.narration.json`, and many `backup/persist.*.json` files together look more like the active campaign profile, while only `persist.circus_estate.json` or `persist.rankings.json` changes reduce campaign-profile confidence. The framework does not write saves or block startup based on this inference.
 
-如果存在 `activeProfile`，watcher 还会基于该 profile 写一个只读状态报告：
+If an `activeProfile` exists, the watcher also writes a read-only state report for that profile:
 
 ```text
 logs/save_states/<sessionId>.json
 ```
 
-DD1 的 `persist.*.json` 文件扩展名是 `.json`，但 Steam 存档里的实际内容是 DSON 二进制容器。状态报告不会假装已经完整反序列化这些文件；它会记录文件大小、时间戳、SHA-256、二进制头、DSON header/meta 摘要、可见 marker 字符串、少量短距离内联字符串候选 key/value、有限的 DSON scalar/object 路径样本，以及保守的 `facts` 摘要。报告的 `parseStatus` 会标明当前是 `dsonPartialDecoded`、`binaryStringIndexOnly` 还是普通 `parsedJsonText`。这给后续状态模型和二进制格式解析留出稳定契约。
+DD1 `persist.*.json` files use a `.json` extension, but Steam saves store their actual contents in a DSON binary container. The state report does not pretend to fully deserialize those files. It records file size, timestamps, SHA-256, binary headers, DSON header/meta summaries, visible marker strings, a small number of nearby inline string key/value candidates, limited DSON scalar/object path samples, and conservative `facts`. The report `parseStatus` states whether the file is currently `dsonPartialDecoded`, `binaryStringIndexOnly`, or ordinary `parsedJsonText`. This gives future state models and binary-format parsing a stable contract.
 
-同一次退出还会写一个只读文件地图报告：
+The same exit also writes a read-only file-map report:
 
 ```text
 logs/save_file_maps/<sessionId>.json
 ```
 
-文件地图会扫描 active profile 下 live/backup 的所有 `persist*.json`，标出是否属于当前核心候选、优先级、类别、mod 相关性、当前覆盖程度、DSON 摘要和访问问题。它用于决定后续解码顺序，不代表对应文件已经有完整语义模型。
+The file map scans live and backup `persist*.json` files under the active profile and records whether each file is a current core candidate, its priority, category, mod relevance, current coverage level, DSON summary, and access issues. It is used to choose future decoding order. It does not mean every file already has a full semantic model.
 
-## Decoded profile 工作区
+## Decoded Profile Workspace
 
-真实 `profile_*` 仍然默认只读。需要验证 profile 初始化或 managed action 写入时，先把存档解码到项目内工作区：
+Real `profile_*` saves are read-only by default. To validate profile initialization or managed action writes, decode the save into a project-local workspace first:
 
 ```powershell
 .\tools\PrepareDecodedProfileWorkspace.ps1
@@ -168,52 +168,52 @@ logs/save_file_maps/<sessionId>.json
 .\tools\PrepareDecodedProfileWorkspace.ps1 -Initialize -WriteManagedActions
 ```
 
-默认源是测试档 `E:\Steam\userdata\1097809614\262060\remote\profile_3`。脚本只读取该目录下的 top-level `persist*.json`，使用 `.research\DDSaveEditor-v0.0.70\DDSaveEditor.jar` 解码到：
+The default source is the test profile `E:\Steam\userdata\1097809614\262060\remote\profile_3`. The script only reads top-level `persist*.json` files in that directory and uses `.research\DDSaveEditor-v0.0.70\DDSaveEditor.jar` to decode them into:
 
 ```text
 state/decoded_profiles/<session>/decoded_save
 state/decoded_profiles/<session>/mod_state
 ```
 
-报告会同时写入工作区和 `logs/decoded_profile_workspaces/<session>.json`。`-Initialize` 会调用 `--initialize-decoded-profile`，默认仍是 dry-run；只有再加 `-WriteManagedActions` 才会写项目内 decoded JSON 副本。这个流程不会写回 Steam userdata 里的原始存档。
+Reports are written both into the workspace and to `logs/decoded_profile_workspaces/<session>.json`. `-Initialize` calls `--initialize-decoded-profile`, still in dry-run mode by default. Only adding `-WriteManagedActions` writes to the project-local decoded JSON copy. This flow never writes back to the original save under Steam userdata.
 
-## 存档事件桥
+## Save Event Bridge
 
-存档事件桥把只读 save state facts 转换成框架事件，再交给普通 `eventRules` 执行。转换规则由启用插件的 `factEventRules` 声明，不在 C# 里写死某一种玩法。它不写原版 `profile_*`，也不直接修改游戏 UI、任务列表或战斗流程；当前只作为 observe-first 到 sidecar state 的桥接层。
+The save event bridge converts read-only save state facts into framework events, then passes them to ordinary `eventRules`. Conversion rules are declared by enabled plugin `factEventRules`; they are not hardcoded in C# for one gameplay mode. The bridge does not write original `profile_*` files and does not directly modify game UI, quest lists, or combat flow. It is currently an observe-first bridge into sidecar state.
 
 ```json
 "saveEventBridgeEnabled": false
 ```
 
-默认关闭。开启后，启动器 sidecar watcher 在生成 `logs/save_states/<sessionId>.json` 后，会尝试根据该报告推断事件，并写入：
+It is disabled by default. When enabled, the launcher sidecar watcher tries to infer events after writing `logs/save_states/<sessionId>.json`, and writes:
 
 ```text
 logs/save_event_bridge_report.json
 ```
 
-当 watcher 在游戏运行中观察到 `profile_*` 下稳定 `.json` 存档变化时，也会按 `saveEventBridgeDebounceMilliseconds` 去抖后生成实时状态报告，并执行同一条桥接逻辑：
+When the watcher observes stable `.json` save changes under `profile_*` while the game is running, it debounces by `saveEventBridgeDebounceMilliseconds`, generates realtime state reports, and runs the same bridge logic:
 
 ```text
 logs/save_states/<watchSessionId>_realtime_<n>.json
 ```
 
-实时桥接会跳过已知非战役/网络辅助文件，例如 `persist.circus_estate.json`、`persist.rankings.json`、`persist.mp_progression.json`、`persist.roster.network.json` 和 `novelty_tracker_mp.json`；未知 `.json` 仍保留触发资格，避免未来新存档文件或新玩法扩展被静默挡掉。
+The realtime bridge skips known non-campaign or network auxiliary files, such as `persist.circus_estate.json`, `persist.rankings.json`, `persist.mp_progression.json`, `persist.roster.network.json`, and `novelty_tracker_mp.json`. Unknown `.json` files remain eligible so future save files or gameplay extensions are not silently blocked.
 
-实时桥接仍然只读原版存档，只写框架自己的 sidecar state。游戏退出时保留原来的最终 session report / save state report，用于完整诊断和文件地图分析。
+The realtime bridge still only reads original saves and only writes framework sidecar state. On game exit, the original final session report and save state report remain for complete diagnostics and file-map analysis.
 
-也可以手动对某个 save state report 执行一次推断：
+You can also run inference manually against one save state report:
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --infer-save-events --save-state-report ./logs/save_states/<sessionId>.json --no-inject
 ```
 
-真实游戏观察用专门配置运行，不写原版 `profile_*`，会先准备 challenge sidecar state、物化当前 stage 的 managed action overlay，再启动游戏并注入 RuntimeHook，同时开启 save watcher 和 save event bridge：
+Live game observation uses a dedicated configuration. It does not write original `profile_*` saves. It prepares challenge sidecar state, materializes the managed action overlay for the current stage, starts the game with RuntimeHook injected, and enables the save watcher and save event bridge:
 
 ```powershell
 .\tools\StartLiveChallengeObserve.ps1
 ```
 
-兼容入口 `.\tools\StartChallengeSaveBridgeObserve.ps1` 仍然可用，它会转调新的 live observe 脚本。该脚本会为本次观察创建新的 sidecar state 目录，先初始化 `validation.challenge_run_contract`，发出 `challenge.run_started` 和 `challenge.stage_selection_started`，再启动游戏。进入 `profile_3` 后选择当前 stage 对应的 boss 关；存档变化会实时触发 save event bridge。退出游戏后查看：
+The compatibility entry point `.\tools\StartChallengeSaveBridgeObserve.ps1` remains available and delegates to the new live observe script. The script creates a fresh sidecar state directory for each observation, initializes `validation.challenge_run_contract`, emits `challenge.run_started` and `challenge.stage_selection_started`, and then starts the game. After entering `profile_3`, choose the boss quest for the current stage. Save changes trigger the save event bridge in realtime. After exiting the game, inspect:
 
 ```text
 logs/save_sessions/<sessionId>.json
@@ -222,9 +222,9 @@ logs/save_event_bridge_report.json
 state/live_challenge_observe/<sessionId>/validation.challenge_run_contract.json
 ```
 
-`factEventRules` 可以读取 `fact.*`、插件 `state.*` 和桥接器上下文，并把字段写入事件 payload。payload 可以声明通用数组投影，例如从 `facts.heroes` 里筛出当前 raid 队伍成员，再展开这些英雄的 `trinketIds`，或用 `where` 从 `campaignLog.partyRaidRecords` 里筛出匹配关卡的完成记录。验证插件现在用这些规则从 active raid facts 或任务后的 campaign log facts 发出 `challenge.stage_selection_confirmed`，并从 last raid quest/result facts 发出 `challenge.stage_completed` 或 `challenge.stage_failed`。同一次 bridge pass 中，前一个事件写入 sidecar state 后，后续规则会重新读取 state，因此任务后存档可以先补推选人确认，再推进完成事件。真正的关卡注入、选人 UI 过滤、饰品 UI 过滤不在这个桥接器里硬编码；它们由普通 `eventRules` 声明，并先物化为 managed action artifact，再由 overlay/hook 层按能力逐步消费。
+`factEventRules` can read `fact.*`, plugin `state.*`, and bridge context, then write fields into the emitted event payload. Payloads can declare generic array projections, such as filtering current raid party members from `facts.heroes` and expanding their `trinketIds`, or using `where` to filter `campaignLog.partyRaidRecords` for the matching stage completion record. The validation plugin currently uses these rules to emit `challenge.stage_selection_confirmed` from active raid facts or post-quest campaign log facts, and `challenge.stage_completed` / `challenge.stage_failed` from last raid quest/result facts. During the same bridge pass, after one event writes sidecar state, later rules re-read state. This lets a post-quest save first infer selection confirmation, then advance the completion event. Actual quest injection, hero UI filtering, and trinket UI filtering are not hardcoded in this bridge. They are declared by ordinary `eventRules`, first materialized as managed action artifacts, and then consumed by overlay/hook layers as capabilities mature.
 
-watcher 的实时桥接可以用不启动游戏的诊断脚本测试：
+The watcher realtime bridge can be tested without starting the game:
 
 ```powershell
 .\tools\TestRealtimeSaveBridge.ps1
@@ -258,19 +258,20 @@ watcher 的实时桥接可以用不启动游戏的诊断脚本测试：
 }
 ```
 
-## 框架 Mod 状态存档
+## Framework Mod State
 
-运行时 Mod 自己需要的状态不写进原版 `profile_*`。启动器会把插件 `stateSchema` 初始化到独立目录：
+Runtime mod state is not written into original `profile_*` saves. The launcher initializes plugin `stateSchema` into an independent directory:
 
 ```json
 "modStateDirectory": "./state/mod_state",
 "allowNonAtomicStateWrites": false
 ```
 
-相对路径会解析到框架项目根目录下，并且必须留在项目目录内，避免误写到游戏目录或 Steam userdata。生成的状态文件默认被 `.gitignore` 忽略。
-状态写入默认要求 `.tmp` 原子替换成功；如果原子写失败，命令会失败并记录 `state-atomic-write-failed`，不会自动改用直接覆盖。只有显式配置 `allowNonAtomicStateWrites: true` 或传入 `--allow-non-atomic-state-writes` 时，才允许非原子直接写入，并且报告中会记录 `state-write-fallback-non-atomic` warning 和 `writeMode=non-atomic-fallback`。
+Relative paths resolve under the framework project root and must remain inside the project directory to avoid accidental writes to the game directory or Steam userdata. Generated state files are ignored by `.gitignore` by default.
 
-状态命令：
+State writes require successful `.tmp` atomic replacement by default. If atomic write fails, the command fails and records `state-atomic-write-failed`; it does not automatically fall back to direct overwrite. Non-atomic direct writes are allowed only when `allowNonAtomicStateWrites: true` is explicitly configured or `--allow-non-atomic-state-writes` is passed. The report then records a `state-write-fallback-non-atomic` warning and `writeMode=non-atomic-fallback`.
+
+State commands:
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --init-mod-state --no-inject
@@ -278,43 +279,43 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --mod-state-id validation.challenge_run_contract --init-mod-state --dump-mod-state --no-inject
 ```
 
-- `--init-mod-state`：按当前启用插件的 `stateSchema` 创建或合并默认键，不清空已有状态。
-- `--dump-mod-state`：读取当前 sidecar 状态，输出摘要并写入 `logs/mod_state_dump_report.json`。
-- `--mod-state-id <plugin-id>`：只处理指定插件的状态。
-- `--mod-state-dir <path>`：本次运行临时改用另一个 sidecar 状态目录，路径仍必须位于框架项目目录内。
-- `--allow-non-atomic-state-writes`：本次运行允许非原子状态写入，只用于受沙盒、杀软或权限策略限制的开发环境；正常环境应保持关闭。
+- `--init-mod-state`: create or merge default keys from currently enabled plugin `stateSchema` without clearing existing state.
+- `--dump-mod-state`: read current sidecar state, print a summary, and write `logs/mod_state_dump_report.json`.
+- `--mod-state-id <plugin-id>`: process only the specified plugin state.
+- `--mod-state-dir <path>`: use another sidecar state directory for this run. The path must still stay inside the framework project directory.
+- `--allow-non-atomic-state-writes`: allow non-atomic state writes for this run. Use only in development environments restricted by sandboxing, antivirus, or permission policy. Normal environments should leave this disabled.
 
-单个插件默认写入 `state/mod_state/<plugin-id>.json`。如果多个启用插件重复同一 `id`，文件名会追加 manifest 路径哈希，避免互相覆盖。
+A single plugin writes to `state/mod_state/<plugin-id>.json` by default. If multiple enabled plugins repeat the same `id`, the filename gets a manifest-path hash suffix to avoid overwrites.
 
-## 事件规则执行器
+## Event Rule Executor
 
-`--emit-event` 可以在不启动游戏的情况下模拟一个框架事件，按当前插件加载顺序执行匹配的安全 `eventRules`，并把结果写回 sidecar state：
+`--emit-event` can simulate a framework event without starting the game. Matching safe `eventRules` are executed in the current plugin load order and results are written back to sidecar state:
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --emit-event challenge.stage_selection_confirmed --event-payload-file ./logs/runtime_event_executor_test/payloads/selection_confirmed.json --no-inject
 ```
 
-当前执行器实现安全状态动作，例如 `state.addUniqueRange`、`state.incrementCounter`、`challenge.lockStageSelection`、`challenge.recordFailedAttempt`、`challenge.advanceStage` 和 `challenge.initializeRunState`。部分 `managed` 游戏行为动作会生成可审计 artifact，但仍不执行真实游戏修改：`quest.injectFixedStage`、`roster.filterAvailableHeroes` 和 `equipment.filterAvailableTrinkets` 会在 `logs/runtime_event_report.json` 中记录 `status: "materialized"`、`materializedActionCount`、`plan` 和 `artifactPath`，并把完整 artifact 写入 `modStateDirectory/_managed_actions/`。其他未实现 action 如果标成 `required:true`，本次事件仍会失败。已实现和已物化 action 的参数按严格模式处理：引用的 `event.xxx`、`state.xxx` 或 `challenge.xxx` 路径不存在、显式参数类型错误、定义文件路径错误，都会让 action 失败，而不是当作空值或默认值继续执行。
+The current executor implements safe state actions such as `state.addUniqueRange`, `state.incrementCounter`, `challenge.lockStageSelection`, `challenge.recordFailedAttempt`, `challenge.advanceStage`, and `challenge.initializeRunState`. Some `managed` game-behavior actions generate auditable artifacts but still do not perform live game mutation: `quest.injectFixedStage`, `roster.filterAvailableHeroes`, and `equipment.filterAvailableTrinkets` are reported in `logs/runtime_event_report.json` with `status: "materialized"`, `materializedActionCount`, `plan`, and `artifactPath`, and the full artifact is written under `modStateDirectory/_managed_actions/`. Other unimplemented actions still fail the event if marked `required:true`. Implemented and materialized action parameters are handled strictly: missing referenced `event.xxx`, `state.xxx`, or `challenge.xxx` paths, explicit parameter type errors, and invalid definition file paths fail the action instead of continuing with empty or default values.
 
-启动游戏或 `--dry-run` 前，启动器会把 `_managed_actions/` 下的可消费 artifact 编译成：
+Before starting the game or during `--dry-run`, the launcher compiles consumable artifacts under `_managed_actions/` into:
 
 ```text
 logs/managed_action_overlay_manifest.json
 ```
 
-当前第一版 overlay compiler 只消费 `quest.injectFixedStage`，并按 `kind + target + pluginId + sourcePath + ruleId + actionIndex` 只保留最新 artifact，避免旧 stage 残留影响运行时，同时不把重复插件 id 的不同 manifest 误合并。它会把当前 fixed stage 的 `sourceQuestId` 映射到 `campaign/quest/quest.plot_quests.json`，追加一条虚拟文件规则，把该原版 plot quest 的 `dungeon_level` 设为 `0`、`is_repeatable` 设为 `true`，作为第一版可验证的 quest/content overlay consumer。英雄和饰品过滤 artifact 仍会保留在 sidecar 中，但暂不进入 overlay manifest。RuntimeHook 会通过既有虚拟文件通道消费这条规则，并通过 `DD_RUNTIME_MANAGED_OVERLAY_MANIFEST` 在启动日志中记录 manifest 路径、大小和 overlay 数量。这还不是完整任务池/UI 接管。
+The first overlay compiler version only consumes `quest.injectFixedStage`. It keeps only the latest artifact per `kind + target + pluginId + sourcePath + ruleId + actionIndex`, so stale stages do not leak into runtime, while duplicate plugin ids from different manifests are not merged incorrectly. It maps the current fixed stage `sourceQuestId` to `campaign/quest/quest.plot_quests.json`, appends a virtual file rule, and makes the selected original plot quest `dungeon_level = 0` and `is_repeatable = true`. This is the first verifiable quest/content overlay consumer. Hero and trinket filter artifacts remain in sidecar state for now but are not included in the overlay manifest yet. RuntimeHook consumes this rule through the existing virtual file channel and logs manifest path, size, and overlay count through `DD_RUNTIME_MANAGED_OVERLAY_MANIFEST`. This is not a full quest-pool or UI takeover yet.
 
-## 虚拟文件原型
+## Virtual File Prototype
 
-默认配置中虚拟文件通道是打开的，但没有启用规则时不会改变任何游戏读取结果：
+The virtual file channel is enabled in the default configuration, but it does not change any game reads when no rules are enabled:
 
 ```json
 "virtualFileEnabled": true
 ```
 
-如果需要全局关闭虚拟文件替换，把 `virtualFileEnabled` 改成 `false`。
+To globally disable virtual file replacement, set `virtualFileEnabled` to `false`.
 
-规则列表格式：
+Rule list format:
 
 ```json
 "virtualFileRules": [
@@ -330,11 +331,11 @@ logs/managed_action_overlay_manifest.json
 ]
 ```
 
-`target` 使用相对路径后缀匹配；一条规则可以包含多条 `replacements`。测试配置 `config/virtual_file_test_config.json` 会把 `shared/app.darkest` 以内存虚拟文件返回，并只做一个无语义变化的字符串替换：去掉 `.max_campaign_log_file_size 0 ` 行末尾的空格。这个测试不写磁盘、不改原文件，只验证文件读取链路可以被替换。
+`target` uses relative path suffix matching. A rule can contain multiple `replacements`. Test configuration `config/virtual_file_test_config.json` returns `shared/app.darkest` as an in-memory virtual file and performs only a no-semantics string replacement: removing the trailing space from the `.max_campaign_log_file_size 0 ` line. This test does not write to disk or modify the original file. It only verifies that the file-read path can be replaced.
 
-## 插件补丁清单
+## Plugin Patch Manifests
 
-启动器会扫描 `pluginDirectories` 里的一层插件目录，并读取每个插件目录下的 `patches.json`：
+The launcher scans one layer of plugin directories under `pluginDirectories` and reads each plugin directory's `patches.json`:
 
 ```json
 "pluginDirectories": [
@@ -343,7 +344,7 @@ logs/managed_action_overlay_manifest.json
 "pluginPatchManifestName": "patches.json"
 ```
 
-插件清单格式：
+Plugin manifest format:
 
 ```json
 {
@@ -384,18 +385,18 @@ logs/managed_action_overlay_manifest.json
 }
 ```
 
-玩家可以新建 `plugins/<plugin-id>/patches.json`，把 `enabled` 设为 `true` 后启动器会自动纳入加载计划。加载顺序先看 `depends`、`optionalDepends`、`loadAfter`、`loadBefore`，再看 `phase` 和 `priority`；同一个 `target` 被多个清单命中时，会按最终加载顺序逐步生成替换项后交给 DLL。`plugins/example/patches.json` 是默认关闭的示例。
+Players can create `plugins/<plugin-id>/patches.json` and set `enabled` to `true`; the launcher will include it in the load plan automatically. Load order first considers `depends`, `optionalDepends`, `loadAfter`, and `loadBefore`, then `phase` and `priority`. When multiple manifests target the same file, replacements are generated step by step in final load order before being passed to the DLL. `plugins/example/patches.json` is a disabled example.
 
-加载关系规则：
+Load relationship rules:
 
-- `depends`：必需依赖；缺失时跳过当前插件并记录 warning。
-- `optionalDepends`：目标存在时排在它后面，不存在时忽略。
-- `loadAfter` / `loadBefore`：只影响顺序，不要求目标必须存在。
-- `phase` 顺序为 `base`、`early`、`normal`、`compat`、`late`。
-- `priority` 数值小的先加载，默认 `0`。
-- 重复 `id`、声明冲突和顺序循环默认只记录 warning，不直接阻止启动。
+- `depends`: required dependencies. If missing, the current plugin is skipped and a warning is logged.
+- `optionalDepends`: ordered after the target when it exists; ignored when it does not exist.
+- `loadAfter` / `loadBefore`: affect ordering only and do not require the target to exist.
+- `phase` order is `base`, `early`, `normal`, `compat`, `late`.
+- Lower `priority` values load earlier. The default is `0`.
+- Duplicate `id` values, declared conflicts, and ordering cycles log warnings by default instead of blocking startup.
 
-能力声明用于表达插件打算使用或提供的框架能力：
+Capability declarations describe what a plugin intends to use or provide:
 
 ```json
 "capabilities": [
@@ -406,22 +407,22 @@ logs/managed_action_overlay_manifest.json
 ]
 ```
 
-第一批建议命名：
+First suggested capability names:
 
-- `file.virtualize`：通过 RuntimeHook 虚拟化文件读取。
-- `content.patch`：修改游戏数据文本。
-- `content.app_config`：修改 `shared/app.darkest` 这类应用配置。
-- `content.quest`：任务、关卡或任务链内容。
-- `content.region`：地区、地图或区域内容。
-- `content.localization`：本地化文本。
-- `asset.replace`：贴图、字体、骨骼、atlas 等资源替换。
+- `file.virtualize`: virtualize file reads through RuntimeHook.
+- `content.patch`: modify game data text.
+- `content.app_config`: modify application config such as `shared/app.darkest`.
+- `content.quest`: quest, stage, or quest-chain content.
+- `content.region`: dungeon, map, or region content.
+- `content.localization`: localization text.
+- `asset.replace`: texture, font, skeleton, atlas, and other asset replacement.
 
-`virtualFileRules` 支持两种写法：
+`virtualFileRules` supports two forms:
 
-- `replacements`：底层字符串替换，直接提供 `find` 和 `replace`。
-- `operations`：启动前结构化操作，启动器会读取目标文件并编译成 `replacements`。
+- `replacements`: low-level string replacement with explicit `find` and `replace`.
+- `operations`: structured startup operations. The launcher reads the target file and compiles operations into `replacements`.
 
-规则可以加 `when` 条件；条件不满足时，这条规则不会编译、验证、预览或传给 DLL，但会进入 `--explain-patches` 诊断：
+Rules can include `when` conditions. When conditions are not satisfied, the rule is not compiled, validated, previewed, or sent to the DLL, but it is still included in `--explain-patches` diagnostics:
 
 ```json
 {
@@ -436,12 +437,12 @@ logs/managed_action_overlay_manifest.json
 }
 ```
 
-- `modsPresent`：列出的插件 id 都在最终启用列表中时才生效。
-- `modsAbsent`：列出的插件 id 都不在最终启用列表中时才生效。
-- `capabilitiesPresent`：列出的能力都由最终启用插件声明时才生效。
-- `capabilitiesAbsent`：列出的能力都没有被最终启用插件声明时才生效。
+- `modsPresent`: all listed plugin ids must be in the final enabled list.
+- `modsAbsent`: all listed plugin ids must be absent from the final enabled list.
+- `capabilitiesPresent`: all listed capabilities must be declared by final enabled plugins.
+- `capabilitiesAbsent`: all listed capabilities must be absent from final enabled plugins.
 
-当前支持的 `operations`：
+Currently supported `operations`:
 
 ```json
 { "type": "setValue", "key": ".some_key", "value": "123" }
@@ -451,17 +452,17 @@ logs/managed_action_overlay_manifest.json
 { "type": "appendEnd", "content": "new line" }
 ```
 
-结构化操作会基于当前虚拟文本逐步编译：前一个插件修改后的结果，可以被后一个插件的 `operations` 继续匹配。找不到目标行或替换文本时默认记录 warning 并跳过/无效，不阻止启动；路径越界、目标文件无法读取、类型写错等框架无法安全执行的问题仍会作为 error。旧 `replacements` 也会参与顺序模拟。
+Structured operations compile step by step from the current virtual text. A later plugin can match the result produced by an earlier plugin's `operations`. Missing target lines or replacement text produce warnings and are skipped/no-ops by default; they do not block startup. Unsafe framework execution problems, such as path escape, unreadable targets, or invalid operation types, are still errors. Legacy `replacements` also participate in ordering simulation.
 
-每条结构化操作会生成一个诊断 `subject`，用于解释和冲突报告：
+Each structured operation gets a diagnostic `subject` for explanation and conflict reports:
 
-- `setValue` 使用 `key:<key>`。
-- `replaceLine` / `appendAfter` 会优先从 `key`、`.darkest` 风格 `prefix`、`match` 或 `line` 中提取 `key:<key>`。
-- 不能识别 key 时，会退回到 `match:<text>`、`prefix:<text>` 或操作类型。
+- `setValue` uses `key:<key>`.
+- `replaceLine` / `appendAfter` first try to extract `key:<key>` from `key`, `.darkest`-style `prefix`, `match`, or `line`.
+- If no key can be identified, it falls back to `match:<text>`, `prefix:<text>`, or the operation type.
 
-`--preview-patches` 除了同一行冲突外，还会报告同一 key 被多条替换命中的 `patch-preview-key-conflict`。
+Besides same-line conflicts, `--preview-patches` also reports `patch-preview-key-conflict` when multiple replacements hit the same key.
 
-补丁检查命令：
+Patch inspection commands:
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --list-patches
@@ -472,48 +473,48 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --validate-only --strict-patches
 ```
 
-- `--list-patches`：列出发现的清单、加载顺序、启用状态、源规则和最终有效规则，不启动游戏。
-- `--explain-patches`：解释加载顺序、排序边、跳过原因、能力声明、条件规则诊断、每个 target 的来源链路和最终替换来源；替换来源会包含 operation subject，不启动游戏。
-- `--validate-only`：验证启用规则的 `target` 是否存在、目标文件是否超过当前 16MB 虚拟文件限制，并按最终替换顺序统计每条 `find` 命中次数和 operation subject，不启动游戏。
-- `--validate-patches`：启动前执行同样的验证；如果有错误，直接退出并返回失败码；验证通过后继续正常启动。
-- `--preview-patches`：按 RuntimeHook 的替换顺序模拟虚拟文件结果，写入 `logs/patch_preview`，不启动游戏。
-- `--strict-patches`：把补丁编译 warning 和替换未命中的验证 warning 升级为失败；同目标多规则提示仍保留为诊断 warning。默认不启用。
+- `--list-patches`: list discovered manifests, load order, enabled status, source rules, and final effective rules without starting the game.
+- `--explain-patches`: explain load order, ordering edges, skip reasons, capability declarations, conditional rule diagnostics, each target's source chain, and final replacement sources. Replacement sources include operation subjects. Does not start the game.
+- `--validate-only`: validate enabled rule targets, target file size against the current 16 MB virtual file limit, and match counts for each `find` and operation subject in final replacement order. Does not start the game.
+- `--validate-patches`: run the same validation before startup. If errors exist, exit with failure. If validation passes, continue normal startup.
+- `--preview-patches`: simulate virtual file output using RuntimeHook replacement order, write results to `logs/patch_preview`, and do not start the game.
+- `--strict-patches`: promote patch compilation warnings and unmatched replacement validation warnings to failures. Multi-rule same-target diagnostics remain warnings. Disabled by default.
 
-如果要指定预览目录：
+To choose a preview directory:
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --preview-patches --preview-output ./logs/my_preview
 ```
 
-预览目录会生成：
+The preview directory contains:
 
-- `summary.txt`：目标文件、原始大小、虚拟大小、替换次数。
-- `<target>.preview.txt`：游戏会读到的虚拟文本。
-- `<target>.diff.txt`：每条替换的简短差异、来源插件和 operation subject。
+- `summary.txt`: target file, original size, virtual size, and replacement count.
+- `<target>.preview.txt`: the virtual text the game would read.
+- `<target>.diff.txt`: short diffs for each replacement, including source plugin and operation subject.
 
-`--preview-output` 必须位于框架项目目录内，避免误写游戏目录或 Workshop 目录。
+`--preview-output` must remain inside the framework project directory to avoid accidental writes to the game directory or Workshop directories.
 
-运行测试配置：
+Run the virtual file test configuration:
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/virtual_file_test_config.json
 ```
 
-运行插件清单测试配置：
+Run the plugin manifest test configuration:
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/plugin_patch_test_config.json
 ```
 
-## 预期运行流程
+## Expected Run Flow
 
 ```text
-1. 构建 runtime/RuntimeHook.vcxproj，生成 runtime/bin/x64/Release/RuntimeHook.dll
-2. 构建 launcher/DDRuntimeLoader.csproj
-3. 从工程根目录运行启动器
-4. 查看 logs/launcher.log 和 logs/runtime_hook.log
+1. Build runtime/RuntimeHook.vcxproj to generate runtime/bin/x64/Release/RuntimeHook.dll
+2. Build launcher/DDRuntimeLoader.csproj
+3. Run the launcher from the project root
+4. Inspect logs/launcher.log and logs/runtime_hook.log
 ```
 
-## 回退方式
+## Rollback
 
-这个框架不改游戏目录。想回退时直接关闭启动器，用 Steam 原方式启动游戏即可。
+This framework does not modify the game directory. To roll back, close the launcher and start the game through Steam normally.
