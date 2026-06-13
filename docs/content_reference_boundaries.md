@@ -33,6 +33,11 @@ These capabilities should usually be treated as externally authored content. The
 | Trinkets/items | item definitions, icons, rarity, prices, equip rules | inventory counts, sale policy, reward references |
 | Curios/props | prop definition files, art, default interaction tables | map placement, interaction gating, event hooks, dependency validation |
 | Loot tables | ordinary loot table definitions | reward selection references, phase gating, deterministic reward policies |
+| Map generators | `.map_generator.darkest` rules for ordinary generated quest layouts | choose which generator-backed quest is eligible and validate referenced dungeon/type ids |
+| Fixed maps | authored `.dm` maps and their art/content references | select, gate, overlay, or validate map references |
+| Dungeon/region packs | dungeon folders, walls, rooms, colour grades, quest-select art, raid settings | content catalog indexing, dependency checks, quest-board scheduling |
+| Town/building static data | building layout JSON, static slots, static costs, static recruit tables | runtime queues, delayed completion, save projection, capability-gated overrides |
+| Gameplay scalar rules | walking speed, combat speed, stack size, static balance values | load-order reports, conflict diagnostics, optional virtual file overlays |
 | Localization | `.loc` or equivalent language files | loading order, missing-key diagnostics, optional text overrides |
 | Art/audio/animation | images, atlases, skeletons, audio banks | file presence checks and virtual file/sourcePath exposure |
 | Quest definitions | fully custom quest objects when authored through existing DD mod formats | quest board ordering, unlock state, phase transitions, save projection |
@@ -122,3 +127,75 @@ A framework writer is justified only when it adds reusable runtime value that ex
 - a runtime hook must enforce behavior that static files cannot express.
 
 If the task is only "create a new monster file with art and skills", prefer documenting how to reference an existing DD/Workshop-style content pack instead of adding framework code.
+
+## Workshop Sampling Notes
+
+The current Workshop install contains enough variety to set a practical boundary. The sampled tags include `New Class`, `Skins`, `Trinkets`, `Gameplay Tweaks`, `Localization`, `Dungeon`, `Monsters`, `Boss`, `Miniboss`, `UI`, `font`, and `Compatibility`.
+
+These samples support the same rule: most static authoring is already covered by the original Darkest Dungeon mod file formats. The framework should catalog and orchestrate that content instead of replacing it.
+
+| Sample | Observed authoring path | Framework boundary |
+| --- | --- | --- |
+| `1689234891` Sunward Isles | new dungeon `ship`, quest generation, plot quests, quest types, fixed `.dm` maps, map generator, mash files, curios, inventory, districts, town events, localization | reference its dungeon/quest/monster/trinket ids; gate and schedule quests; validate missing dependencies |
+| `3669966489` Fiend Festival | new dungeon with `sinister_circus.quest.*.json`, `sinister_circus.map_generator.darkest`, inventory, raid settings, monsters, loot, trinkets | treat as an external content provider; do not build a separate dungeon editor first |
+| `3081931947` 2B Class Mod | hero info/art, effects, upgrades, loot, trinkets, buffs, traits, localization | generate or filter roster entries by class id; do not reimplement class authoring |
+| `2433996706` Here Be Monsters | monster info/art, monster AI, mash pools, effects, loot, trinkets, localization | reference monster and encounter ids; validate that required mash and monster files exist |
+| skin/image replacement mods | replacement hero/town images and art manifests | report file-level conflicts and final provider; no skin system is required |
+| trinket packs | trinket entries, rarities, sets, effects, buffs, icons, localization | reference trinket ids in inventory, rewards, and sale policies |
+| inventory/stack mods | `inventory/*.darkest` static value changes | virtualize or report conflicts; runtime inventory logic is separate |
+| speed tweak mods | `shared/*.rules.json` scalar changes | static content overlay and conflict reporting are enough |
+| town building tweak mods | building JSON, layout files, upgrade JSON | static building edits stay external; dynamic construction queues or delayed upgrades belong to framework actions |
+| localization/font mods | localization XML/LOC and font assets | load order, missing key checks, and provider reports only |
+| music/compatibility mods | raid settings, audio banks, quest generation overrides | report which content they patch; allow explicit load ordering |
+
+## Consequence For Quest Board Work
+
+Quest-board control should not require the framework to author every quest, monster, dungeon, or map. A plugin should be able to point at an original, DLC, Workshop, or plugin-bundled quest and then describe when it is eligible.
+
+The reusable primitive should be a quest-board policy over referenced content:
+
+- immediate availability after a prerequisite quest completes;
+- availability on the next week advance after a prerequisite completes;
+- `week >= N` availability;
+- exact-week windows such as `week == N`;
+- fixed entries, random draws from eligible pools, or a mixture of both;
+- completion handling such as keep, remove, replace, or advance phase.
+
+The framework-owned part is the predicate, scheduling, and projection path. The content-owned part is the underlying quest, dungeon, map, encounter, and assets.
+
+Example shape:
+
+```json
+{
+  "contentRefs": {
+    "workshop": [
+      { "workshopId": "1689234891", "required": true }
+    ],
+    "quests": [
+      { "id": "plot_samurai", "provider": "workshop", "required": true }
+    ],
+    "dungeons": [
+      { "id": "ship", "provider": "workshop", "required": true }
+    ],
+    "monsters": [
+      { "id": "ghost_samurai_A", "provider": "workshop", "required": true }
+    ]
+  },
+  "questBoardPolicy": {
+    "mode": "mixed",
+    "refreshTriggers": ["immediateOnQuestComplete", "onWeekAdvance"],
+    "entries": [
+      {
+        "questId": "plot_samurai",
+        "availableWhen": {
+          "completedQuest": "plot_lions",
+          "weekGte": 5
+        },
+        "onCompleted": "remove"
+      }
+    ]
+  }
+}
+```
+
+The exact schema can evolve, but the boundary should stay stable: static content packs provide ids and files; the framework decides if, when, and how those ids participate in runtime gameplay.
