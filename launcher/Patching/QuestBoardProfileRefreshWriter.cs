@@ -23,15 +23,24 @@ internal static class QuestBoardProfileRefreshWriter
         QuestBoardRuntimeOverlayReport overlayReport,
         string profileId,
         bool dryRun,
-        bool allowRunningGameSaveWrite)
+        bool allowRunningGameSaveWrite,
+        string? expectedProfileRoot = null)
     {
         var reportPath = Path.Combine(config.LogDirectory, ReportFileName);
         var issues = new List<QuestBoardProfileRefreshIssue>();
         var normalizedProfileId = profileId.Trim();
-        var profile = overlayReport.Profiles.FirstOrDefault(item =>
-            item.ProfileId.Equals(normalizedProfileId, StringComparison.OrdinalIgnoreCase));
+        var matchingProfiles = overlayReport.Profiles
+            .Where(item => item.ProfileId.Equals(normalizedProfileId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var expectedSourcePath = string.IsNullOrWhiteSpace(expectedProfileRoot)
+            ? string.Empty
+            : Path.GetFullPath(Path.Combine(expectedProfileRoot, PersistQuestFileName));
+        var profile = string.IsNullOrWhiteSpace(expectedSourcePath)
+            ? matchingProfiles.FirstOrDefault()
+            : matchingProfiles.FirstOrDefault(item =>
+                Path.GetFullPath(item.SourcePath).Equals(expectedSourcePath, StringComparison.OrdinalIgnoreCase));
 
-        string sourcePath = profile?.SourcePath ?? string.Empty;
+        string sourcePath = profile?.SourcePath ?? expectedSourcePath;
         string replacementPath = profile?.RuntimeSourcePath ?? string.Empty;
         string backupPath = string.Empty;
         string sourceHashBefore = string.Empty;
@@ -58,8 +67,10 @@ internal static class QuestBoardProfileRefreshWriter
         {
             issues.Add(Error(
                 "profile-not-found",
-                normalizedProfileId,
-                $"profile was not present in quest board runtime overlay report: {normalizedProfileId}"));
+                string.IsNullOrWhiteSpace(expectedSourcePath) ? normalizedProfileId : expectedSourcePath,
+                string.IsNullOrWhiteSpace(expectedSourcePath)
+                    ? $"profile was not present in quest board runtime overlay report: {normalizedProfileId}"
+                    : $"profile source was not present in quest board runtime overlay report: {expectedSourcePath}"));
         }
         else if (!profile.Status.Equals("ready", StringComparison.OrdinalIgnoreCase))
         {

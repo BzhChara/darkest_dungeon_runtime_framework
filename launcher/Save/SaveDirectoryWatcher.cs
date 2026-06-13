@@ -3,6 +3,7 @@ namespace DDRuntimeLoader;
 internal sealed partial class SaveDirectoryWatcher : IDisposable
 {
     private const string DarkestDungeonAppId = "262060";
+    private const string PersistQuestFileName = "persist.quest.json";
     private const int MaxSummaryFilesPerLine = 32;
     private static readonly TimeSpan DedupeWindow = TimeSpan.FromMilliseconds(250);
     private static readonly HashSet<string> KnownAuxiliaryOrNetworkSaveFiles = new(StringComparer.OrdinalIgnoreCase)
@@ -381,6 +382,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             }
 
             var now = DateTimeOffset.Now;
+            var containsLivePersistQuest = IsLivePersistQuest(stablePath);
             if (_pendingBridgeProfiles.TryGetValue(stablePath.ProfileRoot, out var existing))
             {
                 pending = existing with
@@ -388,7 +390,8 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
                     LastSeenAt = now,
                     ChangeCount = existing.ChangeCount + 1,
                     LastReason = reason,
-                    LastRelativePath = stablePath.RelativePath
+                    LastRelativePath = stablePath.RelativePath,
+                    ContainsLivePersistQuest = existing.ContainsLivePersistQuest || containsLivePersistQuest
                 };
             }
             else
@@ -400,7 +403,8 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
                     now,
                     1,
                     reason,
-                    stablePath.RelativePath);
+                    stablePath.RelativePath,
+                    containsLivePersistQuest);
             }
 
             _pendingBridgeProfiles[stablePath.ProfileRoot] = pending;
@@ -535,6 +539,55 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         CountEvent("save.state_report_realtime_written");
         var bridgeReport = SaveEventBridge.Execute(_config, _patchPlan, _log, stateReportPath, _projectRoot, null);
         CountEvent(bridgeReport.Succeeded ? "save.event_bridge_realtime_completed" : "save.event_bridge_realtime_failed");
+        TryRefreshQuestBoardAfterRealtimeBridge(profile, bridgeReport);
+    }
+
+    private void TryRefreshQuestBoardAfterRealtimeBridge(PendingBridgeProfile profile, SaveEventBridgeReport bridgeReport)
+    {
+        if (!_config.QuestBoardAutoRefreshEnabled || !profile.ContainsLivePersistQuest)
+        {
+            return;
+        }
+
+        if (!bridgeReport.Succeeded)
+        {
+            CountEvent("save.quest_board_auto_refresh_skipped");
+            _log.Warn(
+                $"event name=save.quest_board_auto_refresh_skipped profile={profile.Profile} " +
+                $"root={Quote(profile.Root)} reason={Quote("save event bridge failed")}");
+            return;
+        }
+
+        try
+        {
+            CountEvent("save.quest_board_auto_refresh_requested");
+            _log.Info(
+                $"event name=save.quest_board_auto_refresh_requested profile={profile.Profile} " +
+                $"root={Quote(profile.Root)} reason={Quote("live persist.quest.json changed")}");
+
+            var preview = QuestBoardPreviewReporter.Write(_config, _log);
+            var runtimeOverlay = QuestBoardRuntimeOverlayCompiler.Compile(_config, _log, preview);
+            var refreshReport = QuestBoardProfileRefreshWriter.Write(
+                _config,
+                _log,
+                _projectRoot,
+                runtimeOverlay,
+                profile.Profile,
+                dryRun: false,
+                allowRunningGameSaveWrite: _config.QuestBoardAutoRefreshAllowRunningGameSaveWrite,
+                expectedProfileRoot: profile.Root);
+
+            CountEvent(refreshReport.Succeeded
+                ? "save.quest_board_auto_refresh_completed"
+                : "save.quest_board_auto_refresh_failed");
+        }
+        catch (Exception ex)
+        {
+            CountEvent("save.quest_board_auto_refresh_failed");
+            _log.Error(
+                $"event name=save.quest_board_auto_refresh_failed profile={profile.Profile} " +
+                $"root={Quote(profile.Root)} message={Quote(ex.Message)}");
+        }
     }
 
     private void CountEvent(string eventName)
@@ -765,7 +818,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             "persist.town.json",
             "persist.roster.json",
             "persist.progression.json",
-            "persist.quest.json",
+            PersistQuestFileName,
             "persist.upgrades.json",
             "persist.estate.json"
         };
@@ -934,6 +987,12 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         return true;
     }
 
+    private static bool IsLivePersistQuest(StableSavePath stablePath)
+    {
+        return stablePath.Area.Equals("live", StringComparison.OrdinalIgnoreCase) &&
+            stablePath.RelativePath.Equals(PersistQuestFileName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsKnownAuxiliaryOrNetworkSaveFile(string relativePath)
     {
         var fileName = Path.GetFileName(relativePath);
@@ -1059,7 +1118,8 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         DateTimeOffset LastSeenAt,
         int ChangeCount,
         string LastReason,
-        string LastRelativePath);
+        string LastRelativePath,
+        bool ContainsLivePersistQuest);
 
     private sealed record SaveProfileSummary(
         string Profile,

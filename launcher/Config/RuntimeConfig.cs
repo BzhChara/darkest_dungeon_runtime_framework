@@ -110,6 +110,12 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("saveEventBridgeDebounceMilliseconds")]
     public int SaveEventBridgeDebounceMilliseconds { get; set; } = 1000;
 
+    [JsonPropertyName("questBoardAutoRefreshEnabled")]
+    public bool QuestBoardAutoRefreshEnabled { get; set; }
+
+    [JsonPropertyName("questBoardAutoRefreshAllowRunningGameSaveWrite")]
+    public bool QuestBoardAutoRefreshAllowRunningGameSaveWrite { get; set; }
+
     [JsonPropertyName("pluginDirectories")]
     public string[] PluginDirectories { get; set; } = ["./plugins"];
 

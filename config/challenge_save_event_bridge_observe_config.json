@@ -35,6 +35,8 @@
   "saveWatchAfterExitSeconds": 10,
   "saveEventBridgeEnabled": true,
   "saveEventBridgeDebounceMilliseconds": 1000,
+  "questBoardAutoRefreshEnabled": true,
+  "questBoardAutoRefreshAllowRunningGameSaveWrite": true,
   "pluginDirectories": [
     "./plugins/_validation"
   ],

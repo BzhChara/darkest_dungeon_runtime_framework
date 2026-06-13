@@ -44,6 +44,8 @@
   "saveWatchAfterExitSeconds": 10,
   "saveEventBridgeEnabled": false,
   "saveEventBridgeDebounceMilliseconds": 1000,
+  "questBoardAutoRefreshEnabled": false,
+  "questBoardAutoRefreshAllowRunningGameSaveWrite": false,
   "pluginDirectories": [
     "./plugins"
   ],
