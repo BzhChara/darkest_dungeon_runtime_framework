@@ -325,7 +325,7 @@ if ($EncodeInitializedProfile) {
                 $roundTripDecodeMessage = (($roundTripOutput | Out-String).Trim())
                 if ($roundTripDecodeExitCode -eq 0) {
                     try {
-                        Get-Content -Raw -LiteralPath $roundTripDecodedPath | ConvertFrom-Json | Out-Null
+                        Get-Content -Raw -LiteralPath $roundTripDecodedPath | ConvertFrom-Json -AsHashtable | Out-Null
                         $status = "roundtrip-validated"
                     }
                     catch {

@@ -7,6 +7,7 @@ param(
     [switch]$Write,
     [switch]$AllowExternalTarget,
     [switch]$AllowRunningGameSaveWrite,
+    [switch]$PromoteAllEncodedFiles,
     [string]$GameExecutablePath = "E:\Steam\steamapps\common\DarkestDungeon\_windows\win64\Darkest.exe"
 )
 
@@ -132,6 +133,12 @@ function New-Issue {
     }
 }
 
+function Test-HasError {
+    param([array]$Issues)
+
+    return @($Issues | Where-Object { $_.severity -eq "error" }).Count -gt 0
+}
+
 function New-FilePlan {
     param(
         [System.IO.FileInfo]$SourceFile,
@@ -154,6 +161,33 @@ function New-FilePlan {
         written = $false
         targetSha256After = ""
     }
+}
+
+function Get-WorkspaceChangedEncodedFileNames {
+    param([object]$WorkspaceReport)
+
+    $initialByName = @{}
+    foreach ($file in (ConvertTo-DdrtArray $WorkspaceReport.files)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$file.name)) {
+            $initialByName[[string]$file.name] = [string]$file.decodedSha256
+        }
+    }
+
+    $changedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($file in (ConvertTo-DdrtArray $WorkspaceReport.encoding.files)) {
+        $name = [string]$file.name
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
+
+        $finalHash = [string]$file.decodedSha256
+        if (-not $initialByName.ContainsKey($name) -or
+            -not $initialByName[$name].Equals($finalHash, [System.StringComparison]::OrdinalIgnoreCase)) {
+            [void]$changedNames.Add($name)
+        }
+    }
+
+    return ,$changedNames
 }
 
 function Backup-TargetProfile {
@@ -234,13 +268,14 @@ function Invoke-Promotion {
     $issues = @()
 
     $workspaceReportPath = Join-Path $workspacePath "decoded_profile_workspace_report.json"
+    $changedEncodedFileNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     if (-not (Test-Path -LiteralPath $workspaceReportPath -PathType Leaf)) {
         $issues += New-Issue -Severity "error" -Code "workspace-report-missing" -Path $workspaceReportPath -Message "decoded profile workspace report was not found."
     }
 
     $workspaceReport = $null
     $encodedProfileDirectory = Join-Path $workspacePath "encoded_profile"
-    if ($issues.Count -eq 0) {
+    if (-not (Test-HasError -Issues $issues)) {
         $workspaceReport = Get-Content -Raw -LiteralPath $workspaceReportPath | ConvertFrom-Json
         if (-not [bool]$workspaceReport.encodeInitializedProfileRequested) {
             $issues += New-Issue -Severity "error" -Code "workspace-not-encoded" -Path $workspaceReportPath -Message "workspace was not created with -EncodeInitializedProfile."
@@ -257,6 +292,8 @@ function Invoke-Promotion {
         if (-not [string]::IsNullOrWhiteSpace([string]$workspaceReport.encoding.encodedProfileDirectory)) {
             $encodedProfileDirectory = [string]$workspaceReport.encoding.encodedProfileDirectory
         }
+
+        $changedEncodedFileNames = Get-WorkspaceChangedEncodedFileNames -WorkspaceReport $workspaceReport
     }
 
     $encodedProfilePath = [System.IO.Path]::GetFullPath($encodedProfileDirectory)
@@ -269,14 +306,38 @@ function Invoke-Promotion {
     }
 
     if (Test-RunningGameShouldBlock -TargetPath $targetPath) {
-        $issues += New-Issue -Severity "error" -Code "game-running" -Path $targetPath -Message "Darkest.exe is running while the target profile is outside the project root; exit the game or pass -AllowRunningGameSaveWrite."
+        if ($Write) {
+            $issues += New-Issue -Severity "error" -Code "game-running" -Path $targetPath -Message "Darkest.exe is running while the target profile is outside the project root; exit the game or pass -AllowRunningGameSaveWrite."
+        }
+        else {
+            $issues += New-Issue -Severity "warning" -Code "game-running-dry-run" -Path $targetPath -Message "Darkest.exe is running while the external target profile is being inspected; dry-run will not write, but the target may change after the report."
+        }
     }
 
     $filePlans = @()
-    if ($issues.Count -eq 0) {
-        $sourceFiles = @(Get-ChildItem -LiteralPath $encodedProfilePath -File | Sort-Object Name)
-        if ($sourceFiles.Count -eq 0) {
-            $issues += New-Issue -Severity "error" -Code "encoded-profile-empty" -Path $encodedProfilePath -Message "encoded profile directory contains no top-level files."
+    if (-not (Test-HasError -Issues $issues)) {
+        $allSourceFiles = @(Get-ChildItem -LiteralPath $encodedProfilePath -File | Sort-Object Name)
+        if ($PromoteAllEncodedFiles) {
+            $sourceFiles = $allSourceFiles
+            if ($sourceFiles.Count -eq 0) {
+                $issues += New-Issue -Severity "error" -Code "encoded-profile-empty" -Path $encodedProfilePath -Message "encoded profile directory contains no top-level files."
+            }
+        }
+        else {
+            $sourceByName = @{}
+            foreach ($sourceFile in $allSourceFiles) {
+                $sourceByName[$sourceFile.Name] = $sourceFile
+            }
+
+            $sourceFiles = @()
+            foreach ($changedName in ($changedEncodedFileNames | Sort-Object)) {
+                if ($sourceByName.ContainsKey($changedName)) {
+                    $sourceFiles += $sourceByName[$changedName]
+                }
+                else {
+                    $issues += New-Issue -Severity "error" -Code "changed-encoded-file-missing" -Path (Join-Path $encodedProfilePath $changedName) -Message "workspace report marks a decoded file as changed, but the matching encoded file is missing."
+                }
+            }
         }
 
         foreach ($sourceFile in $sourceFiles) {
@@ -290,7 +351,7 @@ function Invoke-Promotion {
     $written = $false
     $writeMode = "none"
 
-    if ($issues.Count -eq 0 -and $Write -and $changed) {
+    if (-not (Test-HasError -Issues $issues) -and $Write -and $changed) {
         try {
             $backup = Backup-TargetProfile -TargetRoot $targetPath -BackupDirectory $backupDirectory -PromotedFiles $filePlans
             $manifest = [pscustomobject]@{
@@ -326,7 +387,7 @@ function Invoke-Promotion {
         }
     }
 
-    $status = if (@($issues | Where-Object { $_.severity -eq "error" }).Count -gt 0) {
+    $status = if (Test-HasError -Issues $issues) {
         "blocked"
     }
     elseif (-not $Write) {
@@ -351,6 +412,8 @@ function Invoke-Promotion {
         workspaceReportPath = $workspaceReportPath
         encodedProfileDirectory = $encodedProfilePath
         targetProfileDirectory = $targetPath
+        promoteAllEncodedFiles = [bool]$PromoteAllEncodedFiles
+        promotionSelectionMode = if ($PromoteAllEncodedFiles) { "all-encoded-files" } else { "decoded-content-changes" }
         backupDirectory = if ($written) { $backupDirectory } else { "" }
         backupManifestPath = if ($written) { $backupManifestPath } else { "" }
         changed = $changed
@@ -399,18 +462,23 @@ function Invoke-Restore {
     }
 
     if (Test-RunningGameShouldBlock -TargetPath $targetPath) {
-        $issues += New-Issue -Severity "error" -Code "game-running" -Path $targetPath -Message "Darkest.exe is running while the target profile is outside the project root; exit the game or pass -AllowRunningGameSaveWrite."
+        if ($Write) {
+            $issues += New-Issue -Severity "error" -Code "game-running" -Path $targetPath -Message "Darkest.exe is running while the target profile is outside the project root; exit the game or pass -AllowRunningGameSaveWrite."
+        }
+        else {
+            $issues += New-Issue -Severity "warning" -Code "game-running-dry-run" -Path $targetPath -Message "Darkest.exe is running while the external target profile is being inspected; dry-run will not write, but the target may change after the report."
+        }
     }
 
     $manifest = $null
-    if ($issues.Count -eq 0) {
+    if (-not (Test-HasError -Issues $issues)) {
         $manifest = Get-Content -Raw -LiteralPath $backupManifestPath | ConvertFrom-Json
         if (-not ([string]$manifest.targetProfileDirectory).Equals($targetPath, [System.StringComparison]::OrdinalIgnoreCase)) {
             $issues += New-Issue -Severity "error" -Code "target-profile-mismatch" -Path $targetPath -Message "restore target does not match the backup manifest target profile."
         }
     }
 
-    if ($issues.Count -eq 0 -and $Write) {
+    if (-not (Test-HasError -Issues $issues) -and $Write) {
         try {
             foreach ($entry in (ConvertTo-DdrtArray $manifest.backedUpFiles)) {
                 $targetFilePath = Join-Path $targetPath ([string]$entry.relativePath)
@@ -440,7 +508,7 @@ function Invoke-Restore {
         }
     }
 
-    $status = if (@($issues | Where-Object { $_.severity -eq "error" }).Count -gt 0) {
+    $status = if (Test-HasError -Issues $issues) {
         "blocked"
     }
     elseif (-not $Write) {
