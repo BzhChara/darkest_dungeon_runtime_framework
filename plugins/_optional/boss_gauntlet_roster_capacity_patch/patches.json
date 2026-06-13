@@ -1,0 +1,34 @@
+{
+  "id": "optional.boss_gauntlet_roster_capacity_patch",
+  "name": "Optional - Boss Gauntlet Roster Capacity Patch",
+  "version": "0.1.0",
+  "enabled": true,
+  "phase": "late",
+  "priority": 900,
+  "capabilities": [
+    "file.virtualize",
+    "content.patch",
+    "stagecoach.roster_capacity"
+  ],
+  "loadAfter": [
+    "validation.boss_gauntlet_campaign_contract"
+  ],
+  "virtualFileRules": [
+    {
+      "target": "campaign/town/buildings/stage_coach/stage_coach.building.json",
+      "replacements": [
+        {
+          "find": "                        { \"amount\" : 28,     \"upgrade_tree_id\" :  \"stage_coach.rostersize\", \"upgrade_requirement_code\" : \"e\"  }",
+          "replace": "                        { \"amount\" : 128,    \"upgrade_tree_id\" :  \"stage_coach.rostersize\", \"upgrade_requirement_code\" : \"e\"  }"
+        }
+      ]
+    }
+  ],
+  "mapTemplates": [],
+  "mapLayoutTemplates": [],
+  "questChains": [],
+  "questBoardPolicies": [],
+  "eventRules": [],
+  "factEventRules": [],
+  "stateSchema": {}
+}
