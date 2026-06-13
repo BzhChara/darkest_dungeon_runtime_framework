@@ -44,6 +44,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 .\tools\TestSaveEventBridge.ps1
 .\tools\TestRealtimeSaveBridge.ps1
 .\tools\TestManagedActionOverlay.ps1
+.\tools\TestManagedActionRetention.ps1
 .\tools\TestQuestBoardProfileRefresh.ps1
 .\tools\TestQuestBoardRealtimeRefresh.ps1
 .\tools\TestManagedActionSaveApplier.ps1

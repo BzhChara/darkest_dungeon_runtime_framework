@@ -49,6 +49,7 @@
   "questBoardPolicyAutoMaterializeEnabled": false,
   "questBoardPolicyAutoMaterializeSlots": null,
   "questBoardPolicyAutoMaterializeSeed": null,
+  "managedActionRetentionKeepLatestPerGroup": 5,
   "pluginDirectories": [
     "./plugins"
   ],

@@ -125,6 +125,9 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("questBoardPolicyAutoMaterializeSeed")]
     public int? QuestBoardPolicyAutoMaterializeSeed { get; set; }
 
+    [JsonPropertyName("managedActionRetentionKeepLatestPerGroup")]
+    public int ManagedActionRetentionKeepLatestPerGroup { get; set; } = 5;
+
     [JsonPropertyName("pluginDirectories")]
     public string[] PluginDirectories { get; set; } = ["./plugins"];
 
@@ -152,6 +155,7 @@ internal sealed partial class RuntimeConfig
         if (options.AutoMaterializeQuestBoardPolicies) QuestBoardPolicyAutoMaterializeEnabled = true;
         if (options.QuestBoardPolicySlots.HasValue) QuestBoardPolicyAutoMaterializeSlots = options.QuestBoardPolicySlots.Value;
         if (options.QuestBoardPolicySeed.HasValue) QuestBoardPolicyAutoMaterializeSeed = options.QuestBoardPolicySeed.Value;
+        if (options.ManagedActionRetentionKeepLatestPerGroup.HasValue) ManagedActionRetentionKeepLatestPerGroup = options.ManagedActionRetentionKeepLatestPerGroup.Value;
     }
 
     public void ResolvePaths(string projectRoot)

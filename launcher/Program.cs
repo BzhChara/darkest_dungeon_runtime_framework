@@ -30,6 +30,7 @@ internal static class Program
             log.Info($"Quest board policy auto materialize enabled: {config.QuestBoardPolicyAutoMaterializeEnabled}");
             log.Info($"Quest board policy auto materialize slots: {FormatNullableInt(config.QuestBoardPolicyAutoMaterializeSlots)}");
             log.Info($"Quest board policy auto materialize seed: {FormatNullableInt(config.QuestBoardPolicyAutoMaterializeSeed)}");
+            log.Info($"Managed action retention keep latest per group: {config.ManagedActionRetentionKeepLatestPerGroup}");
             log.Info($"File IO hook enabled: {config.FileIoHookEnabled}");
             log.Info($"File IO observer enabled: {config.FileIoObserveOnly}");
             log.Info($"Injection enabled: {config.EnableInjection && !options.NoInject}");
@@ -57,6 +58,8 @@ internal static class Program
                     !options.PreviewQuestBoardPolicies &&
                     !options.ResolveQuestBoardPolicies &&
                     !options.MaterializeQuestBoardPolicies &&
+                    !options.PreviewManagedActionRetention &&
+                    !options.PruneManagedActions &&
                     !options.InspectMapFile &&
                     !options.PrototypeMapFinalRoom &&
                     !options.PrototypeMapTemplate &&
@@ -130,6 +133,15 @@ internal static class Program
                     options.SaveStateReportPath,
                     options.QuestBoardPolicySlots ?? config.QuestBoardPolicyAutoMaterializeSlots,
                     options.QuestBoardPolicySeed ?? config.QuestBoardPolicyAutoMaterializeSeed).Succeeded;
+            }
+
+            if (options.PreviewManagedActionRetention || options.PruneManagedActions)
+            {
+                modStateSucceeded &= ManagedActionArtifactRetention.Write(
+                    config,
+                    log,
+                    options.PruneManagedActions,
+                    config.ManagedActionRetentionKeepLatestPerGroup).Succeeded;
             }
 
             if (options.InitModState)
@@ -293,6 +305,8 @@ internal static class Program
                 options.PreviewQuestBoardPolicies ||
                 options.ResolveQuestBoardPolicies ||
                 options.MaterializeQuestBoardPolicies ||
+                options.PreviewManagedActionRetention ||
+                options.PruneManagedActions ||
                 options.InspectMapFile ||
                 options.PrototypeMapFinalRoom ||
                 options.PrototypeMapTemplate ||
@@ -498,6 +512,9 @@ internal static class Program
         if (options.InitializeDecodedProfile && options.ApplyManagedActions)
             throw new InvalidOperationException("--initialize-decoded-profile cannot be combined with --apply-managed-actions because it runs managed action application internally.");
 
+        if (options.PreviewManagedActionRetention && options.PruneManagedActions)
+            throw new InvalidOperationException("--preview-managed-action-retention cannot be combined with --prune-managed-actions.");
+
         if (!File.Exists(config.GameExecutablePath))
             throw new FileNotFoundException("Game executable was not found.", config.GameExecutablePath);
 
@@ -519,6 +536,8 @@ internal static class Program
             !options.PreviewQuestBoardPolicies &&
             !options.ResolveQuestBoardPolicies &&
             !options.MaterializeQuestBoardPolicies &&
+            !options.PreviewManagedActionRetention &&
+            !options.PruneManagedActions &&
             !options.InspectMapFile &&
             !options.PrototypeMapFinalRoom &&
             !options.PrototypeMapTemplate &&
@@ -543,6 +562,9 @@ internal static class Program
 
         if (config.QuestBoardPolicyAutoMaterializeSlots.HasValue && config.QuestBoardPolicyAutoMaterializeSlots.Value <= 0)
             throw new InvalidOperationException("questBoardPolicyAutoMaterializeSlots must be a positive integer when configured.");
+
+        if (config.ManagedActionRetentionKeepLatestPerGroup <= 0)
+            throw new InvalidOperationException("managedActionRetentionKeepLatestPerGroup must be a positive integer.");
 
         if (config.QuestBoardPolicyAutoMaterializeEnabled && !config.SaveEventBridgeEnabled && !options.InferSaveEvents)
             log.Warn("questBoardPolicyAutoMaterializeEnabled is true, but saveEventBridgeEnabled is false; automatic materialization will only run during explicit --infer-save-events calls.");

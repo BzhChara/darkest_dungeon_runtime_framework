@@ -28,6 +28,8 @@ internal sealed class LauncherOptions
     public bool ResolveQuestBoardPolicies { get; private set; }
     public bool MaterializeQuestBoardPolicies { get; private set; }
     public bool AutoMaterializeQuestBoardPolicies { get; private set; }
+    public bool PreviewManagedActionRetention { get; private set; }
+    public bool PruneManagedActions { get; private set; }
     public bool InspectMapFile { get; private set; }
     public bool PrototypeMapFinalRoom { get; private set; }
     public bool PrototypeMapTemplate { get; private set; }
@@ -44,6 +46,7 @@ internal sealed class LauncherOptions
     public string? SaveStateReportPath { get; private set; }
     public int? QuestBoardPolicySlots { get; private set; }
     public int? QuestBoardPolicySeed { get; private set; }
+    public int? ManagedActionRetentionKeepLatestPerGroup { get; private set; }
     public string? PreviewOutputPath { get; private set; }
     public string? MapFilePath { get; private set; }
     public string? MapReportOutputPath { get; private set; }
@@ -133,6 +136,12 @@ internal sealed class LauncherOptions
                 case "--auto-materialize-quest-board-policies":
                     options.AutoMaterializeQuestBoardPolicies = true;
                     break;
+                case "--preview-managed-action-retention":
+                    options.PreviewManagedActionRetention = true;
+                    break;
+                case "--prune-managed-actions":
+                    options.PruneManagedActions = true;
+                    break;
                 case "--inspect-map-file":
                     options.InspectMapFile = true;
                     options.MapFilePath = RequireValue(args, ref i, "--inspect-map-file");
@@ -183,6 +192,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--quest-board-policy-seed":
                     options.QuestBoardPolicySeed = RequireInt(args, ref i, "--quest-board-policy-seed");
+                    break;
+                case "--managed-action-retention-keep":
+                    options.ManagedActionRetentionKeepLatestPerGroup = RequirePositiveInt(args, ref i, "--managed-action-retention-keep");
                     break;
                 case "--preview-output":
                     options.PreviewOutputPath = RequireValue(args, ref i, "--preview-output");
