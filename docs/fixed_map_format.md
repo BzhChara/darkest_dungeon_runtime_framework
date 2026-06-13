@@ -2,6 +2,27 @@
 
 This document records the current evidence for original fixed plot maps. It is a research note for future `map.*` and `encounter.*` capabilities, not a promise that map writing is stable yet.
 
+## Status And Scope
+
+Fixed-map editing is an optional and experimental support capability. It is useful as a binary-safe overlay and validation tool for fixed `.dm` maps, but it is not the main path for ordinary dungeon, monster, quest, or generated-map authoring.
+
+Prefer external Darkest Dungeon content formats for normal authoring:
+
+- `.map_generator.darkest` for ordinary generated map shapes;
+- `dungeons/*/*.mash.darkest` for encounter pools and monster lineups;
+- `campaign/quest/*.json` for quest definitions, goals, progression, and generated quest pools;
+- Workshop or plugin-bundled `.dm` files for fully authored fixed maps.
+
+The framework-owned part should stay narrow:
+
+- inspect fixed `.dm` maps;
+- validate topology and report risky door/tile references;
+- copy or overlay fixed `.dm` files through `sourcePath`;
+- make strict scalar edits to existing areas, tiles, and door slots when a plugin intentionally opts in;
+- support specific fixed-map pressure tests without becoming a full map editor.
+
+Do not prioritize arbitrary `.dm` creation, full room/tile editors, visual map authoring UI, or monster/mash authoring inside this module unless a later runtime primitive depends on it.
+
 ## Source Files
 
 Plot quests can point to fixed maps through `quest.map_name` in `campaign/quest/quest.plot_quests.json`.
@@ -290,7 +311,20 @@ Further live validation on 2026-06-13 proved selected scalar topology rewrites i
 - Moving the marker alone is not enough; the game still honors old corridor tile `door_to` entries as invisible W-key room-entry hotspots.
 - Rewriting `corA.tile17.door_to` with `disabled: true` removed the hidden middle-room entry hotspot and stopped the crash, while `corA.tile27 -> rooC` remained usable.
 
-This proves whole-file `.dm` replacement works in game. The template mutation writer now proves safe in-place mutation for selected existing scalar fields, including room door and corridor tile `door_to` topology fields. Plugin `mapTemplates` now turn those mutations into startup-generated artifacts and ordinary `sourcePath` overlays. Map reports now include generic topology validation for entrance/final reachability, unreachable source-template areas, and invalid door targets. Plugin `mapLayoutTemplates` can now validate a high-level room/corridor graph against an existing source `.dm`, compile supported layouts into low-level `mapTemplates` specs, and generate `.dm` overlays. It still does not prove safe arbitrary map generation from a high-level layout; creating/removing areas, tiles, and door slots remains a future map-system milestone.
+This proves whole-file `.dm` replacement works in game. The template mutation writer now proves safe in-place mutation for selected existing scalar fields, including room door and corridor tile `door_to` topology fields. Plugin `mapTemplates` now turn those mutations into startup-generated artifacts and ordinary `sourcePath` overlays. Map reports now include generic topology validation for entrance/final reachability, unreachable source-template areas, and invalid door targets. Plugin `mapLayoutTemplates` can now validate a high-level room/corridor graph against an existing source `.dm`, compile supported layouts into low-level `mapTemplates` specs, and generate `.dm` overlays.
+
+It still does not prove safe arbitrary map generation from a high-level layout. Creating/removing areas, tiles, and door slots is now explicitly deferred, not the next default milestone. Treat that work as optional unless a concrete runtime feature needs it and external map authoring cannot cover the use case.
+
+Future optional map ideas should be classified before implementation:
+
+| Idea | Likely owner | Notes |
+| --- | --- | --- |
+| Use a Workshop/plugin fixed map for a stage | content reference + quest board | Preferred path for authored maps. |
+| Use a Workshop/plugin map generator for ordinary random quests | content reference + quest board | Preferred path for large custom regions. |
+| Move a boss marker or disable an existing hidden door hotspot | experimental `mapTemplates` | Valid only when existing template fields can represent the edit. |
+| Validate whether a fixed map route is coherent | map inspector | Useful as a diagnostic even when the map is externally authored. |
+| Change the current raid map after a key enemy dies | future `mapState.*` runtime action | Not solved by startup `.dm` editing; requires combat observation and live save/memory map-state patching. |
+| Reveal, lock, unlock, or repopulate areas during an active quest | future `mapState.*` runtime action | Needs separate observe-first research over `persist.map.json` and live UI refresh behavior. |
 
 The virtual overlay syntax is intentionally whole-file and binary-safe:
 
@@ -301,4 +335,4 @@ The virtual overlay syntax is intentionally whole-file and binary-safe:
 }
 ```
 
-The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. The next implementation step is described in `docs/map_layout_templates.md`: grow beyond template-retargeted layouts into controlled creation/removal of rooms, corridors, tiles, and door slots.
+The source path is resolved under the framework project root and currently cannot be mixed with text replacements or line operations for the same target. Further map work should be treated as optional/experimental and should start from content references or diagnostics before adding new writers.

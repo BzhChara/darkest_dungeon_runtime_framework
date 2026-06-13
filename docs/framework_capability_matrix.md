@@ -20,7 +20,7 @@ When an idea cannot be expressed by existing rules, classify the missing primiti
 | The framework cannot express skill training | `upgrade.*` or town upgrade-tree writer | setting a boss-gauntlet-only flag in roster |
 | The framework cannot control available quests | `quest_board.*` or `quest.*` action | hardcoding one campaign's quest ids in launcher code |
 | The framework cannot control town access state | `town.*` building availability and level actions | only supporting "unlock everything" initialization |
-| The framework cannot define dungeon shape | `map.*` fixed-layout or generated-layout actions | a special post-Ancestor map branch |
+| The framework cannot reference or validate a special fixed map | optional/experimental `map.*` inspection or fixed-layout overlay | making a full map editor the default path when DD/Workshop map formats already work |
 | The framework cannot define deterministic fights | `encounter.*` mash or named-encounter actions | putting monster lineups in quest-chain code |
 | The framework needs a monster, skill, curio, loot table, localization key, or asset that normal DD/Workshop content can already provide | `contentRef.*` declaration plus content index/reference validation | a framework-specific monster/skill/asset generator as the default path |
 | The framework cannot restrict selection | `selection.*`, `roster.filter*`, or `equipment.filter*` | special casing one stage chain |
@@ -66,7 +66,7 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Selection state | `selection.lock`, `selection.consumeHeroes`, `selection.consumeTrinkets` | live UI/game enforcement instead of sidecar-only observation |
 | Quest board | `questBoard.replaceWithFixedSet` decoded-save writer, virtual `persist.quest.json` overlay, plot quest availability overlay from enabled plot quest content, explicit watched-profile refresh with backup, and opt-in realtime refresh after live task-board saves | broader non-plot quest list control |
 | Quest overlays | `quest.injectFixedStage` and fixed-board plot quest virtual file consumers | full roster/UI selection control |
-| Map topology | fixed map facts, topology validation, scalar `mapTemplates`, generated `.dm` sourcePath overlays, and `mapLayoutTemplates` room/corridor graph compiler for existing area/tile/door templates | generated map objects, encounter placement, and controlled creation/removal of rooms, corridors, tiles, and door slots |
+| Map topology | optional/experimental fixed map facts, topology validation, scalar `mapTemplates`, generated `.dm` sourcePath overlays, and `mapLayoutTemplates` room/corridor graph compiler for existing area/tile/door templates | contentRef-first map and generator references; defer arbitrary `.dm` creation and live `mapState.*` mutation until a concrete runtime need exists |
 | Content references | base/DLC content facts can already identify many original ids | plugin-declared `contentRefs` for base/DLC/Workshop/plugin content, with provider-aware missing/duplicate reports |
 | Encounters | original mash content can be indexed from dungeon files | `encounter.defineMash`, referenced monster ids, and named encounter placement tied to fixed layouts |
 | Save-to-event bridge | plugin-declared `factEventRules` and payload projections | more fact extractors and reusable projection operators |

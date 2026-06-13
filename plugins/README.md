@@ -163,6 +163,7 @@ plugins/author.mod_id/
 
 固定地图模板：
 
+- `mapTemplates` 和 `mapLayoutTemplates` 是 optional/experimental 的固定 `.dm` overlay 与拓扑诊断能力，不是默认的自定义地图制作路线。普通随机地图、区域资源、遭遇池和完整固定图优先通过原版 DD/Workshop/plugin 内容文件提供，再由框架通过 `contentRefs`、任务板和虚拟文件层引用或调度。
 - `mapTemplates[].target` 是游戏内虚拟目标路径，例如 `maps/DD_map4.dm`。
 - `mapTemplates[].source` 是要复制修改的模板 `.dm`，相对路径优先按游戏目录解析；不存在时再按当前插件目录解析；省略时默认等于 `target`。
 - `mapTemplates[].specPath` 是模板改写 spec，相对路径按当前插件目录解析。

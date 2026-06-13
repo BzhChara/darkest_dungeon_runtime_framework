@@ -2,6 +2,8 @@
 
 This document defines the high-level fixed-map layout contract. The implemented slice is a plugin-declared compiler for layouts that can be represented by existing `.dm` areas, tiles, and door slots.
 
+Status: optional/experimental. This feature is a support tool for fixed-map overlays and topology diagnostics, not the default path for custom dungeon authoring. Use original DD content formats or Workshop/plugin content first when they can express the desired map, quest, region, encounter, art, or generated-layout behavior.
+
 The intended compile chain is:
 
 ```text
@@ -13,6 +15,13 @@ mapLayoutTemplates
 ```
 
 The rule is the same as the rest of the framework: plugin data names the concrete map, rooms, encounters, and story choices; framework code provides reusable map primitives and validation.
+
+The practical priority order is:
+
+1. Reference an existing base, DLC, Workshop, or plugin-bundled map or map generator.
+2. Validate the referenced content and report missing ids, unreachable topology, or obvious incompatibilities.
+3. Use `mapTemplates` or `mapLayoutTemplates` only for narrow fixed-map overlays that can be represented by an existing `.dm` template.
+4. Defer arbitrary map creation or live map mutation until a concrete runtime feature requires it.
 
 ## Relationship To Existing mapTemplates
 
@@ -158,9 +167,14 @@ The first map-layout compiler can accept encounter ids only as declared referenc
 
 ## Open Gaps
 
+These gaps are intentionally deferred. They should not be treated as the next mainline tasks simply because they are listed here.
+
 - Creating new `.dm` areas, tiles, and door slots.
 - Resizing binary DSON containers safely.
 - Deterministic mash definition writing.
 - Full bidirectional door semantics beyond current connectivity checks.
 - UI/map icon behavior for newly created map nodes.
 - Live-game validation for more than the current DD4 scalar-retargeting path.
+- Runtime map-state changes during an active raid, such as unlocking a path after a key enemy dies.
+
+The last item belongs to a different future primitive, likely `mapState.*`, not to startup `.dm` template editing. It would need combat or raid observation, current map-state facts, a reversible patch model, and live UI/game-state refresh validation before it could be considered supported.
