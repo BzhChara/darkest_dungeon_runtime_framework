@@ -1,16 +1,14 @@
-# Optional Capacity Patch
+# Optional Capacity Patches
 
-This patch is a static content compatibility helper for the boss-gauntlet validation scenario. It is intentionally not a runtime framework primitive.
+Optional capacity patches are static content helpers for validation scenarios. They are intentionally not runtime framework primitives.
 
 ## Why They Exist
 
-The boss-gauntlet profile can create more heroes than an ordinary campaign expects:
+Some rule sets can create pressure on vanilla content limits. For example, the boss-gauntlet validation scenario needs a larger fixed hero pool than an ordinary campaign roster.
 
-- the base stage coach roster limit tops out at 28 heroes;
+Capacity values are authored content, not framework state. A framework plugin may provide a small optional patch when a scenario needs one, but it should not treat capacity choices as automatic repairs. If another mod already changes the same limit, or a user wants a smaller limit, that content stack should decide the final value through normal load order or a separate compatibility patch.
 
-This is a content-capacity concern. The framework should not hardcode it into save writers or action executors.
-
-The framework does not ship a trinket-storage capacity patch. The base game currently gives `trinket_storage` a high limit, and if another inventory mod intentionally lowers that value, preserving or changing that choice belongs to that mod stack, not to the runtime framework.
+The framework should not hardcode capacity fixes into save writers or action executors.
 
 ## Patch
 
