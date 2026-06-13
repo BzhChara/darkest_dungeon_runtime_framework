@@ -59,7 +59,7 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | --- | --- | --- |
 | Wallet/resources | `wallet.setCurrencyAmounts`, `wallet.modifyCurrency` | live original-save write policy and reward identity coverage |
 | Estate inventory | `estate.ensureInventoryCounts`, `inventory.disableItemSale` policy plus trinket price `sourcePath` overlay | live hard sell/use restrictions and item identity tracking |
-| Roster generation | `roster.ensureClassInstances` clean hero blueprint | richer hero blueprint arguments and class-specific defaults |
+| Roster generation | `roster.ensureClassInstances` clean hero blueprint plus `roster.setProgression` decoded-save normalization for existing/generated heroes | richer hero blueprint arguments, exact-count policies, and class-specific defaults |
 | Roster skills | `roster.setSkillUnlocks` skill id lists | live enforcement and richer skill selection policies |
 | Upgrade purchases | `upgrade.ensurePurchases` for content-defined building, hero skill, weapon, and armour requirements | original-save write policy and narrower per-tree/per-level selection modes |
 | Town runtime | `stagecoach.suppressRecruits` and district-scoped `town.unlockAllBuildings` decoded-save writers | ordinary building unlock UI verification, `town.setBuildingAvailability`, and `town.setBuildingLevels` semantics |

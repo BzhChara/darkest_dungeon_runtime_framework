@@ -126,6 +126,8 @@ internal static class DecodedProfileInitializer
             applyReport?.UnsupportedActionCount ?? 0,
             applyReport?.FailedActionCount ?? 0,
             applyReport?.ChangedFileCount ?? 0,
+            applyReport?.Actions ?? [],
+            applyReport?.Files ?? [],
             issues.Count(issue => issue.Severity == "error"),
             issues.Count(issue => issue.Severity == "warning"),
             issues);
@@ -297,6 +299,8 @@ internal sealed record DecodedProfileInitializationReport(
     int ApplyUnsupportedActionCount,
     int ApplyFailedActionCount,
     int ApplyChangedFileCount,
+    IReadOnlyList<ManagedActionApplyActionReport> ApplyActions,
+    IReadOnlyList<ManagedActionApplyFileReport> ApplyFiles,
     int ErrorCount,
     int WarningCount,
     IReadOnlyList<DecodedProfileInitializationIssue> Issues)

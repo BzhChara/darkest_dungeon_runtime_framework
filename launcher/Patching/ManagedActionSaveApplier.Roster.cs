@@ -161,6 +161,96 @@ internal static partial class ManagedActionSaveApplier
             ]);
     }
 
+    private static void ApplyRosterSetProgression(ApplyContext context, string artifactPath, JsonObject artifact)
+    {
+        var level = ReadString(artifact, "plan.arguments.level");
+        var equipment = ReadString(artifact, "plan.arguments.equipment");
+        var resolveXp = ReadString(artifact, "plan.arguments.resolveXp");
+        var equipmentLevel = equipment.Equals("level", StringComparison.OrdinalIgnoreCase)
+            ? level
+            : equipment;
+        var resolveLevel = resolveXp.Equals("level", StringComparison.OrdinalIgnoreCase)
+            ? level
+            : resolveXp;
+
+        var classDefinitions = LoadEnabledHeroClassDefinitions(context.GameWorkingDirectory)
+            .ToDictionary(definition => definition.Id, StringComparer.OrdinalIgnoreCase);
+        if (classDefinitions.Count == 0)
+        {
+            throw new InvalidDataException("Hero class definition catalog produced no class ids.");
+        }
+
+        var file = context.LoadDecodedJsonFile("persist.roster.json");
+        var heroes = EnsureObject(file.Root, "base_root.heroes");
+        var rosterHeroes = EnumerateRosterHeroes(heroes).ToArray();
+        var updated = 0;
+        var unchanged = 0;
+        var skippedUnknownClass = 0;
+        var changedProperties = 0;
+
+        foreach (var hero in rosterHeroes)
+        {
+            if (!classDefinitions.TryGetValue(hero.HeroClass, out var classDefinition))
+            {
+                skippedUnknownClass++;
+                continue;
+            }
+
+            var heroChanged = false;
+            if (SetIntPropertyIfChanged(hero.HeroRoot, "resolveXp", ResolveHeroResolveXp(resolveLevel), context.WriteChanges))
+            {
+                changedProperties++;
+                heroChanged = true;
+            }
+
+            if (SetIntPropertyIfChanged(hero.HeroRoot, "weapon_rank", ResolveHeroEquipmentRank(equipmentLevel, classDefinition.MaxWeaponRank), context.WriteChanges))
+            {
+                changedProperties++;
+                heroChanged = true;
+            }
+
+            if (SetIntPropertyIfChanged(hero.HeroRoot, "armour_rank", ResolveHeroEquipmentRank(equipmentLevel, classDefinition.MaxArmourRank), context.WriteChanges))
+            {
+                changedProperties++;
+                heroChanged = true;
+            }
+
+            if (equipmentLevel.Equals("max", StringComparison.OrdinalIgnoreCase) && classDefinition.MaxHp is { } maxHp)
+            {
+                var actor = EnsureObject(hero.HeroRoot, "actor");
+                if (SetDoublePropertyIfChanged(actor, "current_hp", maxHp, context.WriteChanges))
+                {
+                    changedProperties++;
+                    heroChanged = true;
+                }
+            }
+
+            if (heroChanged)
+            {
+                updated++;
+            }
+            else
+            {
+                unchanged++;
+            }
+        }
+
+        if (changedProperties > 0)
+        {
+            file.MarkChanged(changedProperties);
+        }
+
+        AddSuccessfulAction(
+            context,
+            artifactPath,
+            artifact,
+            file.Path,
+            [
+                $"set roster progression level={level} equipment={equipment} resolveXp={resolveXp} heroes={rosterHeroes.Length}",
+                $"updated={updated} unchanged={unchanged} skippedUnknownClass={skippedUnknownClass} changedProperties={changedProperties}"
+            ]);
+    }
+
     private static IReadOnlyList<RosterHeroClassDefinition> ResolveHeroClassDefinitions(ApplyContext context, string source)
     {
         return source switch
@@ -720,6 +810,40 @@ internal static partial class ManagedActionSaveApplier
         return int.TryParse(level, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericLevel)
             ? Math.Clamp(numericLevel - 1, 0, maxRank ?? 0)
             : throw new InvalidDataException($"Unsupported hero level value: {level}");
+    }
+
+    private static bool SetIntPropertyIfChanged(JsonObject root, string key, int value, bool writeChanges)
+    {
+        if (root[key] is JsonValue current &&
+            current.TryGetValue<int>(out var currentValue) &&
+            currentValue == value)
+        {
+            return false;
+        }
+
+        if (writeChanges)
+        {
+            root[key] = value;
+        }
+
+        return true;
+    }
+
+    private static bool SetDoublePropertyIfChanged(JsonObject root, string key, double value, bool writeChanges)
+    {
+        if (root[key] is JsonValue current &&
+            current.TryGetValue<double>(out var currentValue) &&
+            Math.Abs(currentValue - value) < 0.000001)
+        {
+            return false;
+        }
+
+        if (writeChanges)
+        {
+            root[key] = JsonFloat(value);
+        }
+
+        return true;
     }
 
     private static string BuildGeneratedHeroName(string classId, int heroId)
