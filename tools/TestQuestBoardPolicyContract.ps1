@@ -19,7 +19,10 @@ function Assert-True {
 
 Push-Location $projectRoot.Path
 try {
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --validate-only --explain-patches --no-inject
+    $previewReportPath = Join-Path $projectRoot.Path "logs\quest_board_policy_preview_report.json"
+    Remove-Item -LiteralPath $previewReportPath -Force -ErrorAction SilentlyContinue
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --validate-only --explain-patches --preview-quest-board-policies --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader failed with exit code $LASTEXITCODE"
     }
@@ -52,7 +55,35 @@ try {
     Assert-True (@($secondEntry.availableWhen.completedQuests) -contains "plot_kill_necromancer_3") "Second entry prerequisite quest mismatch."
     Assert-True ($secondEntry.onCompleted -eq "replace") "Second entry completion action mismatch."
 
-    Write-Host "PASS: questBoardPolicies manifest schema validates and writes structured policy facts."
+    Assert-True (Test-Path -LiteralPath $previewReportPath -PathType Leaf) "Quest board policy preview report was not created: $previewReportPath"
+    $preview = Get-Content -Raw -LiteralPath $previewReportPath | ConvertFrom-Json
+    Assert-True ([bool]$preview.succeeded) "Quest board policy preview should succeed."
+    Assert-True ([int]$preview.policyCount -eq 1) "Preview should contain one policy."
+    Assert-True ([int]$preview.readyPolicyCount -eq 1) "Preview should contain one ready policy."
+    Assert-True ([int]$preview.candidateQuestCount -eq 2) "Preview should contain two candidate quests."
+    Assert-True ([int]$preview.fixedCandidateCount -eq 1) "Preview should contain one fixed candidate."
+    Assert-True ([int]$preview.randomCandidateCount -eq 1) "Preview should contain one random/pool candidate."
+    Assert-True ([int]$preview.missingRequiredQuestCount -eq 0) "Preview should not miss required quest content."
+    Assert-True ([int]$preview.errorCount -eq 0) "Preview should not report errors."
+
+    $previewPolicy = @($preview.policies)[0]
+    Assert-True ($previewPolicy.pluginId -eq "validation.quest_board_policy_contract") "Preview plugin id mismatch."
+    Assert-True ($previewPolicy.id -eq "validation_boss_gates") "Preview policy id mismatch."
+    Assert-True ($previewPolicy.status -eq "ready") "Preview policy status mismatch: $($previewPolicy.status)"
+    $firstCandidate = @($previewPolicy.candidates)[0]
+    $secondCandidate = @($previewPolicy.candidates)[1]
+    Assert-True ($firstCandidate.effectiveQuestId -eq "plot_kill_necromancer_3") "First preview candidate quest mismatch."
+    Assert-True ($firstCandidate.contentStatus -eq "found") "First preview candidate should resolve content."
+    Assert-True ($firstCandidate.availabilityStatus -eq "requiresRuntimeFacts") "First preview candidate should require runtime facts."
+    Assert-True (-not [string]::IsNullOrWhiteSpace($firstCandidate.content.sourcePath)) "First preview candidate should include source path."
+    Assert-True (-not [string]::IsNullOrWhiteSpace($firstCandidate.content.type)) "First preview candidate should include quest type."
+    Assert-True (-not [string]::IsNullOrWhiteSpace($firstCandidate.content.dungeon)) "First preview candidate should include dungeon."
+    Assert-True ($null -ne $firstCandidate.content.difficulty) "First preview candidate should include difficulty."
+    Assert-True ($secondCandidate.pool -eq "champion_boss_followups") "Second preview candidate pool mismatch."
+    Assert-True ([int]$secondCandidate.weight -eq 2) "Second preview candidate weight mismatch."
+    Assert-True ($secondCandidate.availabilityStatus -eq "requiresRuntimeFacts") "Second preview candidate should require runtime facts."
+
+    Write-Host "PASS: questBoardPolicies validates and expands into a content-backed candidate preview report."
 }
 finally {
     Pop-Location

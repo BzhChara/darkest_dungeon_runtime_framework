@@ -2,16 +2,18 @@
 
 `questBoardPolicies` is the generic scheduling layer for deciding which referenced quests may appear on the task board. It is intentionally separate from static quest, dungeon, monster, map, art, and localization authoring. Those definitions should usually come from original game files, DLC, Workshop content, or plugin-bundled DD-format files and be declared through `contentRefs`.
 
-The current implementation is validation and reporting only:
+The current implementation is validation, reporting, and content-backed candidate preview only:
 
 ```text
 questBoardPolicies
   -> validate policy mode, refresh triggers, entries, predicates, weights, and completion actions
   -> write modStateDirectory/_quest_board_policies/<plugin-id>/*.validation.json
   -> explain policy and entry facts through --explain-patches
+  -> preview declared candidate quests through --preview-quest-board-policies
+  -> write logs/quest_board_policy_preview_report.json
 ```
 
-It does not directly modify `persist.quest.json`, simulate week settlement, or replace the existing `questBoard.replaceWithFixedSet` writer. Later quest-board generators should consume these policy facts instead of hardcoding one mod's quest order.
+It does not directly modify `persist.quest.json`, simulate week settlement, evaluate current completed-quest state, or replace the existing `questBoard.replaceWithFixedSet` writer. Later quest-board generators should consume these policy facts instead of hardcoding one mod's quest order.
 
 ## Manifest Shape
 
@@ -85,7 +87,27 @@ It does not directly modify `persist.quest.json`, simulate week settlement, or r
 - `weekEq` must satisfy any declared lower or upper week bound.
 - `stateEquals` requires `stateKey`.
 
-The validator does not currently prove that a quest id exists. Use `contentRefs.quests` for provider-aware existence checks and duplicate-candidate reporting.
+The validator does not prove that a quest id exists. Use `contentRefs.quests` for provider-aware existence checks and duplicate-candidate reporting. Use `--preview-quest-board-policies` to resolve policy candidates against the enabled plot quest catalog and report missing or malformed quest content.
+
+## Candidate Preview
+
+Run:
+
+```text
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --preview-quest-board-policies --no-inject
+```
+
+The report is written to `logs/quest_board_policy_preview_report.json`.
+
+Each candidate records:
+
+- the policy and entry id that produced it;
+- fixed vs pool/weighted scheduling metadata;
+- `contentStatus`: `found`, `missingRequired`, `missingOptional`, `invalidRequiredContent`, or `invalidOptionalContent`;
+- `availabilityStatus`: `staticallyEligible` when no predicate is declared, or `requiresRuntimeFacts` when the entry needs week, completed-quest, phase, or sidecar-state facts;
+- resolved content facts from the plot quest definition, including source path, type, dungeon, difficulty, length, and goal ids.
+
+This preview is deliberately not a live scheduler yet. Entries gated by `weekGte`, `completedQuest`, `phase`, or `stateKey` are reported as requiring runtime facts rather than being accepted or rejected from one sample save.
 
 ## Relationship To Quest Chains
 
@@ -103,4 +125,4 @@ The two schemas can coexist. A chain can define stage order, while a policy can 
 
 Regression coverage:
 
-- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, and appears in patch explanation output through the validation plugin.
+- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, and expands into a content-backed candidate preview report through the validation plugin.
