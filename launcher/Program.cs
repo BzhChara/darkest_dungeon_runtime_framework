@@ -53,6 +53,7 @@ internal static class Program
                     !options.PrototypeMapFinalRoom &&
                     !options.PrototypeMapTemplate &&
                     !options.WatchSavesForMilliseconds.HasValue &&
+                    string.IsNullOrWhiteSpace(options.RefreshQuestBoardProfile) &&
                     string.IsNullOrWhiteSpace(options.EmitEvent))
                 {
                     return 3;
@@ -214,6 +215,20 @@ internal static class Program
                 SaveDirectoryWatcher.WriteMapTemplatePrototype(options.MapPrototypeSourcePath, options.MapTemplateSpecPath, outputPath, reportPath, log);
             }
 
+            if (!string.IsNullOrWhiteSpace(options.RefreshQuestBoardProfile))
+            {
+                var refreshQuestBoardPreview = QuestBoardPreviewReporter.Write(config, log);
+                var refreshQuestBoardRuntimeOverlay = QuestBoardRuntimeOverlayCompiler.Compile(config, log, refreshQuestBoardPreview);
+                modStateSucceeded &= QuestBoardProfileRefreshWriter.Write(
+                    config,
+                    log,
+                    projectRoot,
+                    refreshQuestBoardRuntimeOverlay,
+                    options.RefreshQuestBoardProfile,
+                    options.DryRun,
+                    options.AllowRunningGameSaveWrite).Succeeded;
+            }
+
             if (options.WatchSavesForMilliseconds.HasValue)
             {
                 using var diagnosticWatcher = SaveDirectoryWatcher.Start(config, patchPlan, projectRoot, log);
@@ -244,6 +259,7 @@ internal static class Program
                 options.PrototypeMapFinalRoom ||
                 options.PrototypeMapTemplate ||
                 options.WatchSavesForMilliseconds.HasValue ||
+                !string.IsNullOrWhiteSpace(options.RefreshQuestBoardProfile) ||
                 !string.IsNullOrWhiteSpace(options.EmitEvent))
             {
                 log.Info("Inspection requested. No process was started.");
@@ -466,6 +482,7 @@ internal static class Program
             !options.PrototypeMapFinalRoom &&
             !options.PrototypeMapTemplate &&
             !options.WatchSavesForMilliseconds.HasValue &&
+            string.IsNullOrWhiteSpace(options.RefreshQuestBoardProfile) &&
             string.IsNullOrWhiteSpace(options.EmitEvent);
         if (willStartGame && config.EnableInjection && !options.NoInject && !File.Exists(config.RuntimeDllPath))
             throw new FileNotFoundException("Runtime DLL was not found. Build runtime/RuntimeHook.vcxproj first.", config.RuntimeDllPath);

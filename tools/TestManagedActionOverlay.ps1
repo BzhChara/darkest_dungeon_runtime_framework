@@ -136,8 +136,35 @@ try {
     }
     $inventoryArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $inventoryArtifactPath -Encoding UTF8
 
+    $questBoardArtifactPath = Join-Path $artifactRoot "manual_questBoard.replaceWithFixedSet.json"
+    $questBoardArtifact = [ordered]@{
+        version = 1
+        status = "materialized"
+        eventId = "manual.overlay-test"
+        pluginId = "validation.managed_action_overlay_test"
+        sourceName = "Validation - Managed Action Overlay Test"
+        sourcePath = "tools/TestManagedActionOverlay.ps1"
+        ruleIndex = 2
+        ruleId = "manual_fixed_board"
+        actionIndex = 0
+        action = [ordered]@{
+            type = "questBoard.replaceWithFixedSet"
+        }
+        plan = [ordered]@{
+            kind = "questBoard.replaceWithFixedSet"
+            effect = "replaceWithFixedSet"
+            target = "profile.quest_board"
+            arguments = [ordered]@{
+                target = "profile.quest_board"
+                questIds = @("plot_kill_prophet_3")
+                removeCompleted = $false
+            }
+        }
+    }
+    $questBoardArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $questBoardArtifactPath -Encoding UTF8
+
     $artifacts = @(Get-ChildItem -LiteralPath $artifactRoot -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
-    Assert-True ($artifacts.Count -eq 7) "Expected seven materialized managed action artifacts after adding inventory policy artifact, found $($artifacts.Count)."
+    Assert-True ($artifacts.Count -eq 8) "Expected eight materialized managed action artifacts after adding inventory and fixed-board artifacts, found $($artifacts.Count)."
 
     $dryRunArgs = @(
         "--config", (Resolve-ProjectPath $ConfigPath),
@@ -151,16 +178,16 @@ try {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Managed action overlay manifest was not written: $manifestPath"
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 
-    Assert-True ([int]$manifest.artifactCount -eq 7) "Overlay manifest should count all seven artifacts."
-    Assert-True ([int]$manifest.overlayCount -eq 2) "Overlay compiler should expose the latest quest.injectFixedStage overlay and the inventory policy overlay."
+    Assert-True ([int]$manifest.artifactCount -eq 8) "Overlay manifest should count all eight artifacts."
+    Assert-True ([int]$manifest.overlayCount -eq 3) "Overlay compiler should expose the latest quest.injectFixedStage overlay, the inventory policy overlay, and the fixed-board overlay."
     Assert-True ([int]$manifest.ignoredArtifactCount -eq 4) "Overlay manifest should ignore hero/trinket filter artifacts for now."
     Assert-True ([int]$manifest.supersededOverlayCount -eq 1) "Overlay manifest should supersede the older quest injection artifact."
     Assert-True ([int]$manifest.virtualFileRuleCount -eq (1 + $positiveTrinketEntryFiles.Count)) "Overlay manifest should compile one quest plot virtual file rule plus one trinket sourcePath rule per positive-price trinket file."
-    Assert-True ([int]$manifest.virtualFileReplacementCount -eq 1) "Overlay manifest should compile one quest plot replacement; trinket price suppression uses sourcePath overlays."
+    Assert-True ([int]$manifest.virtualFileReplacementCount -eq 2) "Overlay manifest should compile quest plot replacements for the selected stage and fixed board; trinket price suppression uses sourcePath overlays."
     Assert-True ((@($manifest.issues)).Count -eq 0) "Overlay manifest should not contain issues."
 
     $overlays = @($manifest.overlays)
-    Assert-True ($overlays.Count -eq 2) "Expected exactly two overlay entries."
+    Assert-True ($overlays.Count -eq 3) "Expected exactly three overlay entries."
     $overlay = @($overlays | Where-Object { $_.kind -eq "quest.injectFixedStage" })[0]
     Assert-True ($overlay.kind -eq "quest.injectFixedStage") "Overlay kind should be quest.injectFixedStage."
     Assert-True ($overlay.stageId -eq "stage_1_necromancer") "Overlay should target the first challenge stage."
@@ -170,6 +197,10 @@ try {
     Assert-True ($inventoryOverlay.effect -eq "suppressSaleValue") "Inventory overlay should record sale-value suppression."
     Assert-True ($inventoryOverlay.itemKind -eq "trinket") "Inventory overlay should target trinkets."
     Assert-True ([bool]$inventoryOverlay.disabled) "Inventory overlay should be enabled."
+    $questBoardOverlay = @($overlays | Where-Object { $_.kind -eq "questBoard.replaceWithFixedSet" })[0]
+    Assert-True ($questBoardOverlay.effect -eq "replaceWithFixedSet") "Fixed-board overlay should record board replacement intent."
+    Assert-True ($questBoardOverlay.target -eq "profile.quest_board") "Fixed-board overlay should target the profile quest board."
+    Assert-True (@($questBoardOverlay.questIds).Count -eq 1) "Fixed-board overlay should keep the declared quest id list."
 
     $virtualRules = @($manifest.virtualFileRules)
     Assert-True ($virtualRules.Count -eq (1 + $positiveTrinketEntryFiles.Count)) "Expected quest overlay plus trinket content sourcePath overlays."
@@ -177,14 +208,18 @@ try {
     Assert-True ($virtualRule.target -eq "campaign/quest/quest.plot_quests.json") "Overlay virtual rule should target the base plot quest file."
     Assert-True ($virtualRule.effect -eq "forcePlotQuestAvailable") "Overlay virtual rule should force the selected plot quest available."
     $virtualReplacements = @($virtualRule.replacements)
-    Assert-True ($virtualReplacements.Count -eq 1) "Expected exactly one overlay virtual replacement."
-    $virtualReplacement = $virtualReplacements[0]
+    Assert-True ($virtualReplacements.Count -eq 2) "Expected exactly two overlay virtual replacements."
+    $virtualReplacement = @($virtualReplacements | Where-Object { $_.sourceQuestId -eq "plot_kill_necromancer_1" })[0]
     Assert-True ($virtualReplacement.sourceQuestId -eq "plot_kill_necromancer_1") "Overlay virtual replacement should use the current stage source quest."
     Assert-True ($virtualReplacement.stageId -eq "stage_1_necromancer") "Overlay virtual replacement should carry the current stage id."
     Assert-True ([int]$virtualReplacement.setDungeonLevel -eq 0) "Overlay virtual replacement should force dungeon_level to 0."
     Assert-True ([bool]$virtualReplacement.setRepeatable) "Overlay virtual replacement should force the quest to repeatable."
     Assert-True ([int]$virtualReplacement.findChars -gt 0) "Overlay virtual replacement should contain non-empty find text."
     Assert-True ([int]$virtualReplacement.replaceChars -gt 0) "Overlay virtual replacement should contain non-empty replacement text."
+    $questBoardReplacement = @($virtualReplacements | Where-Object { $_.sourceQuestId -eq "plot_kill_prophet_3" })[0]
+    Assert-True ($questBoardReplacement.kind -eq "questBoard.replaceWithFixedSet") "Fixed-board replacement should keep the originating overlay kind."
+    Assert-True ([int]$questBoardReplacement.setDungeonLevel -eq 0) "Fixed-board replacement should force dungeon_level to 0."
+    Assert-True ([bool]$questBoardReplacement.setRepeatable) "Fixed-board replacement should force repeatable availability."
     $trinketRules = @($virtualRules | Where-Object { $_.effect -eq "suppressTrinketSaleValue" })
     Assert-True ($trinketRules.Count -eq $positiveTrinketEntryFiles.Count) "Expected one trinket sale-value sourcePath rule per positive-price trinket file."
     Assert-True (($trinketRules | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.sourcePath) }).Count -eq 0) "Trinket sale-value overlays should use generated sourcePath files."
@@ -210,6 +245,10 @@ try {
     Assert-True ($previewQuest.Count -eq 1) "Managed overlay preview should contain the selected plot quest exactly once."
     Assert-True ([int]$previewQuest[0].dungeon_level -eq 0) "Managed overlay preview should force dungeon_level to 0."
     Assert-True ([bool]$previewQuest[0].is_repeatable) "Managed overlay preview should force is_repeatable to true."
+    $previewBoardQuest = @($preview.plot_quests | Where-Object { $_.id -eq "plot_kill_prophet_3" })
+    Assert-True ($previewBoardQuest.Count -eq 1) "Managed overlay preview should contain the fixed-board plot quest exactly once."
+    Assert-True ([int]$previewBoardQuest[0].dungeon_level -eq 0) "Managed overlay preview should force fixed-board dungeon_level to 0."
+    Assert-True ([bool]$previewBoardQuest[0].is_repeatable) "Managed overlay preview should force fixed-board repeatable availability."
 
     $baseTrinketPreviewPath = Join-Path $previewRoot "trinkets_base.entries.trinkets.json.preview.bin"
     Assert-True (Test-Path -LiteralPath $baseTrinketPreviewPath -PathType Leaf) "Managed overlay trinket sourcePath preview was not written: $baseTrinketPreviewPath"

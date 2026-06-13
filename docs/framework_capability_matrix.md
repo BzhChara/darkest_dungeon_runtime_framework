@@ -62,8 +62,8 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Upgrade purchases | `upgrade.ensurePurchases` for content-defined building, hero skill, weapon, and armour requirements | original-save write policy and narrower per-tree/per-level selection modes |
 | Town runtime | `stagecoach.suppressRecruits` and district-scoped `town.unlockAllBuildings` decoded-save writers | ordinary building unlock UI verification, `town.setBuildingAvailability`, and `town.setBuildingLevels` semantics |
 | Selection state | `selection.lock`, `selection.consumeHeroes`, `selection.consumeTrinkets` | live UI/game enforcement instead of sidecar-only observation |
-| Quest board | `questBoard.replaceWithFixedSet` decoded-save writer from enabled plot quest content | runtime board intercept and broader availability modes |
-| Quest overlays | `quest.injectFixedStage` virtual file consumer | full quest list/availability control |
+| Quest board | `questBoard.replaceWithFixedSet` decoded-save writer, virtual `persist.quest.json` overlay, plot quest availability overlay from enabled plot quest content, and explicit watched-profile refresh with backup | broader non-plot quest list control |
+| Quest overlays | `quest.injectFixedStage` and fixed-board plot quest virtual file consumers | full roster/UI selection control |
 | Map topology | fixed map facts, topology validation, scalar `mapTemplates`, generated `.dm` sourcePath overlays, and `mapLayoutTemplates` room/corridor graph compiler for existing area/tile/door templates | generated map objects, encounter placement, and controlled creation/removal of rooms, corridors, tiles, and door slots |
 | Encounters | original mash content can be indexed from dungeon files | `encounter.defineMash` and named encounter placement tied to fixed layouts |
 | Save-to-event bridge | plugin-declared `factEventRules` and payload projections | more fact extractors and reusable projection operators |

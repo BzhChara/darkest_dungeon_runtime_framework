@@ -73,7 +73,7 @@ When `questBoard.enabled=true`, the loader writes two sidecar files:
 - `_quest_chains/<plugin-id>/<chain>.managed.quest_board.json`: materialization report.
 - `_managed_actions/static_<plugin-id>_<chain>_questBoard.replaceWithFixedSet.json`: deterministic managed action artifact.
 
-The artifact uses the existing `questBoard.replaceWithFixedSet` action shape, so the existing managed-action applier can dry-run it against a project-local decoded `persist.quest.json` copy. It intentionally uses `sourceQuestId` as the concrete quest id because the current writer resolves only existing plot quest definitions. `targetQuestId` remains metadata for future custom quest writers.
+The artifact uses the existing `questBoard.replaceWithFixedSet` action shape, so the startup overlay compiler can force active plot quests to early/repeatable availability and the managed-action applier can dry-run it against a project-local decoded `persist.quest.json` copy. It intentionally uses `sourceQuestId` as the concrete quest id because the current writer resolves only existing plot quest definitions. `targetQuestId` remains metadata for future custom quest writers.
 
 `--preview-quest-board` reads materialized `questBoard.replaceWithFixedSet` artifacts, resolves their quest ids against enabled original plot quest content, applies `removeCompleted` filtering when sidecar state is available, and writes:
 
@@ -89,11 +89,11 @@ Before `--dry-run` or a real game launch, the loader also writes:
 logs/quest_board_launch_preflight_report.json
 ```
 
-This preflight report links the quest-board preview to `logs/managed_action_overlay_manifest.json` and `logs/quest_board_runtime_overlay_report.json`. It explicitly separates candidate board state from live runtime behavior. When `saveWatchDirectories` points at one or more `profile_*` saves, the runtime overlay compiler builds virtual `profile_*/persist.quest.json` replacements from the fixed-board candidate. JSON fixtures are rewritten directly; binary DSON saves require `dsonSaveEditorJarPath` to point at DDSaveEditor so the framework can decode, patch, and re-encode a runtime-only overlay without mutating the original save.
+This preflight report links the quest-board preview to `logs/managed_action_overlay_manifest.json` and `logs/quest_board_runtime_overlay_report.json`. It explicitly separates candidate board state from live runtime behavior. When `saveWatchDirectories` points at one or more `profile_*` saves, the runtime overlay compiler builds virtual `profile_*/persist.quest.json` replacements from the fixed-board candidate. JSON fixtures are rewritten directly; binary DSON saves require `dsonSaveEditorJarPath` to point at DDSaveEditor so the framework can decode, patch, and re-encode the generated board. The same generated replacement can be explicitly written to a configured watched profile through `--refresh-quest-board-profile <profileId>`; that path creates a backup first and is meant to refresh the current task board, not to emulate the full original week settlement.
 
 Regression coverage:
 
-- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> quest-board preview -> launch preflight -> runtime persist.quest.json overlay -> decoded persist.quest.json writer` can preview, preflight, dry-run, write, and repeat idempotently without accumulating duplicate artifacts.
+- `tools/TestQuestChainBoardArtifact.ps1` proves `questChains -> questBoard.replaceWithFixedSet artifact -> quest-board preview -> launch preflight -> runtime persist.quest.json overlay -> decoded persist.quest.json writer` can preview, preflight, dry-run, write, and repeat idempotently without accumulating duplicate artifacts. `tools/TestManagedActionOverlay.ps1` additionally proves fixed-board artifacts compile into plot quest content overlays, and `tools/TestQuestBoardProfileRefresh.ps1` proves targeted profile refresh can dry-run, back up, write, and detect unchanged quest boards against a project-local watched profile.
 
 ## Relationship To Map Layouts
 
@@ -102,7 +102,7 @@ Regression coverage:
 ## Current Limits
 
 - Quest-board output is opt-in and currently materializes only fixed-set board entries from `sourceQuestId`.
-- Live quest-board replacement is currently a virtual-save overlay, not an original-save write. If no readable watched profile exists, or a binary DSON save is present without a configured DDSaveEditor jar, preflight reports the board as preview-only/unavailable instead of pretending the runtime path is active.
+- Live quest-board replacement currently has three paths: a content overlay that forces active plot quest definitions to early/repeatable availability, a virtual-save overlay for `profile_*/persist.quest.json` when readable watched profiles and DDSaveEditor are available, and an explicit profile refresh command that writes the generated `persist.quest.json` replacement with backup and safety checks. The explicit refresh is the preferred initialization path when the original game has already cached the current week's board.
 - No custom quest object writer exists yet; `sourceQuestId` still anchors a stage to original quest content.
 - No encounter mash writer exists yet, so stage-specific monster lineups are still represented by future `encounter.*` primitives.
 - Cross-plugin map template references are not supported in the first slice; keep chain and referenced map templates in the same plugin.

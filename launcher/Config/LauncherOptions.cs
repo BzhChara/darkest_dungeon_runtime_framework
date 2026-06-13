@@ -27,10 +27,12 @@ internal sealed class LauncherOptions
     public bool InspectMapFile { get; private set; }
     public bool PrototypeMapFinalRoom { get; private set; }
     public bool PrototypeMapTemplate { get; private set; }
+    public bool AllowRunningGameSaveWrite { get; private set; }
     public int? WatchSavesForMilliseconds { get; private set; }
     public string? ModStateId { get; private set; }
     public string? ModStateDirectory { get; private set; }
     public string? ManagedActionSaveDirectory { get; private set; }
+    public string? RefreshQuestBoardProfile { get; private set; }
     public string? EmitEvent { get; private set; }
     public string? EventPayload { get; private set; }
     public string? EventPayloadFile { get; private set; }
@@ -123,6 +125,12 @@ internal sealed class LauncherOptions
                 case "--prototype-map-template":
                     options.PrototypeMapTemplate = true;
                     options.MapPrototypeSourcePath = RequireValue(args, ref i, "--prototype-map-template");
+                    break;
+                case "--refresh-quest-board-profile":
+                    options.RefreshQuestBoardProfile = RequireValue(args, ref i, "--refresh-quest-board-profile");
+                    break;
+                case "--allow-running-game-save-write":
+                    options.AllowRunningGameSaveWrite = true;
                     break;
                 case "--watch-saves-for-ms":
                     options.WatchSavesForMilliseconds = RequirePositiveInt(args, ref i, "--watch-saves-for-ms");

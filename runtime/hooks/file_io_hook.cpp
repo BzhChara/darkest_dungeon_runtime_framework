@@ -8,10 +8,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cwctype>
 #include <cstdint>
 #include <cstring>
+#include <fcntl.h>
+#include <ios>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -44,6 +48,14 @@ using GetFileSizeFn = DWORD(WINAPI*)(HANDLE, LPDWORD);
 using GetFileSizeExFn = BOOL(WINAPI*)(HANDLE, PLARGE_INTEGER);
 using SetFilePointerFn = DWORD(WINAPI*)(HANDLE, LONG, PLONG, DWORD);
 using SetFilePointerExFn = BOOL(WINAPI*)(HANDLE, LARGE_INTEGER, PLARGE_INTEGER, DWORD);
+using CrtOpenFn = int(__cdecl*)(const char*, int, int);
+using CrtCloseFn = int(__cdecl*)(int);
+using CrtOpenOsfHandleFn = int(__cdecl*)(intptr_t, int);
+using CrtFdOpenFn = FILE*(__cdecl*)(int, const char*);
+using CrtFOpenFn = FILE*(__cdecl*)(const char*, const char*);
+using CrtFOpenSFn = errno_t(__cdecl*)(FILE**, const char*, const char*);
+using CrtWFOpenSFn = errno_t(__cdecl*)(FILE**, const wchar_t*, const wchar_t*);
+using StdFiOpenFn = FILE*(__cdecl*)(const char*, int, int);
 
 CreateFileWFn g_originalKernel32CreateFileW = nullptr;
 CreateFileAFn g_originalKernel32CreateFileA = nullptr;
@@ -87,6 +99,11 @@ SetFilePointerFn g_originalKernel32SetFilePointer = nullptr;
 SetFilePointerFn g_originalKernelBaseSetFilePointer = nullptr;
 SetFilePointerExFn g_originalKernel32SetFilePointerEx = nullptr;
 SetFilePointerExFn g_originalKernelBaseSetFilePointerEx = nullptr;
+CrtOpenFn g_originalCrtOpen = nullptr;
+CrtFOpenFn g_originalCrtFOpen = nullptr;
+CrtFOpenSFn g_originalCrtFOpenS = nullptr;
+CrtWFOpenSFn g_originalCrtWFOpenS = nullptr;
+StdFiOpenFn g_originalStdFiOpen = nullptr;
 
 std::mutex g_observerMutex;
 std::unordered_set<std::wstring> g_seenPaths;
@@ -1189,6 +1206,150 @@ std::shared_ptr<VirtualFile> RemoveVirtualFile(HANDLE handle)
     return value;
 }
 
+FARPROC ResolveCrtProc(const char* procName)
+{
+    const wchar_t* modules[] = {
+        L"ucrtbase.dll",
+        L"api-ms-win-crt-stdio-l1-1-0.dll",
+        L"api-ms-win-crt-filesystem-l1-1-0.dll",
+    };
+
+    for (const wchar_t* moduleName : modules)
+    {
+        HMODULE module = GetModuleHandleW(moduleName);
+        if (module == nullptr)
+        {
+            module = LoadLibraryW(moduleName);
+        }
+
+        if (module == nullptr)
+        {
+            continue;
+        }
+
+        FARPROC proc = GetProcAddress(module, procName);
+        if (proc != nullptr)
+        {
+            return proc;
+        }
+    }
+
+    return nullptr;
+}
+
+CrtOpenOsfHandleFn ResolveCrtOpenOsfHandle()
+{
+    static CrtOpenOsfHandleFn proc = reinterpret_cast<CrtOpenOsfHandleFn>(ResolveCrtProc("_open_osfhandle"));
+    return proc;
+}
+
+CrtFdOpenFn ResolveCrtFdOpen()
+{
+    static CrtFdOpenFn proc = reinterpret_cast<CrtFdOpenFn>(ResolveCrtProc("_fdopen"));
+    return proc;
+}
+
+CrtCloseFn ResolveCrtClose()
+{
+    static CrtCloseFn proc = reinterpret_cast<CrtCloseFn>(ResolveCrtProc("_close"));
+    return proc;
+}
+
+void CloseRejectedVirtualHandle(HANDLE handle)
+{
+    auto virtualFile = RemoveVirtualFile(handle);
+    CloseHandleFn closeHandle = OriginalCloseHandle();
+    if (closeHandle != nullptr)
+    {
+        if (virtualFile && virtualFile->backingHandle != nullptr)
+        {
+            closeHandle(virtualFile->backingHandle);
+        }
+        else if (handle != nullptr && handle != INVALID_HANDLE_VALUE)
+        {
+            closeHandle(handle);
+        }
+    }
+}
+
+bool IsReadOnlyCrtOpenFlags(int openFlags)
+{
+    return (openFlags & (_O_WRONLY | _O_RDWR | _O_CREAT | _O_TRUNC | _O_APPEND)) == 0;
+}
+
+bool IsReadOnlyFileMode(const char* mode)
+{
+    return mode != nullptr && mode[0] == 'r' && std::strchr(mode, '+') == nullptr;
+}
+
+bool IsReadOnlyStdOpenMode(int mode)
+{
+    auto openMode = static_cast<std::ios_base::openmode>(mode);
+    auto writeModes = std::ios_base::out | std::ios_base::app | std::ios_base::trunc;
+    return (openMode & std::ios_base::in) != 0 && (openMode & writeModes) == 0;
+}
+
+int TransferVirtualHandleToFileDescriptor(HANDLE handle, int openFlags)
+{
+    CrtOpenOsfHandleFn openOsfHandle = ResolveCrtOpenOsfHandle();
+    if (openOsfHandle == nullptr)
+    {
+        Logger::Warn(L"virtual-file CRT bridge missing _open_osfhandle.");
+        CloseRejectedVirtualHandle(handle);
+        return -1;
+    }
+
+    int descriptor = openOsfHandle(reinterpret_cast<intptr_t>(handle), openFlags | _O_BINARY);
+    if (descriptor == -1)
+    {
+        Logger::Warn(L"virtual-file CRT bridge failed _open_osfhandle.");
+        CloseRejectedVirtualHandle(handle);
+        return -1;
+    }
+
+    return descriptor;
+}
+
+FILE* OpenVirtualCrtFile(const std::wstring& path, const char* mode)
+{
+    HANDLE virtualHandle = CreateVirtualFileHandle(path, GENERIC_READ, OPEN_EXISTING);
+    if (virtualHandle == INVALID_HANDLE_VALUE)
+    {
+        return nullptr;
+    }
+
+    int descriptor = TransferVirtualHandleToFileDescriptor(virtualHandle, _O_RDONLY);
+    if (descriptor == -1)
+    {
+        return nullptr;
+    }
+
+    CrtFdOpenFn fdOpen = ResolveCrtFdOpen();
+    if (fdOpen == nullptr)
+    {
+        Logger::Warn(L"virtual-file CRT bridge missing _fdopen.");
+        CrtCloseFn closeDescriptor = ResolveCrtClose();
+        if (closeDescriptor != nullptr)
+        {
+            closeDescriptor(descriptor);
+        }
+        return nullptr;
+    }
+
+    FILE* file = fdOpen(descriptor, mode == nullptr ? "rb" : mode);
+    if (file == nullptr)
+    {
+        Logger::Warn(L"virtual-file CRT bridge failed _fdopen.");
+        CrtCloseFn closeDescriptor = ResolveCrtClose();
+        if (closeDescriptor != nullptr)
+        {
+            closeDescriptor(descriptor);
+        }
+    }
+
+    return file;
+}
+
 HANDLE CallOriginalCreateFileW(
     CreateFileWFn original,
     LPCWSTR fileName,
@@ -1265,6 +1426,210 @@ HANDLE CallOriginalCreateFileA(
     {
         RecordObservedFileHandle(result, path, desiredAccess);
     }
+    g_insideHook = false;
+    return result;
+}
+
+int CallOriginalCrtOpen(CrtOpenFn original, const char* fileName, int openFlags, int permissionMode)
+{
+    if (original == nullptr)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (g_insideHook)
+    {
+        return original(fileName, openFlags, permissionMode);
+    }
+
+    g_insideHook = true;
+    std::wstring path = AnsiToWide(fileName);
+    LogFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+
+    int result = -1;
+    bool servedVirtual = false;
+    if (IsReadOnlyCrtOpenFlags(openFlags))
+    {
+        HANDLE virtualHandle = CreateVirtualFileHandle(path, GENERIC_READ, OPEN_EXISTING);
+        if (virtualHandle != INVALID_HANDLE_VALUE)
+        {
+            result = TransferVirtualHandleToFileDescriptor(virtualHandle, openFlags);
+            servedVirtual = result != -1;
+        }
+    }
+
+    if (!servedVirtual)
+    {
+        result = original(fileName, openFlags, permissionMode);
+    }
+
+    if (result != -1)
+    {
+        LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+    }
+
+    g_insideHook = false;
+    return result;
+}
+
+FILE* CallOriginalCrtFOpen(CrtFOpenFn original, const char* fileName, const char* mode)
+{
+    if (original == nullptr)
+    {
+        errno = EINVAL;
+        return nullptr;
+    }
+
+    if (g_insideHook)
+    {
+        return original(fileName, mode);
+    }
+
+    g_insideHook = true;
+    std::wstring path = AnsiToWide(fileName);
+    LogFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+
+    FILE* result = IsReadOnlyFileMode(mode)
+        ? OpenVirtualCrtFile(path, mode)
+        : nullptr;
+    if (result == nullptr)
+    {
+        result = original(fileName, mode);
+    }
+
+    if (result != nullptr)
+    {
+        LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+    }
+
+    g_insideHook = false;
+    return result;
+}
+
+errno_t CallOriginalCrtFOpenS(CrtFOpenSFn original, FILE** stream, const char* fileName, const char* mode)
+{
+    if (stream != nullptr)
+    {
+        *stream = nullptr;
+    }
+
+    if (original == nullptr)
+    {
+        return EINVAL;
+    }
+
+    if (g_insideHook)
+    {
+        return original(stream, fileName, mode);
+    }
+
+    g_insideHook = true;
+    std::wstring path = AnsiToWide(fileName);
+    LogFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+
+    FILE* file = IsReadOnlyFileMode(mode)
+        ? OpenVirtualCrtFile(path, mode)
+        : nullptr;
+    errno_t result = 0;
+    if (file != nullptr)
+    {
+        if (stream != nullptr)
+        {
+            *stream = file;
+        }
+    }
+    else
+    {
+        result = original(stream, fileName, mode);
+    }
+
+    if (result == 0 && stream != nullptr && *stream != nullptr)
+    {
+        LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+    }
+
+    g_insideHook = false;
+    return result;
+}
+
+errno_t CallOriginalCrtWFOpenS(CrtWFOpenSFn original, FILE** stream, const wchar_t* fileName, const wchar_t* mode)
+{
+    if (stream != nullptr)
+    {
+        *stream = nullptr;
+    }
+
+    if (original == nullptr)
+    {
+        return EINVAL;
+    }
+
+    if (g_insideHook)
+    {
+        return original(stream, fileName, mode);
+    }
+
+    g_insideHook = true;
+    std::wstring path = fileName == nullptr ? L"" : fileName;
+    std::string narrowMode = WideToUtf8(mode == nullptr ? L"" : std::wstring(mode));
+    LogFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+
+    FILE* file = IsReadOnlyFileMode(narrowMode.c_str())
+        ? OpenVirtualCrtFile(path, narrowMode.empty() ? "rb" : narrowMode.c_str())
+        : nullptr;
+    errno_t result = 0;
+    if (file != nullptr)
+    {
+        if (stream != nullptr)
+        {
+            *stream = file;
+        }
+    }
+    else
+    {
+        result = original(stream, fileName, mode);
+    }
+
+    if (result == 0 && stream != nullptr && *stream != nullptr)
+    {
+        LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+    }
+
+    g_insideHook = false;
+    return result;
+}
+
+FILE* CallOriginalStdFiOpen(StdFiOpenFn original, const char* fileName, int mode, int protection)
+{
+    if (original == nullptr)
+    {
+        errno = EINVAL;
+        return nullptr;
+    }
+
+    if (g_insideHook)
+    {
+        return original(fileName, mode, protection);
+    }
+
+    g_insideHook = true;
+    std::wstring path = AnsiToWide(fileName);
+    LogFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+
+    FILE* result = IsReadOnlyStdOpenMode(mode)
+        ? OpenVirtualCrtFile(path, "rb")
+        : nullptr;
+    if (result == nullptr)
+    {
+        result = original(fileName, mode, protection);
+    }
+
+    if (result != nullptr)
+    {
+        LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+    }
+
     g_insideHook = false;
     return result;
 }
@@ -1860,6 +2225,31 @@ BOOL WINAPI name(HANDLE file, LARGE_INTEGER distance, PLARGE_INTEGER newPosition
     return CallOriginalSetFilePointerEx(original, file, distance, newPosition, moveMethod); \
 }
 
+int __cdecl DetourCrtOpen(const char* fileName, int openFlags, int permissionMode)
+{
+    return CallOriginalCrtOpen(g_originalCrtOpen, fileName, openFlags, permissionMode);
+}
+
+FILE* __cdecl DetourCrtFOpen(const char* fileName, const char* mode)
+{
+    return CallOriginalCrtFOpen(g_originalCrtFOpen, fileName, mode);
+}
+
+errno_t __cdecl DetourCrtFOpenS(FILE** stream, const char* fileName, const char* mode)
+{
+    return CallOriginalCrtFOpenS(g_originalCrtFOpenS, stream, fileName, mode);
+}
+
+errno_t __cdecl DetourCrtWFOpenS(FILE** stream, const wchar_t* fileName, const wchar_t* mode)
+{
+    return CallOriginalCrtWFOpenS(g_originalCrtWFOpenS, stream, fileName, mode);
+}
+
+FILE* __cdecl DetourStdFiOpen(const char* fileName, int mode, int protection)
+{
+    return CallOriginalStdFiOpen(g_originalStdFiOpen, fileName, mode, protection);
+}
+
 DEFINE_CREATEFILEW_DETOUR(DetourKernel32CreateFileW, g_originalKernel32CreateFileW)
 DEFINE_CREATEFILEA_DETOUR(DetourKernel32CreateFileA, g_originalKernel32CreateFileA)
 DEFINE_CREATEFILEW_DETOUR(DetourKernelBaseCreateFileW, g_originalKernelBaseCreateFileW)
@@ -1953,6 +2343,15 @@ void FileIoHook::InitializeFromEnvironment()
     createdAny |= CreateApiHook(L"KernelBase.dll", "CreateFileA", reinterpret_cast<LPVOID>(&DetourKernelBaseCreateFileA), reinterpret_cast<LPVOID*>(&g_originalKernelBaseCreateFileA));
     createdAny |= CreateApiHook(L"kernel32.dll", "ReadFile", reinterpret_cast<LPVOID>(&DetourKernel32ReadFile), reinterpret_cast<LPVOID*>(&g_originalKernel32ReadFile));
     createdAny |= CreateApiHook(L"KernelBase.dll", "ReadFile", reinterpret_cast<LPVOID>(&DetourKernelBaseReadFile), reinterpret_cast<LPVOID*>(&g_originalKernelBaseReadFile));
+    createdAny |= CreateApiHook(L"ucrtbase.dll", "_open", reinterpret_cast<LPVOID>(&DetourCrtOpen), reinterpret_cast<LPVOID*>(&g_originalCrtOpen));
+    createdAny |= CreateApiHook(L"api-ms-win-crt-stdio-l1-1-0.dll", "_open", reinterpret_cast<LPVOID>(&DetourCrtOpen), reinterpret_cast<LPVOID*>(&g_originalCrtOpen));
+    createdAny |= CreateApiHook(L"ucrtbase.dll", "fopen", reinterpret_cast<LPVOID>(&DetourCrtFOpen), reinterpret_cast<LPVOID*>(&g_originalCrtFOpen));
+    createdAny |= CreateApiHook(L"api-ms-win-crt-stdio-l1-1-0.dll", "fopen", reinterpret_cast<LPVOID>(&DetourCrtFOpen), reinterpret_cast<LPVOID*>(&g_originalCrtFOpen));
+    createdAny |= CreateApiHook(L"ucrtbase.dll", "fopen_s", reinterpret_cast<LPVOID>(&DetourCrtFOpenS), reinterpret_cast<LPVOID*>(&g_originalCrtFOpenS));
+    createdAny |= CreateApiHook(L"api-ms-win-crt-stdio-l1-1-0.dll", "fopen_s", reinterpret_cast<LPVOID>(&DetourCrtFOpenS), reinterpret_cast<LPVOID*>(&g_originalCrtFOpenS));
+    createdAny |= CreateApiHook(L"ucrtbase.dll", "_wfopen_s", reinterpret_cast<LPVOID>(&DetourCrtWFOpenS), reinterpret_cast<LPVOID*>(&g_originalCrtWFOpenS));
+    createdAny |= CreateApiHook(L"api-ms-win-crt-stdio-l1-1-0.dll", "_wfopen_s", reinterpret_cast<LPVOID>(&DetourCrtWFOpenS), reinterpret_cast<LPVOID*>(&g_originalCrtWFOpenS));
+    createdAny |= CreateApiHook(L"MSVCP140.dll", "?_Fiopen@std@@YAPEAU_iobuf@@PEBDHH@Z", reinterpret_cast<LPVOID>(&DetourStdFiOpen), reinterpret_cast<LPVOID*>(&g_originalStdFiOpen));
     bool needsWriteHook = (g_eventProbeEnabled && g_eventProbeLogFileWrite) ||
         (g_virtualFileEnabled && !g_virtualRules.empty());
     if (needsWriteHook)
@@ -2026,6 +2425,16 @@ void FileIoHook::InitializeFromEnvironment()
         L" virtualFile=" + (g_virtualFileEnabled ? L"enabled" : L"disabled") +
         L" virtualRules=" + std::to_wstring(g_virtualRules.size()) +
         L" managedOverlay=" + DescribeManagedOverlayManifest());
+
+    for (std::size_t index = 0; index < g_virtualRules.size(); index++)
+    {
+        const VirtualRule& rule = g_virtualRules[index];
+        Logger::Info(
+            L"virtual-file rule index=" + std::to_wstring(index) +
+            L" target=" + rule.targetPath +
+            L" source=" + rule.sourcePath +
+            L" replacements=" + std::to_wstring(rule.replacements.size()));
+    }
 }
 
 void FileIoHook::Shutdown()

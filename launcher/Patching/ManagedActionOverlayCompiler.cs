@@ -47,6 +47,10 @@ internal static partial class ManagedActionOverlayCompiler
                     {
                         overlayCandidates.Add(BuildQuestInjectFixedStageOverlay(artifactPath, artifact));
                     }
+                    else if (actionType.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
+                    {
+                        overlayCandidates.Add(BuildQuestBoardFixedSetOverlay(artifactPath, artifact));
+                    }
                     else if (actionType.Equals("inventory.disableItemSale", StringComparison.OrdinalIgnoreCase))
                     {
                         var overlay = BuildInventoryDisableItemSaleOverlay(artifactPath, artifact);
@@ -170,6 +174,30 @@ internal static partial class ManagedActionOverlayCompiler
         };
     }
 
+    private static JsonObject BuildQuestBoardFixedSetOverlay(string artifactPath, JsonObject artifact)
+    {
+        var plan = RequireObject(artifact, "plan");
+        var arguments = RequireObject(plan, "arguments");
+
+        return new JsonObject
+        {
+            ["kind"] = "questBoard.replaceWithFixedSet",
+            ["effect"] = ReadString(plan, "effect"),
+            ["target"] = ReadString(plan, "target"),
+            ["artifactPath"] = artifactPath,
+            ["eventId"] = ReadString(artifact, "eventId"),
+            ["pluginId"] = ReadString(artifact, "pluginId"),
+            ["sourceName"] = ReadString(artifact, "sourceName"),
+            ["sourcePath"] = ReadString(artifact, "sourcePath"),
+            ["ruleIndex"] = ReadInt(artifact, "ruleIndex"),
+            ["ruleId"] = ReadString(artifact, "ruleId"),
+            ["actionIndex"] = ReadInt(artifact, "actionIndex"),
+            ["questIds"] = CloneNode(arguments["questIds"]),
+            ["removeCompleted"] = ReadBool(arguments, "removeCompleted"),
+            ["completedStateKey"] = ReadString(arguments, "completedStateKey")
+        };
+    }
+
     private static string BuildOverlaySupersedeKey(JsonObject overlay)
     {
         return string.Join('|',
@@ -188,27 +216,28 @@ internal static partial class ManagedActionOverlayCompiler
         LauncherLog log)
     {
         var virtualRules = new List<OverlayVirtualRule>();
-        var questOverlays = overlays
-            .Where(overlay =>
-                ReadString(overlay, "kind").Equals("quest.injectFixedStage", StringComparison.OrdinalIgnoreCase) &&
-                ReadString(overlay, "target").Equals("quest.currentStage", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        var questPlotRequests = BuildQuestPlotAvailabilityRequests(config, overlays, issues, log);
 
-        if (questOverlays.Length > 0)
+        if (questPlotRequests.Count > 0)
         {
-            var questPlotPath = Path.Combine(config.GameWorkingDirectory, QuestPlotFileTarget.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(questPlotPath))
+            foreach (var group in questPlotRequests
+                         .GroupBy(request => request.Target, StringComparer.OrdinalIgnoreCase)
+                         .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
             {
-                AddIssue(
-                    issues,
-                    log,
-                    "warning",
-                    "managed-overlay-quest-file-missing",
-                    string.Empty,
-                    $"Quest plot file was not found: {questPlotPath}");
-            }
-            else
-            {
+                var target = group.Key;
+                var questPlotPath = group.First().SourcePath;
+                if (!File.Exists(questPlotPath))
+                {
+                    AddIssue(
+                        issues,
+                        log,
+                        "warning",
+                        "managed-overlay-quest-file-missing",
+                        string.Empty,
+                        $"Quest plot file was not found: {questPlotPath}");
+                    continue;
+                }
+
                 string questPlotText;
                 try
                 {
@@ -231,11 +260,17 @@ internal static partial class ManagedActionOverlayCompiler
                     var replacements = new List<VirtualFileReplacement>();
                     var replacementSummaries = new JsonArray();
                     var currentQuestPlotText = questPlotText;
-                    foreach (var overlay in questOverlays)
+                    var replacedQuestIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var request in group)
                     {
+                        if (!replacedQuestIds.Add(request.SourceQuestId))
+                        {
+                            continue;
+                        }
+
                         try
                         {
-                            var replacement = BuildQuestPlotReplacement(currentQuestPlotText, overlay, replacements.Count);
+                            var replacement = BuildQuestPlotReplacement(currentQuestPlotText, request, replacements.Count);
                             replacements.Add(replacement.Replacement);
                             replacementSummaries.Add(replacement.Summary);
                             currentQuestPlotText = ReplaceAllText(
@@ -244,7 +279,7 @@ internal static partial class ManagedActionOverlayCompiler
                                 replacement.Replacement.Replace);
                             log.Info(
                                 $"managed-action-overlay virtual-rule sourceQuest={Quote(replacement.SourceQuestId)} " +
-                                $"stage={Quote(replacement.StageId)} target={Quote(QuestPlotFileTarget)} " +
+                                $"kind={Quote(request.Kind)} stage={Quote(replacement.StageId)} target={Quote(target)} " +
                                 $"findChars={replacement.Replacement.Find.Length} replaceChars={replacement.Replacement.Replace.Length}");
                         }
                         catch (Exception ex)
@@ -254,7 +289,7 @@ internal static partial class ManagedActionOverlayCompiler
                                 log,
                                 "warning",
                                 "managed-overlay-quest-replacement-failed",
-                                ReadString(overlay, "artifactPath"),
+                                request.ArtifactPath,
                                 ex.Message);
                         }
                     }
@@ -263,7 +298,7 @@ internal static partial class ManagedActionOverlayCompiler
                     {
                         var summary = new JsonObject
                         {
-                            ["target"] = QuestPlotFileTarget,
+                            ["target"] = target,
                             ["effect"] = "forcePlotQuestAvailable",
                             ["replacementCount"] = replacements.Count,
                             ["replacements"] = replacementSummaries
@@ -271,7 +306,7 @@ internal static partial class ManagedActionOverlayCompiler
 
                         var rule = new VirtualFileRule
                         {
-                            Target = QuestPlotFileTarget,
+                            Target = target,
                             Replacements = replacements.ToArray()
                         };
 
@@ -285,14 +320,121 @@ internal static partial class ManagedActionOverlayCompiler
         return virtualRules;
     }
 
-    private static QuestPlotReplacement BuildQuestPlotReplacement(string questPlotText, JsonObject overlay, int replacementIndex)
+    private static IReadOnlyList<QuestPlotAvailabilityRequest> BuildQuestPlotAvailabilityRequests(
+        RuntimeConfig config,
+        IReadOnlyList<JsonObject> overlays,
+        JsonArray issues,
+        LauncherLog log)
     {
-        var sourceQuestId = RequireString(overlay, "sourceQuestId");
-        var stageId = RequireString(overlay, "stageId");
-        var rawQuest = FindPlotQuestRawText(questPlotText, sourceQuestId)
-            ?? throw new InvalidOperationException($"Source quest '{sourceQuestId}' was not found in {QuestPlotFileTarget}.");
+        var requests = new List<QuestPlotAvailabilityRequest>();
+        var definitions = new Dictionary<string, PlotQuestDefinition>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var overlay in overlays)
+        {
+            var kind = ReadString(overlay, "kind");
+            try
+            {
+                if (kind.Equals("quest.injectFixedStage", StringComparison.OrdinalIgnoreCase) &&
+                    ReadString(overlay, "target").Equals("quest.currentStage", StringComparison.OrdinalIgnoreCase))
+                {
+                    EnsurePlotDefinitionsLoaded(config, definitions);
+                    var sourceQuestId = RequireString(overlay, "sourceQuestId");
+                    if (!definitions.TryGetValue(sourceQuestId, out var definition))
+                    {
+                        throw new InvalidOperationException($"Source quest '{sourceQuestId}' was not found in enabled plot quest content.");
+                    }
+
+                    requests.Add(BuildQuestPlotAvailabilityRequest(config, overlay, definition, "quest.injectFixedStage"));
+                }
+                else if (kind.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
+                {
+                    var artifactPath = RequireString(overlay, "artifactPath");
+                    var artifact = JsonNode.Parse(File.ReadAllText(artifactPath, Encoding.UTF8)) as JsonObject
+                        ?? throw new InvalidDataException("quest board artifact root must be a JSON object");
+                    var plan = QuestBoardFixedSetResolver.Resolve(config.GameWorkingDirectory, config.ModStateDirectory, artifact);
+                    foreach (var questId in plan.ActiveQuestIds)
+                    {
+                        requests.Add(BuildQuestPlotAvailabilityRequest(
+                            config,
+                            overlay,
+                            plan.Definitions[questId],
+                            "questBoard.replaceWithFixedSet"));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AddIssue(
+                    issues,
+                    log,
+                    "warning",
+                    "managed-overlay-quest-availability-request-failed",
+                    ReadString(overlay, "artifactPath"),
+                    ex.Message);
+            }
+        }
+
+        return requests;
+    }
+
+    private static void EnsurePlotDefinitionsLoaded(
+        RuntimeConfig config,
+        Dictionary<string, PlotQuestDefinition> definitions)
+    {
+        if (definitions.Count > 0)
+        {
+            return;
+        }
+
+        foreach (var pair in QuestBoardContentCatalog.LoadEnabledPlotQuestDefinitions(config.GameWorkingDirectory))
+        {
+            definitions[pair.Key] = pair.Value;
+        }
+    }
+
+    private static QuestPlotAvailabilityRequest BuildQuestPlotAvailabilityRequest(
+        RuntimeConfig config,
+        JsonObject overlay,
+        PlotQuestDefinition definition,
+        string subjectKind)
+    {
+        var target = ToGameRelativeTarget(config.GameWorkingDirectory, definition.SourcePath);
+        return new QuestPlotAvailabilityRequest(
+            ReadString(overlay, "kind"),
+            target,
+            definition.SourcePath,
+            definition.Id,
+            ReadString(overlay, "stageId"),
+            ReadString(overlay, "stageName"),
+            ReadString(overlay, "artifactPath"),
+            ReadString(overlay, "sourceName"),
+            ReadString(overlay, "sourcePath"),
+            ReadInt(overlay, "ruleIndex"),
+            ReadInt(overlay, "actionIndex"),
+            subjectKind);
+    }
+
+    private static string ToGameRelativeTarget(string gameWorkingDirectory, string sourcePath)
+    {
+        var relative = Path.GetRelativePath(gameWorkingDirectory, sourcePath);
+        if (relative.StartsWith("..", StringComparison.Ordinal) ||
+            Path.IsPathRooted(relative))
+        {
+            throw new InvalidOperationException($"Quest plot source is outside the game working directory: {sourcePath}");
+        }
+
+        return relative.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
+    }
+
+    private static QuestPlotReplacement BuildQuestPlotReplacement(
+        string questPlotText,
+        QuestPlotAvailabilityRequest request,
+        int replacementIndex)
+    {
+        var rawQuest = FindPlotQuestRawText(questPlotText, request.SourceQuestId, request.Target)
+            ?? throw new InvalidOperationException($"Source quest '{request.SourceQuestId}' was not found in {request.Target}.");
         var questObject = JsonNode.Parse(rawQuest) as JsonObject
-            ?? throw new InvalidOperationException($"Source quest '{sourceQuestId}' was not a JSON object.");
+            ?? throw new InvalidOperationException($"Source quest '{request.SourceQuestId}' was not a JSON object.");
 
         questObject["dungeon_level"] = 0;
         questObject["is_repeatable"] = true;
@@ -302,22 +444,22 @@ internal static partial class ManagedActionOverlayCompiler
             Find = rawQuest,
             Replace = questObject.ToJsonString(JsonOptions),
             Origin = new PatchReplacementOrigin(
-                ReadString(overlay, "sourceName"),
-                ReadString(overlay, "sourcePath"),
-                ReadInt(overlay, "ruleIndex"),
+                request.OriginSourceName,
+                request.OriginSourcePath,
+                request.RuleIndex,
                 replacementIndex,
-                ReadInt(overlay, "actionIndex"),
+                request.ActionIndex,
                 "managedOverlay",
-                $"quest.injectFixedStage:{sourceQuestId}->{stageId}")
+                $"{request.SubjectKind}:{request.SourceQuestId}")
         };
 
         var summary = new JsonObject
         {
-            ["kind"] = ReadString(overlay, "kind"),
-            ["sourceQuestId"] = sourceQuestId,
-            ["stageId"] = stageId,
-            ["stageName"] = ReadString(overlay, "stageName"),
-            ["artifactPath"] = ReadString(overlay, "artifactPath"),
+            ["kind"] = request.Kind,
+            ["sourceQuestId"] = request.SourceQuestId,
+            ["stageId"] = request.StageId,
+            ["stageName"] = request.StageName,
+            ["artifactPath"] = request.ArtifactPath,
             ["effect"] = "forcePlotQuestAvailable",
             ["setDungeonLevel"] = 0,
             ["setRepeatable"] = true,
@@ -325,10 +467,10 @@ internal static partial class ManagedActionOverlayCompiler
             ["replaceChars"] = replacement.Replace.Length
         };
 
-        return new QuestPlotReplacement(sourceQuestId, stageId, replacement, summary);
+        return new QuestPlotReplacement(request.SourceQuestId, request.StageId, replacement, summary);
     }
 
-    private static string? FindPlotQuestRawText(string questPlotText, string sourceQuestId)
+    private static string? FindPlotQuestRawText(string questPlotText, string sourceQuestId, string target)
     {
         using var document = JsonDocument.Parse(questPlotText, new JsonDocumentOptions
         {
@@ -339,7 +481,7 @@ internal static partial class ManagedActionOverlayCompiler
         if (!document.RootElement.TryGetProperty("plot_quests", out var quests) ||
             quests.ValueKind != JsonValueKind.Array)
         {
-            throw new InvalidOperationException($"{QuestPlotFileTarget} does not contain a plot_quests array.");
+            throw new InvalidOperationException($"{target} does not contain a plot_quests array.");
         }
 
         foreach (var quest in quests.EnumerateArray())
@@ -518,6 +660,20 @@ internal sealed record ManagedActionOverlayReport(
 internal sealed record OverlayVirtualRule(
     VirtualFileRule Rule,
     JsonObject Summary);
+
+internal sealed record QuestPlotAvailabilityRequest(
+    string Kind,
+    string Target,
+    string SourcePath,
+    string SourceQuestId,
+    string StageId,
+    string StageName,
+    string ArtifactPath,
+    string OriginSourceName,
+    string OriginSourcePath,
+    int RuleIndex,
+    int ActionIndex,
+    string SubjectKind);
 
 internal sealed record QuestPlotReplacement(
     string SourceQuestId,

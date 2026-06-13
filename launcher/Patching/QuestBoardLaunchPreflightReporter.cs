@@ -37,7 +37,9 @@ internal static class QuestBoardLaunchPreflightReporter
         var willRuntimeReplaceQuestBoard = runtimeOverlay.VirtualFileRuleCount > 0;
         var willRuntimeForceQuestContentAvailable = runtimeContentOverlays.Any(overlay =>
             overlay.Target.Equals("campaign/quest/quest.plot_quests.json", StringComparison.OrdinalIgnoreCase) &&
-            overlay.Replacements.Any(replacement => replacement.Subject.StartsWith("quest.injectFixedStage:", StringComparison.OrdinalIgnoreCase)));
+            overlay.Replacements.Any(replacement =>
+                replacement.Subject.StartsWith("quest.injectFixedStage:", StringComparison.OrdinalIgnoreCase) ||
+                replacement.Subject.StartsWith("questBoard.replaceWithFixedSet:", StringComparison.OrdinalIgnoreCase)));
         var candidateStatus = preview.ErrorCount > 0
             ? "invalid"
             : hasCandidate
