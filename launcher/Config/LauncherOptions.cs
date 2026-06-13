@@ -37,6 +37,7 @@ internal sealed class LauncherOptions
     public string? ModStateDirectory { get; private set; }
     public string? ManagedActionSaveDirectory { get; private set; }
     public string? RefreshQuestBoardProfile { get; private set; }
+    public string? QuestBoardProfileScope { get; private set; }
     public string? EmitEvent { get; private set; }
     public string? EventPayload { get; private set; }
     public string? EventPayloadFile { get; private set; }
@@ -146,6 +147,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--refresh-quest-board-profile":
                     options.RefreshQuestBoardProfile = RequireValue(args, ref i, "--refresh-quest-board-profile");
+                    break;
+                case "--quest-board-profile-scope":
+                    options.QuestBoardProfileScope = RequireValue(args, ref i, "--quest-board-profile-scope");
                     break;
                 case "--allow-running-game-save-write":
                     options.AllowRunningGameSaveWrite = true;

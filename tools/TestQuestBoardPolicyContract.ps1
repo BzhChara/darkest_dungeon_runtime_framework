@@ -149,6 +149,7 @@ try {
     Assert-True ($resolvedSecond.predicateStatus -eq "predicateNotMatched") "Prophet should be skipped by predicate."
 
     $afterNecromancerReportPath = Join-Path $fixtureDir "policy_week_6_necromancer_completed.json"
+    $afterNecromancerProfile3ReportPath = Join-Path $fixtureDir "policy_week_6_necromancer_completed_profile_3.json"
     Write-JsonPayload $afterNecromancerReportPath ([pscustomobject]@{
         version = 1
         sessionId = "quest_board_policy_contract"
@@ -173,6 +174,16 @@ try {
             }
         }
     })
+    $profileScopedReport = Get-Content -Raw -LiteralPath $afterNecromancerReportPath | ConvertFrom-Json
+    $profileScopedReport | Add-Member -NotePropertyName activeProfile -NotePropertyValue ([pscustomobject]@{
+        profile = "profile_3"
+        root = "E:\Steam\userdata\1097809614\262060\remote\profile_3"
+        confidence = "fixture"
+        score = 100
+        reasons = @("quest board policy contract fixture")
+        alternatives = @()
+    })
+    Write-JsonPayload $afterNecromancerProfile3ReportPath $profileScopedReport
 
     & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --resolve-quest-board-policies --save-state-report $afterNecromancerReportPath --no-inject
     if ($LASTEXITCODE -ne 0) {
@@ -234,7 +245,7 @@ try {
     Remove-Item -LiteralPath $questBoardPreviewReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $saveEventBridgeReportPath -Force -ErrorAction SilentlyContinue
 
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --infer-save-events --auto-materialize-quest-board-policies --save-state-report $afterNecromancerReportPath --quest-board-policy-slots 1 --quest-board-policy-seed 42 --mod-state-dir $autoMaterializeStateRoot --no-inject
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --infer-save-events --auto-materialize-quest-board-policies --save-state-report $afterNecromancerProfile3ReportPath --quest-board-policy-slots 1 --quest-board-policy-seed 42 --mod-state-dir $autoMaterializeStateRoot --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader save event bridge auto materialize failed with exit code $LASTEXITCODE"
     }
@@ -244,13 +255,18 @@ try {
     Assert-True ([bool]$bridge.succeeded) "Save event bridge should succeed with policy auto materialization."
     Assert-True ([bool]$bridge.questBoardPolicyMaterialization.enabled) "Save event bridge should report enabled policy auto materialization."
     Assert-True ($bridge.questBoardPolicyMaterialization.status -eq "materialized") "Auto materialization status mismatch: $($bridge.questBoardPolicyMaterialization.status)"
+    Assert-True ($bridge.questBoardPolicyMaterialization.profileScope.kind -eq "profile") "Auto materialization should report profile scope."
+    Assert-True ($bridge.questBoardPolicyMaterialization.profileScope.profileId -eq "profile_3") "Auto materialization profile scope mismatch."
     Assert-True ([int]$bridge.questBoardPolicyMaterialization.selectedQuestCount -eq 1) "Auto materialization should select one quest."
     Assert-True (-not [string]::IsNullOrWhiteSpace($bridge.questBoardPolicyMaterialization.artifactPath)) "Auto materialization should report artifact path."
     Assert-True (Test-Path -LiteralPath $bridge.questBoardPolicyMaterialization.artifactPath -PathType Leaf) "Auto materialization artifact was not written: $($bridge.questBoardPolicyMaterialization.artifactPath)"
 
     $autoMaterialize = Get-Content -Raw -LiteralPath $materializeReportPath | ConvertFrom-Json
     Assert-True ([bool]$autoMaterialize.succeeded) "Auto materialize report should succeed."
+    Assert-True ($autoMaterialize.profileScope.profileId -eq "profile_3") "Auto materialize report should keep profile scope."
     Assert-True (@($autoMaterialize.selectedQuestIds) -contains "plot_kill_prophet_3") "Auto materialize should select prophet."
+    $autoArtifact = Get-Content -Raw -LiteralPath $bridge.questBoardPolicyMaterialization.artifactPath | ConvertFrom-Json
+    Assert-True ($autoArtifact.profileScope.profileId -eq "profile_3") "Auto materialized artifact should keep profile scope."
 
     & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --preview-quest-board --mod-state-dir $autoMaterializeStateRoot --no-inject
     if ($LASTEXITCODE -ne 0) {
@@ -258,10 +274,23 @@ try {
     }
 
     $autoQuestBoardPreview = Get-Content -Raw -LiteralPath $questBoardPreviewReportPath | ConvertFrom-Json
-    Assert-True ([bool]$autoQuestBoardPreview.succeeded) "Quest board preview should consume auto materialized policy artifact."
+    Assert-True ([bool]$autoQuestBoardPreview.succeeded) "Quest board preview should succeed when ignoring unmatched profile-scoped policy artifact."
     $autoPolicyPreviewArtifact = @($autoQuestBoardPreview.artifacts) | Where-Object { $_.artifactPath -eq $bridge.questBoardPolicyMaterialization.artifactPath }
     Assert-True (@($autoPolicyPreviewArtifact).Count -eq 1) "Quest board preview should include the auto materialized policy artifact."
+    Assert-True ($autoPolicyPreviewArtifact.status -eq "ignored") "Unscoped quest board preview should ignore profile-scoped policy artifact."
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --preview-quest-board --quest-board-profile-scope profile_3 --mod-state-dir $autoMaterializeStateRoot --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader scoped quest board preview after auto materialize failed with exit code $LASTEXITCODE"
+    }
+
+    $autoQuestBoardPreview = Get-Content -Raw -LiteralPath $questBoardPreviewReportPath | ConvertFrom-Json
+    Assert-True ([bool]$autoQuestBoardPreview.succeeded) "Scoped quest board preview should consume auto materialized policy artifact."
+    Assert-True ($autoQuestBoardPreview.targetProfileId -eq "profile_3") "Scoped quest board preview target profile mismatch."
+    $autoPolicyPreviewArtifact = @($autoQuestBoardPreview.artifacts) | Where-Object { $_.artifactPath -eq $bridge.questBoardPolicyMaterialization.artifactPath }
+    Assert-True (@($autoPolicyPreviewArtifact).Count -eq 1) "Scoped quest board preview should include the auto materialized policy artifact."
     Assert-True ($autoPolicyPreviewArtifact.status -eq "wouldApply") "Auto materialized policy artifact should be consumable by quest board preview."
+    Assert-True ($autoPolicyPreviewArtifact.profileScopeProfileId -eq "profile_3") "Auto materialized policy artifact preview should expose profile scope."
     Assert-True (@($autoPolicyPreviewArtifact.activeQuests.questId) -contains "plot_kill_prophet_3") "Auto materialized policy artifact should expose prophet."
 
     Write-Host "PASS: questBoardPolicies validates, previews, resolves, materializes, auto-materializes from save facts, and feeds the existing quest-board artifact consumer."

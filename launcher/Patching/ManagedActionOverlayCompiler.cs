@@ -49,6 +49,13 @@ internal static partial class ManagedActionOverlayCompiler
                     }
                     else if (actionType.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
                     {
+                        var profileScope = ManagedActionProfileScopeResolver.FromArtifact(artifact);
+                        if (!profileScope.IsGlobal)
+                        {
+                            ignoredArtifactCount++;
+                            continue;
+                        }
+
                         overlayCandidates.Add(BuildQuestBoardFixedSetOverlay(artifactPath, artifact));
                     }
                     else if (actionType.Equals("inventory.disableItemSale", StringComparison.OrdinalIgnoreCase))
@@ -164,6 +171,7 @@ internal static partial class ManagedActionOverlayCompiler
             ["pluginId"] = ReadString(artifact, "pluginId"),
             ["sourceName"] = ReadString(artifact, "sourceName"),
             ["sourcePath"] = ReadString(artifact, "sourcePath"),
+            ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(ManagedActionProfileScopeResolver.FromArtifact(artifact)),
             ["ruleIndex"] = ReadInt(artifact, "ruleIndex"),
             ["ruleId"] = ReadString(artifact, "ruleId"),
             ["actionIndex"] = ReadInt(artifact, "actionIndex"),

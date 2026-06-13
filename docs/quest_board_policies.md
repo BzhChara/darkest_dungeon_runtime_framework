@@ -184,11 +184,19 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 
 The bridge writes the normal `logs/save_event_bridge_report.json` with a `questBoardPolicyMaterialization` section. When enabled and policies exist, it also writes the normal materialization report and managed action artifact.
 
+When the save-state report has `activeProfile.profile`, automatic and explicit materialization copy it into artifact `profileScope`. A profile-scoped artifact is only consumed by quest-board preview/runtime refresh when the caller names the same target profile:
+
+```text
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --preview-quest-board --quest-board-profile-scope profile_3 --no-inject
+```
+
+Without a target profile, `--preview-quest-board` and startup launch preflight only consume global artifacts. This prevents a policy artifact produced from one save from silently replacing another profile's task board. Older artifacts without `profileScope` are treated as global for compatibility.
+
 Automatic materialization does not itself mutate a live save. In realtime use, pair it with the existing fixed-board refresh path:
 
 - `saveEventBridgeEnabled=true` watches save facts and runs fact-event rules;
-- `questBoardPolicyAutoMaterializeEnabled=true` turns the latest facts into a fresh fixed-board artifact;
-- `questBoardAutoRefreshEnabled=true` can then reapply the current fixed-board artifact after the original game rewrites live `persist.quest.json`.
+- `questBoardPolicyAutoMaterializeEnabled=true` turns the latest facts into a fresh fixed-board artifact scoped to that active profile when available;
+- `questBoardAutoRefreshEnabled=true` can then reapply the matching fixed-board artifact after the original game rewrites live `persist.quest.json`.
 
 This keeps policy scheduling, artifact production, and live save refresh as separate diagnostics-backed steps.
 
@@ -208,4 +216,4 @@ The two schemas can coexist. A chain can define stage order, while a policy can 
 
 Regression coverage:
 
-- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, resolves week/completed-quest gated candidates from save facts, materializes a fixed-board managed action artifact, auto-materializes from `--infer-save-events`, and feeds those artifacts back through the existing quest-board preview consumer.
+- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, resolves week/completed-quest gated candidates from save facts, materializes a fixed-board managed action artifact, auto-materializes profile-scoped artifacts from `--infer-save-events`, ignores mismatched profile artifacts by default, and feeds matching artifacts back through the existing quest-board preview consumer.

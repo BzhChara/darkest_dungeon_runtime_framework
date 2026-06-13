@@ -13,11 +13,14 @@ internal static class QuestBoardPreviewReporter
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public static QuestBoardPreviewReport Write(RuntimeConfig config, LauncherLog log)
+    public static QuestBoardPreviewReport Write(RuntimeConfig config, LauncherLog log, string? targetProfileId = null)
     {
         var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
         var reportPath = Path.Combine(config.LogDirectory, "quest_board_preview_report.json");
-        var context = new PreviewContext(config.GameWorkingDirectory, config.ModStateDirectory);
+        var context = new PreviewContext(
+            config.GameWorkingDirectory,
+            config.ModStateDirectory,
+            ManagedActionProfileScopeResolver.NormalizeTargetProfileId(targetProfileId));
         var artifactReports = new List<QuestBoardPreviewArtifactReport>();
         IReadOnlyList<QuestBoardPreviewQuestReport> finalActiveQuests = [];
 
@@ -42,6 +45,7 @@ internal static class QuestBoardPreviewReporter
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
             reportPath,
             artifactDirectory,
+            context.TargetProfileId,
             context.ArtifactCount,
             artifactReports.Count(report => report.Status is "wouldApply" or "failed"),
             artifactReports.Count(report => report.Status == "wouldApply"),
@@ -55,6 +59,7 @@ internal static class QuestBoardPreviewReporter
         File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions), Encoding.UTF8);
         log.Info(
             $"quest-board-preview report path={Quote(reportPath)} artifacts={report.ArtifactCount} " +
+            $"targetProfile={Quote(report.TargetProfileId)} " +
             $"questBoardArtifacts={report.QuestBoardArtifactCount} wouldApply={report.WouldApplyArtifactCount} " +
             $"activeQuests={report.FinalActiveQuestCount} completedFiltered={report.CompletedFilteredQuestCount} " +
             $"issues={report.Issues.Count} errors={report.ErrorCount}");
@@ -72,6 +77,7 @@ internal static class QuestBoardPreviewReporter
                 ?? throw new InvalidDataException("artifact root must be a JSON object");
             var actionType = ReadString(artifact, "action.type");
             var status = ReadString(artifact, "status");
+            var profileScope = ManagedActionProfileScopeResolver.FromArtifact(artifact);
             if (!actionType.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
             {
                 return new QuestBoardPreviewArtifactReport(
@@ -81,6 +87,9 @@ internal static class QuestBoardPreviewReporter
                     "ignored",
                     string.Empty,
                     string.Empty,
+                    profileScope.Kind,
+                    profileScope.ProfileId,
+                    profileScope.ProfileRoot,
                     false,
                     0,
                     0,
@@ -99,6 +108,9 @@ internal static class QuestBoardPreviewReporter
                     "ignored",
                     ReadOptionalString(artifact, "pluginId"),
                     ReadOptionalString(artifact, "ruleId"),
+                    profileScope.Kind,
+                    profileScope.ProfileId,
+                    profileScope.ProfileRoot,
                     false,
                     0,
                     0,
@@ -106,6 +118,27 @@ internal static class QuestBoardPreviewReporter
                     [],
                     [],
                     [$"artifact status is {status}"]);
+            }
+
+            if (!profileScope.Matches(context.TargetProfileId))
+            {
+                return new QuestBoardPreviewArtifactReport(
+                    artifactPath,
+                    actionType,
+                    status,
+                    "ignored",
+                    ReadOptionalString(artifact, "pluginId"),
+                    ReadOptionalString(artifact, "ruleId"),
+                    profileScope.Kind,
+                    profileScope.ProfileId,
+                    profileScope.ProfileRoot,
+                    false,
+                    0,
+                    0,
+                    0,
+                    [],
+                    [],
+                    [$"artifact profile scope {profileScope.Kind}:{profileScope.ProfileId} does not match target profile {context.TargetProfileId}"]);
             }
 
             var questIds = ReadStringArray(ReadNode(artifact, "plan.arguments.questIds"), "plan.arguments.questIds");
@@ -171,6 +204,9 @@ internal static class QuestBoardPreviewReporter
                 "wouldApply",
                 ReadOptionalString(artifact, "pluginId"),
                 ReadOptionalString(artifact, "ruleId"),
+                profileScope.Kind,
+                profileScope.ProfileId,
+                profileScope.ProfileRoot,
                 removeCompleted,
                 questIds.Count,
                 activeQuests.Count,
@@ -188,6 +224,9 @@ internal static class QuestBoardPreviewReporter
                 string.Empty,
                 string.Empty,
                 "failed",
+                string.Empty,
+                string.Empty,
+                string.Empty,
                 string.Empty,
                 string.Empty,
                 false,
@@ -358,10 +397,11 @@ internal static class QuestBoardPreviewReporter
 
     private static string Quote(string value) => '"' + value.Replace("\"", "\\\"", StringComparison.Ordinal) + '"';
 
-    private sealed class PreviewContext(string gameWorkingDirectory, string modStateDirectory)
+    private sealed class PreviewContext(string gameWorkingDirectory, string modStateDirectory, string targetProfileId)
     {
         public string GameWorkingDirectory { get; } = gameWorkingDirectory;
         public string ModStateDirectory { get; } = modStateDirectory;
+        public string TargetProfileId { get; } = targetProfileId;
         public int ArtifactCount { get; set; }
         public List<QuestBoardPreviewIssue> Issues { get; } = [];
     }
@@ -372,6 +412,7 @@ internal sealed record QuestBoardPreviewReport(
     string GeneratedAtUtc,
     string ReportPath,
     string ArtifactDirectory,
+    string TargetProfileId,
     int ArtifactCount,
     int QuestBoardArtifactCount,
     int WouldApplyArtifactCount,
@@ -392,6 +433,9 @@ internal sealed record QuestBoardPreviewArtifactReport(
     string Status,
     string PluginId,
     string QuestChainId,
+    string ProfileScopeKind,
+    string ProfileScopeProfileId,
+    string ProfileScopeProfileRoot,
     bool RemoveCompleted,
     int SourceQuestCount,
     int ActiveQuestCount,

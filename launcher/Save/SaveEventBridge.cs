@@ -1069,6 +1069,7 @@ internal static class SaveEventBridge
                 false,
                 "disabled",
                 "questBoardPolicyAutoMaterializeEnabled is false",
+                ManagedActionProfileScope.Global,
                 string.Empty,
                 string.Empty,
                 0,
@@ -1082,6 +1083,7 @@ internal static class SaveEventBridge
                 true,
                 "noPolicies",
                 "no enabled questBoardPolicies were present in the patch plan",
+                ManagedActionProfileScope.Global,
                 string.Empty,
                 string.Empty,
                 0,
@@ -1123,6 +1125,7 @@ internal static class SaveEventBridge
                 materializeReport.Succeeded
                     ? "quest board policies were materialized from the current save facts"
                     : "quest board policy materialization failed",
+                materializeReport.ProfileScope,
                 materializeReport.ReportPath,
                 materializeReport.ArtifactPath,
                 materializeReport.SelectedQuestCount,
@@ -1141,6 +1144,7 @@ internal static class SaveEventBridge
                 true,
                 "failed",
                 ex.Message,
+                ManagedActionProfileScope.Global,
                 string.Empty,
                 string.Empty,
                 0,
@@ -1173,6 +1177,8 @@ internal static class SaveEventBridge
         {
             log.Info(
                 $"save-event-bridge quest-board-policy-materialization status={report.QuestBoardPolicyMaterialization.Status} " +
+                $"profileScope={QuoteLogValue(report.QuestBoardPolicyMaterialization.ProfileScope.Kind)} " +
+                $"profile={QuoteLogValue(report.QuestBoardPolicyMaterialization.ProfileScope.ProfileId)} " +
                 $"selectedQuests={report.QuestBoardPolicyMaterialization.SelectedQuestCount} " +
                 $"report={QuoteLogValue(report.QuestBoardPolicyMaterialization.ReportPath)} " +
                 $"artifact={QuoteLogValue(report.QuestBoardPolicyMaterialization.ArtifactPath)}");
@@ -1231,6 +1237,7 @@ internal sealed record SaveEventBridgeQuestBoardPolicyMaterializationReport(
     bool Enabled,
     string Status,
     string Reason,
+    ManagedActionProfileScope ProfileScope,
     string ReportPath,
     string ArtifactPath,
     int SelectedQuestCount,

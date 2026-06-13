@@ -565,7 +565,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
                 $"event name=save.quest_board_auto_refresh_requested profile={profile.Profile} " +
                 $"root={Quote(profile.Root)} reason={Quote("live persist.quest.json changed")}");
 
-            var preview = QuestBoardPreviewReporter.Write(_config, _log);
+            var preview = QuestBoardPreviewReporter.Write(_config, _log, profile.Profile);
             var runtimeOverlay = QuestBoardRuntimeOverlayCompiler.Compile(_config, _log, preview);
             var refreshReport = QuestBoardProfileRefreshWriter.Write(
                 _config,

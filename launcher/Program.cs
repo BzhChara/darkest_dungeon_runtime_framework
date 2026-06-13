@@ -102,7 +102,7 @@ internal static class Program
             var modStateSucceeded = true;
             if (options.PreviewQuestBoard)
             {
-                modStateSucceeded &= QuestBoardPreviewReporter.Write(config, log).Succeeded;
+                modStateSucceeded &= QuestBoardPreviewReporter.Write(config, log, options.QuestBoardProfileScope).Succeeded;
             }
 
             if (options.PreviewQuestBoardPolicies)
@@ -252,7 +252,7 @@ internal static class Program
 
             if (!string.IsNullOrWhiteSpace(options.RefreshQuestBoardProfile))
             {
-                var refreshQuestBoardPreview = QuestBoardPreviewReporter.Write(config, log);
+                var refreshQuestBoardPreview = QuestBoardPreviewReporter.Write(config, log, options.RefreshQuestBoardProfile);
                 var refreshQuestBoardRuntimeOverlay = QuestBoardRuntimeOverlayCompiler.Compile(config, log, refreshQuestBoardPreview);
                 modStateSucceeded &= QuestBoardProfileRefreshWriter.Write(
                     config,

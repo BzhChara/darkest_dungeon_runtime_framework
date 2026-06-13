@@ -31,6 +31,7 @@ internal static class QuestBoardPolicyMaterializer
         var reportPath = Path.Combine(config.LogDirectory, ReportFileName);
         var issues = new List<QuestBoardPolicyMaterializeIssue>();
         var resolve = QuestBoardPolicyResolveReporter.Write(config, patchPlan, log, projectRoot, saveStateReportPath);
+        var profileScope = ManagedActionProfileScopeResolver.FromSaveStateReport(resolve.SaveStateReportPath);
         var seed = seedOverride ?? resolve.Week ?? 0;
         if (resolve.WarningCount > 0)
         {
@@ -64,7 +65,7 @@ internal static class QuestBoardPolicyMaterializer
         {
             if (selection.SelectedQuestIds.Count > 0)
             {
-                artifactPath = WriteArtifact(config, resolve, selection, slotLimit, seed, issues);
+                artifactPath = WriteArtifact(config, resolve, selection, slotLimit, seed, profileScope, issues);
                 status = "materialized";
             }
             else
@@ -86,6 +87,7 @@ internal static class QuestBoardPolicyMaterializer
             reportPath,
             resolve.ReportPath,
             resolve.SaveStateReportPath,
+            profileScope,
             status,
             artifactPath,
             SelectionMode,
@@ -110,7 +112,9 @@ internal static class QuestBoardPolicyMaterializer
             $"quest-board-policy-materialize report path={Quote(reportPath)} status={status} " +
             $"artifact={Quote(artifactPath)} selectedQuests={report.SelectedQuestCount} " +
             $"resolvedQuests={report.ResolvedQuestCount} pools={report.PoolCount} " +
-            $"slotLimit={FormatNullableInt(slotLimit)} seed={seed} warnings={report.WarningCount} errors={report.ErrorCount}");
+            $"slotLimit={FormatNullableInt(slotLimit)} seed={seed} " +
+            $"profileScope={Quote(profileScope.Kind)} profile={Quote(profileScope.ProfileId)} " +
+            $"warnings={report.WarningCount} errors={report.ErrorCount}");
 
         foreach (var issue in issues)
         {
@@ -408,6 +412,7 @@ internal static class QuestBoardPolicyMaterializer
         QuestBoardPolicyMaterializeSelection selection,
         int? slotLimit,
         int seed,
+        ManagedActionProfileScope profileScope,
         IReadOnlyList<QuestBoardPolicyMaterializeIssue> issues)
     {
         var generatedAt = DateTimeOffset.UtcNow;
@@ -420,7 +425,7 @@ internal static class QuestBoardPolicyMaterializer
 
         File.WriteAllText(
             artifactPath,
-            BuildArtifact(resolve, selection, slotLimit, seed, generatedAt, issues).ToJsonString(JsonOptions),
+            BuildArtifact(resolve, selection, slotLimit, seed, profileScope, generatedAt, issues).ToJsonString(JsonOptions),
             Encoding.UTF8);
         return artifactPath;
     }
@@ -430,6 +435,7 @@ internal static class QuestBoardPolicyMaterializer
         QuestBoardPolicyMaterializeSelection selection,
         int? slotLimit,
         int seed,
+        ManagedActionProfileScope profileScope,
         DateTimeOffset generatedAt,
         IReadOnlyList<QuestBoardPolicyMaterializeIssue> issues)
     {
@@ -460,6 +466,7 @@ internal static class QuestBoardPolicyMaterializer
             ["pluginId"] = "framework.quest_board_policy_materializer",
             ["sourceName"] = "Quest Board Policy Materializer",
             ["sourcePath"] = resolve.ReportPath,
+            ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(profileScope),
             ["loadOrder"] = int.MaxValue,
             ["ruleIndex"] = 0,
             ["ruleId"] = "questBoardPolicies.materialized",
@@ -476,6 +483,7 @@ internal static class QuestBoardPolicyMaterializer
                 ["source"] = "questBoardPolicies",
                 ["resolveReportPath"] = resolve.ReportPath,
                 ["saveStateReportPath"] = resolve.SaveStateReportPath,
+                ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(profileScope),
                 ["policyCount"] = resolve.PolicyCount,
                 ["resolvedQuestCount"] = resolve.ResolvedQuestCount,
                 ["selectedQuestCount"] = selection.SelectedQuestIds.Count
@@ -487,6 +495,7 @@ internal static class QuestBoardPolicyMaterializer
                 ["effect"] = "replaceWithFixedSet",
                 ["target"] = "profile.quest_board",
                 ["source"] = "questBoardPolicies",
+                ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(profileScope),
                 ["arguments"] = arguments
             }
         };
@@ -565,6 +574,7 @@ internal sealed record QuestBoardPolicyMaterializeReport(
     string ReportPath,
     string ResolveReportPath,
     string SaveStateReportPath,
+    ManagedActionProfileScope ProfileScope,
     string Status,
     string ArtifactPath,
     string SelectionMode,

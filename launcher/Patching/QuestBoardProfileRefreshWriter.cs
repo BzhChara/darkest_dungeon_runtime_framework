@@ -63,6 +63,15 @@ internal static class QuestBoardProfileRefreshWriter
                 "quest board runtime overlay report contains errors; refresh writer will not mutate a save."));
         }
 
+        if (!string.IsNullOrWhiteSpace(overlayReport.TargetProfileId) &&
+            !overlayReport.TargetProfileId.Equals(normalizedProfileId, StringComparison.OrdinalIgnoreCase))
+        {
+            issues.Add(Error(
+                "profile-scope-mismatch",
+                overlayReport.ReportPath,
+                $"runtime overlay target profile is {overlayReport.TargetProfileId}, but refresh target is {normalizedProfileId}."));
+        }
+
         if (profile is null)
         {
             issues.Add(Error(

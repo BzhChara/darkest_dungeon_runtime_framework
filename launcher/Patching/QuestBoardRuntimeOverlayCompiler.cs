@@ -45,14 +45,21 @@ internal static class QuestBoardRuntimeOverlayCompiler
                 .ToArray();
             var definitions = QuestBoardContentCatalog.LoadEnabledPlotQuestDefinitions(config.GameWorkingDirectory);
             var replacement = QuestBoardFixedSetResolver.BuildQuestEntries(activeQuestIds, definitions);
-            var sources = EnumeratePersistQuestSources(config).ToArray();
+            var sources = EnumeratePersistQuestSources(config)
+                .Where(source => string.IsNullOrWhiteSpace(preview.TargetProfileId) ||
+                    source.ProfileId.Equals(preview.TargetProfileId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             if (sources.Length == 0)
             {
                 issues.Add(new QuestBoardRuntimeOverlayIssue(
                     "warning",
                     "quest-board-runtime-no-save-sources",
-                    string.Join(';', config.SaveWatchDirectories),
-                    "no profile_*/persist.quest.json sources were found under saveWatchDirectories; runtime quest-board overlay cannot be generated"));
+                    string.IsNullOrWhiteSpace(preview.TargetProfileId)
+                        ? string.Join(';', config.SaveWatchDirectories)
+                        : preview.TargetProfileId,
+                    string.IsNullOrWhiteSpace(preview.TargetProfileId)
+                        ? "no profile_*/persist.quest.json sources were found under saveWatchDirectories; runtime quest-board overlay cannot be generated"
+                        : "no matching profile persist.quest.json source was found under saveWatchDirectories; runtime quest-board overlay cannot be generated"));
             }
 
             foreach (var source in sources)
@@ -117,6 +124,7 @@ internal static class QuestBoardRuntimeOverlayCompiler
             reportPath,
             status,
             preview.ReportPath,
+            preview.TargetProfileId,
             preview.FinalActiveQuestCount,
             profileReports.Count,
             virtualRules.Count,
@@ -129,6 +137,7 @@ internal static class QuestBoardRuntimeOverlayCompiler
         File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions), Utf8NoBom);
         log.Info(
             $"quest-board-runtime-overlay report path={Quote(reportPath)} status={report.Status} " +
+            $"targetProfile={Quote(report.TargetProfileId)} " +
             $"candidateQuests={report.CandidateQuestCount} profiles={report.ProfileCount} " +
             $"virtualRules={report.VirtualFileRuleCount} warnings={report.WarningCount} errors={report.ErrorCount}");
         return report;
@@ -450,6 +459,7 @@ internal sealed record QuestBoardRuntimeOverlayReport(
     string ReportPath,
     string Status,
     string QuestBoardPreviewReportPath,
+    string TargetProfileId,
     int CandidateQuestCount,
     int ProfileCount,
     int VirtualFileRuleCount,
