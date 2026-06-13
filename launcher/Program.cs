@@ -53,6 +53,7 @@ internal static class Program
                     !options.PreviewQuestBoard &&
                     !options.PreviewQuestBoardPolicies &&
                     !options.ResolveQuestBoardPolicies &&
+                    !options.MaterializeQuestBoardPolicies &&
                     !options.InspectMapFile &&
                     !options.PrototypeMapFinalRoom &&
                     !options.PrototypeMapTemplate &&
@@ -106,7 +107,7 @@ internal static class Program
                 modStateSucceeded &= QuestBoardPolicyPreviewReporter.Write(config, patchPlan, log).Succeeded;
             }
 
-            if (options.ResolveQuestBoardPolicies)
+            if (options.ResolveQuestBoardPolicies && !options.MaterializeQuestBoardPolicies)
             {
                 modStateSucceeded &= QuestBoardPolicyResolveReporter.Write(
                     config,
@@ -114,6 +115,18 @@ internal static class Program
                     log,
                     projectRoot,
                     options.SaveStateReportPath).Succeeded;
+            }
+
+            if (options.MaterializeQuestBoardPolicies)
+            {
+                modStateSucceeded &= QuestBoardPolicyMaterializer.Write(
+                    config,
+                    patchPlan,
+                    log,
+                    projectRoot,
+                    options.SaveStateReportPath,
+                    options.QuestBoardPolicySlots,
+                    options.QuestBoardPolicySeed).Succeeded;
             }
 
             if (options.InitModState)
@@ -276,6 +289,7 @@ internal static class Program
                 options.PreviewQuestBoard ||
                 options.PreviewQuestBoardPolicies ||
                 options.ResolveQuestBoardPolicies ||
+                options.MaterializeQuestBoardPolicies ||
                 options.InspectMapFile ||
                 options.PrototypeMapFinalRoom ||
                 options.PrototypeMapTemplate ||
@@ -501,6 +515,7 @@ internal static class Program
             !options.PreviewQuestBoard &&
             !options.PreviewQuestBoardPolicies &&
             !options.ResolveQuestBoardPolicies &&
+            !options.MaterializeQuestBoardPolicies &&
             !options.InspectMapFile &&
             !options.PrototypeMapFinalRoom &&
             !options.PrototypeMapTemplate &&

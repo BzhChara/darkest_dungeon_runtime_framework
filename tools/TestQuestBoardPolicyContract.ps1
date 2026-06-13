@@ -32,8 +32,14 @@ Push-Location $projectRoot.Path
 try {
     $previewReportPath = Join-Path $projectRoot.Path "logs\quest_board_policy_preview_report.json"
     $resolveReportPath = Join-Path $projectRoot.Path "logs\quest_board_policy_resolve_report.json"
+    $materializeReportPath = Join-Path $projectRoot.Path "logs\quest_board_policy_materialize_report.json"
+    $questBoardPreviewReportPath = Join-Path $projectRoot.Path "logs\quest_board_preview_report.json"
+    $materializeStateRoot = Join-Path $projectRoot.Path "state\quest_board_policy_contract_materialize"
     Remove-Item -LiteralPath $previewReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $resolveReportPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $materializeReportPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $questBoardPreviewReportPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $materializeStateRoot -Recurse -Force -ErrorAction SilentlyContinue
 
     & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --validate-only --explain-patches --preview-quest-board-policies --no-inject
     if ($LASTEXITCODE -ne 0) {
@@ -179,7 +185,43 @@ try {
     Assert-True ($resolvedSecond.resolutionStatus -eq "eligiblePoolCandidate") "Prophet should be an eligible pool candidate after necromancer completion."
     Assert-True ($resolvedSecond.predicateStatus -eq "matched") "Prophet predicate should match after necromancer completion."
 
-    Write-Host "PASS: questBoardPolicies validates, previews, and resolves policy candidates from save facts."
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --materialize-quest-board-policies --save-state-report $afterNecromancerReportPath --quest-board-policy-slots 1 --quest-board-policy-seed 42 --mod-state-dir $materializeStateRoot --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader policy materialize failed with exit code $LASTEXITCODE"
+    }
+
+    Assert-True (Test-Path -LiteralPath $materializeReportPath -PathType Leaf) "Quest board policy materialize report was not created: $materializeReportPath"
+    $materialize = Get-Content -Raw -LiteralPath $materializeReportPath | ConvertFrom-Json
+    Assert-True ([bool]$materialize.succeeded) "Quest board policy materialize should succeed."
+    Assert-True ($materialize.status -eq "materialized") "Materialize report status mismatch: $($materialize.status)"
+    Assert-True ([int]$materialize.seed -eq 42) "Materialize report seed mismatch."
+    Assert-True ([int]$materialize.slotLimit -eq 1) "Materialize report slot limit mismatch."
+    Assert-True ([int]$materialize.selectedQuestCount -eq 1) "Materialize should select one quest."
+    Assert-True (@($materialize.selectedQuestIds) -contains "plot_kill_prophet_3") "Materialize should select prophet."
+    Assert-True (-not [string]::IsNullOrWhiteSpace($materialize.artifactPath)) "Materialize report should include artifact path."
+    Assert-True (Test-Path -LiteralPath $materialize.artifactPath -PathType Leaf) "Materialized quest-board artifact was not written: $($materialize.artifactPath)"
+
+    $artifact = Get-Content -Raw -LiteralPath $materialize.artifactPath | ConvertFrom-Json
+    Assert-True ($artifact.action.type -eq "questBoard.replaceWithFixedSet") "Materialized artifact action type mismatch."
+    Assert-True ($artifact.plan.kind -eq "questBoard.replaceWithFixedSet") "Materialized artifact plan kind mismatch."
+    Assert-True (-not [bool]$artifact.plan.arguments.removeCompleted) "Policy materializer should pre-filter completed quests instead of delegating removeCompleted."
+    Assert-True (@($artifact.plan.arguments.questIds) -contains "plot_kill_prophet_3") "Materialized artifact should contain prophet."
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --preview-quest-board --mod-state-dir $materializeStateRoot --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader quest board preview failed with exit code $LASTEXITCODE"
+    }
+
+    Assert-True (Test-Path -LiteralPath $questBoardPreviewReportPath -PathType Leaf) "Quest board preview report was not created: $questBoardPreviewReportPath"
+    $questBoardPreview = Get-Content -Raw -LiteralPath $questBoardPreviewReportPath | ConvertFrom-Json
+    Assert-True ([bool]$questBoardPreview.succeeded) "Quest board preview should consume materialized policy artifact."
+    $policyPreviewArtifact = @($questBoardPreview.artifacts) | Where-Object { $_.artifactPath -eq $materialize.artifactPath }
+    Assert-True (@($policyPreviewArtifact).Count -eq 1) "Quest board preview should include the materialized policy artifact."
+    Assert-True ($policyPreviewArtifact.status -eq "wouldApply") "Materialized policy artifact should be consumable by quest board preview."
+    Assert-True ([int]$policyPreviewArtifact.activeQuestCount -eq 1) "Materialized policy artifact should expose one active quest."
+    Assert-True (@($policyPreviewArtifact.activeQuests.questId) -contains "plot_kill_prophet_3") "Materialized policy artifact should expose prophet."
+
+    Write-Host "PASS: questBoardPolicies validates, previews, resolves, materializes, and feeds the existing quest-board artifact consumer."
 }
 finally {
     Pop-Location

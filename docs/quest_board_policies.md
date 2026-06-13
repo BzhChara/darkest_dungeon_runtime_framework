@@ -2,7 +2,7 @@
 
 `questBoardPolicies` is the generic scheduling layer for deciding which referenced quests may appear on the task board. It is intentionally separate from static quest, dungeon, monster, map, art, and localization authoring. Those definitions should usually come from original game files, DLC, Workshop content, or plugin-bundled DD-format files and be declared through `contentRefs`.
 
-The current implementation is validation, reporting, content-backed candidate preview, and facts-driven candidate resolution only:
+The current implementation is validation, reporting, content-backed candidate preview, facts-driven candidate resolution, and explicit managed artifact materialization:
 
 ```text
 questBoardPolicies
@@ -13,9 +13,12 @@ questBoardPolicies
   -> write logs/quest_board_policy_preview_report.json
   -> resolve eligible candidate quests through --resolve-quest-board-policies
   -> write logs/quest_board_policy_resolve_report.json
+  -> materialize selected quests through --materialize-quest-board-policies
+  -> write logs/quest_board_policy_materialize_report.json
+  -> write modStateDirectory/_managed_actions/*_questBoardPolicies_questBoard.replaceWithFixedSet.json
 ```
 
-It does not directly modify `persist.quest.json`, simulate week settlement, perform random pool draws, allocate final task-board slots, or replace the existing `questBoard.replaceWithFixedSet` writer. Later quest-board generators should consume these policy facts instead of hardcoding one mod's quest order.
+It does not directly modify `persist.quest.json`, simulate week settlement, or replace the existing `questBoard.replaceWithFixedSet` writer. Materialization is an explicit offline step that produces the same managed action artifact shape consumed by the existing quest-board preview, runtime overlay, decoded-save writer, and profile refresh paths. Later quest-board generators should consume these policy facts instead of hardcoding one mod's quest order.
 
 ## Manifest Shape
 
@@ -135,7 +138,30 @@ Each candidate becomes:
 - `unevaluated`: required runtime facts were not available;
 - `blocked`: required quest content was missing or invalid.
 
-`resolvedQuestIds` is currently deterministic and includes all `active` and `eligiblePoolCandidate` quests in policy order. It is not yet a final randomized board. Pool size, weighted drawing, slot limits, and persistence into `persist.quest.json` remain separate follow-up consumers.
+`resolvedQuestIds` is deterministic and includes all `active` and `eligiblePoolCandidate` quests in policy order. It is an eligibility report, not a final task-board artifact. Use materialization when a plugin needs a concrete board candidate set.
+
+## Materialization
+
+Run:
+
+```text
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --materialize-quest-board-policies --save-state-report <path> --quest-board-policy-slots <n> --quest-board-policy-seed <seed> --no-inject
+```
+
+`--quest-board-policy-slots` and `--quest-board-policy-seed` are optional. Without an explicit seed, the materializer uses the resolved campaign week, or `0` when no week fact exists.
+
+The materializer:
+
+- calls the resolver and writes the normal resolve report;
+- selects fixed `active` entries in policy load order;
+- draws one weighted entry per pool for `mixed` policies;
+- treats `random` policies as weighted pools, drawing one from the whole policy when no explicit pool is declared;
+- deduplicates quest ids by first winner instead of failing the whole board;
+- applies the optional slot limit after policy order and pool draws;
+- writes a `questBoard.replaceWithFixedSet` managed action artifact into `modStateDirectory/_managed_actions/`;
+- writes `logs/quest_board_policy_materialize_report.json` with selected, skipped-duplicate, skipped-slot-limit, and not-drawn diagnostics.
+
+The artifact pre-filters completed quests during policy resolution and sets `removeCompleted=false`. Existing fixed-board consumers can then read the artifact without learning about `questBoardPolicies`.
 
 ## Relationship To Quest Chains
 
@@ -153,4 +179,4 @@ The two schemas can coexist. A chain can define stage order, while a policy can 
 
 Regression coverage:
 
-- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, and resolves week/completed-quest gated candidates from save facts through the validation plugin.
+- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, resolves week/completed-quest gated candidates from save facts, materializes a fixed-board managed action artifact, and feeds that artifact back through the existing quest-board preview consumer.

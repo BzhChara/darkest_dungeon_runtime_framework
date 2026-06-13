@@ -26,6 +26,7 @@ internal sealed class LauncherOptions
     public bool PreviewQuestBoard { get; private set; }
     public bool PreviewQuestBoardPolicies { get; private set; }
     public bool ResolveQuestBoardPolicies { get; private set; }
+    public bool MaterializeQuestBoardPolicies { get; private set; }
     public bool InspectMapFile { get; private set; }
     public bool PrototypeMapFinalRoom { get; private set; }
     public bool PrototypeMapTemplate { get; private set; }
@@ -39,6 +40,8 @@ internal sealed class LauncherOptions
     public string? EventPayload { get; private set; }
     public string? EventPayloadFile { get; private set; }
     public string? SaveStateReportPath { get; private set; }
+    public int? QuestBoardPolicySlots { get; private set; }
+    public int? QuestBoardPolicySeed { get; private set; }
     public string? PreviewOutputPath { get; private set; }
     public string? MapFilePath { get; private set; }
     public string? MapReportOutputPath { get; private set; }
@@ -122,6 +125,9 @@ internal sealed class LauncherOptions
                 case "--resolve-quest-board-policies":
                     options.ResolveQuestBoardPolicies = true;
                     break;
+                case "--materialize-quest-board-policies":
+                    options.MaterializeQuestBoardPolicies = true;
+                    break;
                 case "--inspect-map-file":
                     options.InspectMapFile = true;
                     options.MapFilePath = RequireValue(args, ref i, "--inspect-map-file");
@@ -164,6 +170,12 @@ internal sealed class LauncherOptions
                 case "--save-state-report":
                     options.SaveStateReportPath = RequireValue(args, ref i, "--save-state-report");
                     break;
+                case "--quest-board-policy-slots":
+                    options.QuestBoardPolicySlots = RequirePositiveInt(args, ref i, "--quest-board-policy-slots");
+                    break;
+                case "--quest-board-policy-seed":
+                    options.QuestBoardPolicySeed = RequireInt(args, ref i, "--quest-board-policy-seed");
+                    break;
                 case "--preview-output":
                     options.PreviewOutputPath = RequireValue(args, ref i, "--preview-output");
                     break;
@@ -202,6 +214,17 @@ internal sealed class LauncherOptions
         if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0)
         {
             throw new ArgumentException($"{name} must be a positive integer.");
+        }
+
+        return parsed;
+    }
+
+    private static int RequireInt(string[] args, ref int index, string name)
+    {
+        var value = RequireValue(args, ref index, name);
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        {
+            throw new ArgumentException($"{name} must be an integer.");
         }
 
         return parsed;
