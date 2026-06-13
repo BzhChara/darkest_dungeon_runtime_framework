@@ -31,6 +31,12 @@
     "positive": "full_random",
     "negative": "one_random"
   },
+  "heroNames": {
+    "source": "content.hero_names.enabled",
+    "language": "schinese",
+    "seed": "validation.fixed_resource_boss_gauntlet",
+    "renamePolicy": "generated_placeholders"
+  },
   "trinketCopies": 2,
   "trinketSaleDisabled": true,
   "stageCoachRecruits": "suppressed",

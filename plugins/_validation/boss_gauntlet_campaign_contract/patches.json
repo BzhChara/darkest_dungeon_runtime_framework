@@ -307,7 +307,11 @@
             "copiesPerClass": "state.bossGauntlet.heroCopiesPerClass",
             "level": "state.bossGauntlet.heroLevel",
             "positiveQuirks": "state.bossGauntlet.heroQuirks.positive",
-            "negativeQuirks": "state.bossGauntlet.heroQuirks.negative"
+            "negativeQuirks": "state.bossGauntlet.heroQuirks.negative",
+            "nameSource": "state.bossGauntlet.heroNames.source",
+            "nameLanguage": "state.bossGauntlet.heroNames.language",
+            "nameSeed": "state.bossGauntlet.heroNames.seed",
+            "nameRenamePolicy": "state.bossGauntlet.heroNames.renamePolicy"
           }
         },
         {

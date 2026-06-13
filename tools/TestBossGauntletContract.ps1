@@ -148,6 +148,10 @@ Assert-True ([int]$rosterArtifact.plan.arguments.copiesPerClass -eq 2) "Roster n
 Assert-True ($rosterArtifact.plan.arguments.level -eq "max") "Roster normalization should request max-level heroes."
 Assert-True ($rosterArtifact.plan.arguments.positiveQuirks -eq "full_random") "Roster normalization should request full random positive quirks."
 Assert-True ($rosterArtifact.plan.arguments.negativeQuirks -eq "one_random") "Roster normalization should request one random negative quirk."
+Assert-True ($rosterArtifact.plan.arguments.nameSource -eq "content.hero_names.enabled") "Roster normalization should use the generic content hero name source."
+Assert-True ($rosterArtifact.plan.arguments.nameLanguage -eq "schinese") "Roster normalization should request the configured hero name language."
+Assert-True ($rosterArtifact.plan.arguments.nameSeed -eq "validation.fixed_resource_boss_gauntlet") "Roster normalization should request a stable name seed."
+Assert-True ($rosterArtifact.plan.arguments.nameRenamePolicy -eq "generated_placeholders") "Roster normalization should only rename generated placeholder hero names."
 
 $upgradeAction = Get-ActionReport -Report $initializationReport -Type "upgrade.ensurePurchases"
 $upgradeArtifact = Read-ManagedActionArtifact -Action $upgradeAction -ExpectedType "upgrade.ensurePurchases"

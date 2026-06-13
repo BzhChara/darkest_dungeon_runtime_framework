@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
 
 namespace DDRuntimeLoader;
 
@@ -21,6 +22,11 @@ internal static partial class ManagedActionSaveApplier
         var level = ReadString(artifact, "plan.arguments.level");
         var positiveQuirks = ReadString(artifact, "plan.arguments.positiveQuirks");
         var negativeQuirks = ReadString(artifact, "plan.arguments.negativeQuirks");
+        var nameSource = ReadOptionalStringPath(artifact, "plan.arguments.nameSource");
+        var nameLanguage = ReadOptionalStringPath(artifact, "plan.arguments.nameLanguage");
+        var nameSeed = ReadOptionalStringPath(artifact, "plan.arguments.nameSeed");
+        var nameRenamePolicy = ReadOptionalStringPath(artifact, "plan.arguments.nameRenamePolicy");
+        ValidateHeroNameRenamePolicy(nameRenamePolicy);
         var classDefinitions = ResolveHeroClassDefinitions(context, classSource);
         if (classDefinitions.Count == 0)
         {
@@ -28,10 +34,45 @@ internal static partial class ManagedActionSaveApplier
         }
 
         var quirkCatalog = LoadEnabledQuirkDefinitions(context.GameWorkingDirectory);
+        var namePool = ResolveHeroNamePool(context, nameSource, nameLanguage);
+        if (!string.IsNullOrWhiteSpace(nameRenamePolicy) &&
+            !nameRenamePolicy.Equals("none", StringComparison.OrdinalIgnoreCase) &&
+            namePool is null)
+        {
+            throw new InvalidDataException($"Hero name rename policy '{nameRenamePolicy}' requires a configured hero name source.");
+        }
+
         var file = context.LoadDecodedJsonFile("persist.roster.json");
         var baseRoot = EnsureObject(file.Root, "base_root");
         var heroes = EnsureObject(file.Root, "base_root.heroes");
         var existingHeroes = EnumerateRosterHeroes(heroes).ToArray();
+        var renameHeroIds = existingHeroes
+            .Where(hero => ShouldRenameHeroName(hero.ActorName, nameRenamePolicy))
+            .Select(hero => hero.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var usedHeroNames = BuildUsedHeroNameSet(existingHeroes, renameHeroIds);
+        var copyIndexesByHeroId = BuildHeroCopyIndexesByClass(existingHeroes);
+        var renamed = 0;
+        foreach (var hero in existingHeroes.Where(hero => renameHeroIds.Contains(hero.Id)))
+        {
+            var copyIndex = copyIndexesByHeroId.TryGetValue(hero.Id, out var value) ? value : 0;
+            var heroId = int.TryParse(hero.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedHeroId)
+                ? parsedHeroId
+                : 0;
+            var heroName = SelectGeneratedHeroName(namePool, usedHeroNames, nameSeed, hero.HeroClass, copyIndex, heroId);
+            if (heroName.Equals(hero.ActorName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (context.WriteChanges)
+            {
+                EnsureObject(hero.HeroRoot, "actor")["name"] = heroName;
+            }
+
+            renamed++;
+        }
+
         var maxHeroId = Math.Max(GetMaxNumericKey(heroes), ReadOptionalInt(baseRoot, "nextGuid") is { } nextGuid ? nextGuid - 1 : -1);
         var nextHeroId = maxHeroId + 1;
         var added = 0;
@@ -52,6 +93,7 @@ internal static partial class ManagedActionSaveApplier
             for (var copyIndex = existingForClass.Length; copyIndex < copiesPerClass; copyIndex++)
             {
                 var heroId = nextHeroId++;
+                var heroName = SelectGeneratedHeroName(namePool, usedHeroNames, nameSeed, classDefinition.Id, copyIndex, heroId);
                 var heroEntry = BuildCleanGeneratedRosterHeroEntry(
                     classDefinition,
                     heroId,
@@ -59,6 +101,7 @@ internal static partial class ManagedActionSaveApplier
                     level,
                     positiveQuirks,
                     negativeQuirks,
+                    heroName,
                     quirkCatalog);
                 if (context.WriteChanges)
                 {
@@ -71,9 +114,9 @@ internal static partial class ManagedActionSaveApplier
             }
         }
 
-        if (added > 0)
+        if (added + renamed > 0)
         {
-            file.MarkChanged(added);
+            file.MarkChanged(added + renamed);
         }
 
         AddSuccessfulAction(
@@ -83,7 +126,8 @@ internal static partial class ManagedActionSaveApplier
             file.Path,
             [
                 $"ensure {classDefinitions.Count} hero classes from {classSource} copiesPerClass={copiesPerClass}",
-                $"added={added} unchangedClasses={unchanged} level={level} positiveQuirks={positiveQuirks} negativeQuirks={negativeQuirks}",
+                $"added={added} renamed={renamed} unchangedClasses={unchanged} level={level} positiveQuirks={positiveQuirks} negativeQuirks={negativeQuirks}",
+                $"heroNames={FormatHeroNameSource(nameSource, nameLanguage, namePool)} renamePolicy={FormatHeroNameRenamePolicy(nameRenamePolicy)}",
                 $"addedClasses={FormatAddedClassSummary(additionsByClass)}"
             ]);
     }
@@ -267,6 +311,7 @@ internal static partial class ManagedActionSaveApplier
         string level,
         string positiveQuirkPolicy,
         string negativeQuirkPolicy,
+        string heroName,
         IReadOnlyList<QuirkDefinition> quirkCatalog)
     {
         var entry = new JsonObject();
@@ -302,7 +347,7 @@ internal static partial class ManagedActionSaveApplier
         heroRoot["item_tracking"] = new JsonObject { ["supply"] = new JsonObject() };
 
         var actor = EnsureObject(heroRoot, "actor");
-        actor["name"] = BuildGeneratedHeroName(classDefinition.Id, heroId);
+        actor["name"] = heroName;
         actor["current_hp"] = JsonFloat(classDefinition.MaxHp ?? ReadOptionalDouble(actor, "current_hp") ?? 1.0);
         actor["stunned"] = 0;
         actor["combat_ready"] = false;
@@ -356,11 +401,172 @@ internal static partial class ManagedActionSaveApplier
                 }
 
                 var heroClass = ReadOptionalString(heroRoot, "heroClass");
-                return string.IsNullOrWhiteSpace(heroClass) ? null : new RosterHeroEntry(pair.Key, entry, heroRoot, heroClass);
+                if (string.IsNullOrWhiteSpace(heroClass))
+                {
+                    return null;
+                }
+
+                var actorName = TryGetObject(heroRoot, "actor") is { } actor
+                    ? ReadOptionalString(actor, "name")
+                    : string.Empty;
+                return new RosterHeroEntry(pair.Key, entry, heroRoot, heroClass, actorName);
             })
             .Where(hero => hero is not null)
             .Select(hero => hero!)
             .ToArray();
+    }
+
+    private static IReadOnlyList<string>? ResolveHeroNamePool(ApplyContext context, string source, string language)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return null;
+        }
+
+        var resolvedLanguage = string.IsNullOrWhiteSpace(language) ? "english" : language;
+        return source switch
+        {
+            "content.hero_names.enabled" => LoadEnabledHeroNames(context.GameWorkingDirectory, resolvedLanguage),
+            _ => throw new InvalidDataException($"Unsupported hero name source: {source}")
+        };
+    }
+
+    private static IReadOnlyList<string> LoadEnabledHeroNames(string gameWorkingDirectory, string language)
+    {
+        var path = Path.Combine(gameWorkingDirectory, "localization", "names.string_table.xml");
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException($"Hero name string table was not found: {path}", path);
+        }
+
+        var document = XDocument.Load(path);
+        var languageElement = document.Root?
+            .Elements("language")
+            .FirstOrDefault(element => ((string?)element.Attribute("id"))?.Equals(language, StringComparison.OrdinalIgnoreCase) == true);
+        if (languageElement is null)
+        {
+            throw new InvalidDataException($"Hero name string table does not contain language '{language}': {path}");
+        }
+
+        var names = languageElement
+            .Elements("entry")
+            .Select(element => new
+            {
+                Id = (string?)element.Attribute("id") ?? string.Empty,
+                Value = element.Value.Trim()
+            })
+            .Where(entry => entry.Id.StartsWith("hero_name_", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(entry.Value))
+            .OrderBy(entry => TryReadHeroNameIndex(entry.Id) ?? int.MaxValue)
+            .ThenBy(entry => entry.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(entry => entry.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (names.Length == 0)
+        {
+            throw new InvalidDataException($"Hero name string table produced no names for language '{language}': {path}");
+        }
+
+        return names;
+    }
+
+    private static int? TryReadHeroNameIndex(string id)
+    {
+        const string Prefix = "hero_name_";
+        return id.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(id[Prefix.Length..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : null;
+    }
+
+    private static HashSet<string> BuildUsedHeroNameSet(IEnumerable<RosterHeroEntry> heroes, IReadOnlySet<string> excludedHeroIds)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var hero in heroes)
+        {
+            if (!excludedHeroIds.Contains(hero.Id) && !string.IsNullOrWhiteSpace(hero.ActorName))
+            {
+                names.Add(hero.ActorName);
+            }
+        }
+
+        return names;
+    }
+
+    private static IReadOnlyDictionary<string, int> BuildHeroCopyIndexesByClass(IReadOnlyList<RosterHeroEntry> heroes)
+    {
+        var nextCopyIndexesByClass = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var copyIndexesByHeroId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var hero in heroes.OrderBy(hero => int.TryParse(hero.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : int.MaxValue))
+        {
+            var copyIndex = nextCopyIndexesByClass.TryGetValue(hero.HeroClass, out var nextCopyIndex) ? nextCopyIndex : 0;
+            copyIndexesByHeroId[hero.Id] = copyIndex;
+            nextCopyIndexesByClass[hero.HeroClass] = copyIndex + 1;
+        }
+
+        return copyIndexesByHeroId;
+    }
+
+    private static void ValidateHeroNameRenamePolicy(string policy)
+    {
+        if (string.IsNullOrWhiteSpace(policy) ||
+            policy.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            policy.Equals("generated_placeholders", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        throw new InvalidDataException($"Unsupported hero name rename policy: {policy}");
+    }
+
+    private static bool ShouldRenameHeroName(string heroName, string policy)
+    {
+        return !string.IsNullOrWhiteSpace(policy) &&
+            policy.Equals("generated_placeholders", StringComparison.OrdinalIgnoreCase) &&
+            heroName.StartsWith("DDRF ", StringComparison.Ordinal);
+    }
+
+    private static string SelectGeneratedHeroName(
+        IReadOnlyList<string>? namePool,
+        HashSet<string> usedHeroNames,
+        string seed,
+        string classId,
+        int copyIndex,
+        int heroId)
+    {
+        if (namePool is null)
+        {
+            var generated = BuildGeneratedHeroName(classId, heroId);
+            usedHeroNames.Add(generated);
+            return generated;
+        }
+
+        var resolvedSeed = string.IsNullOrWhiteSpace(seed) ? "ddrt.roster.ensureClassInstances" : seed;
+        var start = StableIndex($"{resolvedSeed}:{classId}:{copyIndex.ToString(CultureInfo.InvariantCulture)}:{heroId.ToString(CultureInfo.InvariantCulture)}", namePool.Count);
+        for (var offset = 0; offset < namePool.Count; offset++)
+        {
+            var candidate = namePool[(start + offset) % namePool.Count];
+            if (usedHeroNames.Add(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidDataException($"Hero name pool is exhausted after {namePool.Count.ToString(CultureInfo.InvariantCulture)} unique names.");
+    }
+
+    private static int StableIndex(string value, int modulo)
+    {
+        if (modulo <= 0)
+        {
+            throw new InvalidDataException("Stable index modulo must be greater than zero.");
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        var raw = ((uint)hash[0] << 24) |
+            ((uint)hash[1] << 16) |
+            ((uint)hash[2] << 8) |
+            hash[3];
+        return (int)(raw % modulo);
     }
 
     private static IReadOnlyList<RosterHeroClassDefinition> LoadEnabledHeroClassDefinitions(string gameWorkingDirectory)
@@ -852,6 +1058,26 @@ internal static partial class ManagedActionSaveApplier
         return $"DDRF {displayClass} {heroId.ToString(CultureInfo.InvariantCulture)}";
     }
 
+    private static string ReadOptionalStringPath(JsonObject root, string path)
+    {
+        JsonNode? current = root;
+        foreach (var part in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            current = current is JsonObject obj ? obj[part] : null;
+            if (current is null)
+            {
+                return string.Empty;
+            }
+        }
+
+        if (current is JsonValue value && value.TryGetValue<string>(out var result))
+        {
+            return result;
+        }
+
+        throw new InvalidDataException($"{path} must be a string when present.");
+    }
+
     private static int GetMaxNumericKey(JsonObject obj)
     {
         var max = -1;
@@ -1032,7 +1258,24 @@ internal static partial class ManagedActionSaveApplier
                     .Select(pair => $"{pair.Key}:{pair.Value.ToString(CultureInfo.InvariantCulture)}"));
     }
 
-    private sealed record RosterHeroEntry(string Id, JsonObject Entry, JsonObject HeroRoot, string HeroClass);
+    private static string FormatHeroNameSource(string source, string language, IReadOnlyList<string>? namePool)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return "generated";
+        }
+
+        var resolvedLanguage = string.IsNullOrWhiteSpace(language) ? "english" : language;
+        var count = namePool?.Count.ToString(CultureInfo.InvariantCulture) ?? "0";
+        return $"{source} language={resolvedLanguage} count={count}";
+    }
+
+    private static string FormatHeroNameRenamePolicy(string policy)
+    {
+        return string.IsNullOrWhiteSpace(policy) ? "none" : policy;
+    }
+
+    private sealed record RosterHeroEntry(string Id, JsonObject Entry, JsonObject HeroRoot, string HeroClass, string ActorName);
 
     private sealed record RosterHeroClassDefinition(
         string Id,

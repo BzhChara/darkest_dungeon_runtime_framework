@@ -221,7 +221,7 @@ function Write-DecodedRosterFixture {
               "roster.building_name": "",
               "roster.timestamp": 0,
               "actor": {
-                "name": "Existing Highwayman",
+                "name": "DDRF Highwayman 2",
                 "current_hp": 23.0,
                 "stunned": 0,
                 "combat_ready": false,
@@ -567,6 +567,18 @@ function Get-FirstHeroRootByClass {
     return @((Get-HeroRoots -Roster $Roster) | Where-Object { $_.heroClass -eq $ClassId }) | Select-Object -First 1
 }
 
+function Get-HeroNamePool {
+    param([string]$Language)
+
+    $config = Get-Content -Raw -LiteralPath (Resolve-ProjectPath $ConfigPath) | ConvertFrom-Json
+    $path = Join-Path ([string]$config.gameWorkingDirectory) "localization\names.string_table.xml"
+    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Hero name string table was not found: $path"
+    [xml]$document = Get-Content -Raw -LiteralPath $path
+    $languageNode = @($document.root.language | Where-Object { $_.id -eq $Language }) | Select-Object -First 1
+    Assert-True ($null -ne $languageNode) "Hero name string table language was not found: $Language"
+    return @($languageNode.entry | Where-Object { $_.id -like "hero_name_*" } | ForEach-Object { [string]$_.InnerText })
+}
+
 function Get-ObjectPropertyCount {
     param([object]$Value)
 
@@ -689,6 +701,8 @@ Assert-True ($startingGold -ne 20000) "Fixture should start with a non-normalize
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 0) "Fixture should start without focus_ring so the trinket write assertion is meaningful."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Fixture should start with one crusader."
+$initialHighwayman = Get-FirstHeroRootByClass -Roster $roster -ClassId "highwayman"
+Assert-True ([string]$initialHighwayman.actor.name -eq "DDRF Highwayman 2") "Fixture should start with one old generated placeholder hero name."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Fixture should start without arbalest so roster write assertions are meaningful."
 $upgrades = Read-DecodedUpgrades
 Assert-True (-not (Test-UpgradePurchase -Upgrades $upgrades -TreeName "blacksmith.weapon" -RequirementCode "d" -InstanceNumber 0)) "Fixture should start without max blacksmith weapon upgrade."
@@ -735,6 +749,8 @@ Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGo
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 0) "Dry-run must not add trinkets to decoded save JSON."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Dry-run must not add roster heroes."
+$dryRunHighwayman = Get-FirstHeroRootByClass -Roster $roster -ClassId "highwayman"
+Assert-True ([string]$dryRunHighwayman.actor.name -eq "DDRF Highwayman 2") "Dry-run must not rename old generated placeholder hero names."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 0) "Dry-run must not add missing roster classes."
 $crusader = Get-FirstHeroRootByClass -Roster $roster -ClassId "crusader"
 Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_skills) -eq 0) "Dry-run must not fill existing hero combat skills."
@@ -789,6 +805,7 @@ Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "highwayman") -eq 2) "
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "arbalest") -eq 2) "Write pass should ensure two arbalests."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "vestal") -eq 2) "Write pass should ensure two vestals."
 $crusader = Get-FirstHeroRootByClass -Roster $roster -ClassId "crusader"
+$highwayman = Get-FirstHeroRootByClass -Roster $roster -ClassId "highwayman"
 $arbalest = Get-FirstHeroRootByClass -Roster $roster -ClassId "arbalest"
 Assert-True ([int]$crusader.resolveXp -eq 46) "Progression action should set existing heroes to max resolve XP."
 Assert-True ([int]$crusader.weapon_rank -eq 4) "Progression action should set existing heroes to max weapon rank."
@@ -798,6 +815,12 @@ Assert-True ([int]$arbalest.resolveXp -eq 46) "Generated max-level heroes should
 Assert-True ([int]$arbalest.weapon_rank -eq 4) "Generated max-level heroes should use max weapon rank."
 Assert-True ([int]$arbalest.armour_rank -eq 4) "Generated max-level heroes should use max armour rank."
 Assert-True ($null -eq $arbalest.template_only_marker) "Generated heroes must be built from a clean blueprint, not copied from an existing roster template."
+Assert-True (-not ([string]$arbalest.actor.name -like "DDRF *")) "Generated heroes should use a configured content name pool instead of DDRF placeholder names."
+$heroNamePool = Get-HeroNamePool -Language "schinese"
+Assert-True ($heroNamePool -contains [string]$arbalest.actor.name) "Generated hero name should come from the configured Schinese hero name pool."
+Assert-True ([string]$crusader.actor.name -eq "Existing Crusader") "Roster name normalization should not rename non-placeholder existing hero names."
+Assert-True (-not ([string]$highwayman.actor.name -like "DDRF *")) "Roster name normalization should rename old DDRF placeholder hero names."
+Assert-True ($heroNamePool -contains [string]$highwayman.actor.name) "Renamed old placeholder hero name should come from the configured Schinese hero name pool."
 Assert-True (@($arbalest.quirks.PSObject.Properties).Count -eq 6) "Generated heroes should have five positive quirks and one negative quirk."
 Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_skills) -gt 4) "Skill unlock action should fill all known crusader combat skills."
 Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_camping_skills) -gt 4) "Skill unlock action should fill all known crusader camping skills."
