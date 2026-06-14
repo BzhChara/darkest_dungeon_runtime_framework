@@ -9,7 +9,7 @@
     "portrait": 0,
     "deed": 0,
     "crest": 0,
-    "shard": 0
+    "shard": 36
   },
   "victoryGold": 10000,
   "heroCopiesPerClass": 2,
@@ -38,6 +38,10 @@
     "renamePolicy": "generated_placeholders"
   },
   "trinketCopies": 2,
+  "initialTrinketExcludeRarities": [
+    "darkest_dungeon",
+    "trophy"
+  ],
   "trinketSaleDisabled": true,
   "stageCoachRecruits": "suppressed",
   "townBuildings": "all_unlocked_and_maxed",

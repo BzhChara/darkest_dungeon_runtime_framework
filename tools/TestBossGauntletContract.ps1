@@ -168,7 +168,14 @@ Assert-True ([int]$walletArtifact.plan.arguments.amounts.bust -eq 0) "Wallet nor
 Assert-True ([int]$walletArtifact.plan.arguments.amounts.portrait -eq 0) "Wallet normalization should include an explicit portrait heirloom amount."
 Assert-True ([int]$walletArtifact.plan.arguments.amounts.deed -eq 0) "Wallet normalization should include an explicit deed heirloom amount."
 Assert-True ([int]$walletArtifact.plan.arguments.amounts.crest -eq 0) "Wallet normalization should include an explicit crest heirloom amount."
-Assert-True ([int]$walletArtifact.plan.arguments.amounts.shard -eq 0) "Wallet normalization should include an explicit shard amount."
+Assert-True ([int]$walletArtifact.plan.arguments.amounts.shard -eq 36) "Wallet normalization should include the configured shard amount."
+
+$inventoryAction = Get-ActionReport -Report $initializationReport -Type "estate.ensureInventoryCounts"
+$inventoryArtifact = Read-ManagedActionArtifact -Action $inventoryAction -ExpectedType "estate.ensureInventoryCounts"
+Assert-True ($inventoryArtifact.plan.arguments.source -eq "content.trinkets.enabled") "Inventory normalization should use the generic content trinket source."
+Assert-True ([int]$inventoryArtifact.plan.arguments.count -eq 2) "Inventory normalization should request two trinket copies."
+Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "darkest_dungeon") "Inventory normalization should exclude Darkest Dungeon reward trinkets."
+Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "trophy") "Inventory normalization should exclude boss trophy trinkets."
 
 $campaignProgressAction = Get-ActionReport -Report $initializationReport -Type "campaign.resetPlotProgress"
 $campaignProgressArtifact = Read-ManagedActionArtifact -Action $campaignProgressAction -ExpectedType "campaign.resetPlotProgress"

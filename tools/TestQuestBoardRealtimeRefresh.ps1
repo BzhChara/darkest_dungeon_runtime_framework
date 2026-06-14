@@ -16,6 +16,7 @@ $remoteRoot = Join-Path $stateRoot "remote"
 $profileId = "profile_3"
 $profileRoot = Join-Path $remoteRoot $profileId
 $sourceQuestPath = Join-Path $profileRoot "persist.quest.json"
+$sourceTownPath = Join-Path $profileRoot "persist.town.json"
 $configPath = Join-Path $stateRoot "config.json"
 $stdoutPath = Join-Path $testRoot "watch_stdout.txt"
 $stderrPath = Join-Path $testRoot "watch_stderr.txt"
@@ -209,8 +210,8 @@ try {
     }
     Assert-True $ready "Watch-save diagnostic did not report readiness before timeout."
 
-    Write-OriginalQuestFixture
-    (Get-Item -LiteralPath $sourceQuestPath).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(5)
+    Assert-True (Test-Path -LiteralPath $sourceTownPath -PathType Leaf) "Sample profile should contain persist.town.json for non-quest save refresh trigger."
+    (Get-Item -LiteralPath $sourceTownPath).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(5)
 
     if (-not $process.WaitForExit(20000)) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
@@ -242,7 +243,7 @@ try {
     Assert-True ([int]$eventCounts.'save.quest_board_auto_refresh_requested' -ge 1) "Realtime watcher should request quest board auto refresh."
     Assert-True ([int]$eventCounts.'save.quest_board_auto_refresh_completed' -ge 1) "Realtime watcher should complete quest board auto refresh."
 
-    Write-Host "PASS: realtime quest-board save change auto-refreshed the fixed boss board."
+    Write-Host "PASS: realtime campaign save change auto-refreshed the fixed boss board."
 }
 finally {
     if (Test-Path -LiteralPath $configPath) {

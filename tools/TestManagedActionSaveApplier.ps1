@@ -625,6 +625,28 @@ function Get-TrinketCopies {
     return $matches.Count
 }
 
+function Get-QuirkHolderCount {
+    param(
+        [object]$Roster,
+        [string]$QuirkId
+    )
+
+    $count = 0
+    foreach ($entry in $Roster.base_root.heroes.PSObject.Properties) {
+        $heroRoot = $entry.Value.hero_file_data.raw_data.base_root
+        if ($null -eq $heroRoot -or $null -eq $heroRoot.quirks) {
+            continue
+        }
+
+        $hasQuirk = @($heroRoot.quirks.PSObject.Properties | Where-Object { $_.Name -eq $QuirkId }).Count -gt 0
+        if ($hasQuirk) {
+            $count++
+        }
+    }
+
+    return $count
+}
+
 function Get-HeroRoots {
     param([object]$Roster)
 
@@ -912,9 +934,11 @@ Assert-True ((Get-WalletAmount -Estate $estate -Currency "bust") -eq 0) "Write p
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "portrait") -eq 0) "Write pass should set starting portraits to 0."
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "deed") -eq 0) "Write pass should set starting deeds to 0."
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "crest") -eq 0) "Write pass should set starting crests to 0."
-Assert-True ((Get-WalletAmount -Estate $estate -Currency "shard") -eq 0) "Write pass should set starting shards to 0."
+Assert-True ((Get-WalletAmount -Estate $estate -Currency "shard") -eq 36) "Write pass should set starting shards to 36."
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 2) "Write pass should add two independent copies of focus_ring."
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "berserk_mask") -eq 2) "Write pass should add two independent copies of berserk_mask."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "dd_trinket") -eq 0) "Write pass should not add Darkest Dungeon reward trinkets to the starting estate."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "boss_necromancer") -eq 0) "Write pass should not add boss trophy trinkets to the starting estate."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 2) "Write pass should ensure two crusaders."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "highwayman") -eq 2) "Write pass should ensure two highwaymen."
@@ -939,6 +963,7 @@ Assert-True ([string]$crusader.actor.name -eq "Existing Crusader") "Roster name 
 Assert-True (-not ([string]$highwayman.actor.name -like "DDRF *")) "Roster name normalization should rename old DDRF placeholder hero names."
 Assert-True ($heroNamePool -contains [string]$highwayman.actor.name) "Renamed old placeholder hero name should come from the configured Schinese hero name pool."
 Assert-True (@($arbalest.quirks.PSObject.Properties).Count -eq 6) "Generated heroes should have five positive quirks and one negative quirk."
+Assert-True ((Get-QuirkHolderCount -Roster $roster -QuirkId "twilight_dreamer") -le 1) "Generated roster should not assign singleton quirks to multiple heroes."
 Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_skills) -gt 4) "Skill unlock action should fill all known crusader combat skills."
 Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_camping_skills) -gt 4) "Skill unlock action should fill all known crusader camping skills."
 Assert-True ((Get-ObjectPropertyCount -Value $arbalest.skills.selected_combat_skills) -gt 4) "Generated heroes should receive all known combat skills from content definitions."

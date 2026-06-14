@@ -196,12 +196,13 @@ internal static partial class ManagedActionSaveApplier
 
         var source = ReadString(artifact, "plan.arguments.source");
         var count = ReadInt(ReadNode(artifact, "plan.arguments.count"), "plan.arguments.count");
+        var excludeRarities = ReadOptionalStringArrayPath(artifact, "plan.arguments.excludeRarities");
         if (count < 0)
         {
             throw new InvalidDataException("plan.arguments.count must be zero or greater.");
         }
 
-        var itemIds = ResolveInventorySourceIds(context, source);
+        var itemIds = ResolveInventorySourceIds(context, source, excludeRarities);
         if (itemIds.Count == 0)
         {
             throw new InvalidDataException($"Inventory source produced no item ids: {source}");
@@ -221,16 +222,19 @@ internal static partial class ManagedActionSaveApplier
             artifact,
             file.Path,
             [
-                $"ensure {result.SourceCount} {itemKind} ids from {source} copies={count}",
+                $"ensure {result.SourceCount} {itemKind} ids from {source} copies={count}{FormatInventorySourceFilters(excludeRarities)}",
                 $"added={result.AddedCount} updated={result.UpdatedCount} unchanged={result.UnchangedCount}"
             ]);
     }
 
-    private static IReadOnlyList<string> ResolveInventorySourceIds(ApplyContext context, string source)
+    private static IReadOnlyList<string> ResolveInventorySourceIds(
+        ApplyContext context,
+        string source,
+        IReadOnlyList<string> excludeRarities)
     {
         return source switch
         {
-            "content.trinkets.enabled" => LoadEnabledContentTrinketIds(context.GameWorkingDirectory),
+            "content.trinkets.enabled" => LoadEnabledContentTrinketIds(context.GameWorkingDirectory, excludeRarities),
             _ => throw new InvalidDataException($"Unsupported inventory source: {source}")
         };
     }
@@ -408,9 +412,12 @@ internal static partial class ManagedActionSaveApplier
         return new InventoryEnsureResult(itemIds.Count, added, updated, unchanged);
     }
 
-    private static IReadOnlyList<string> LoadEnabledContentTrinketIds(string gameWorkingDirectory)
+    private static IReadOnlyList<string> LoadEnabledContentTrinketIds(
+        string gameWorkingDirectory,
+        IReadOnlyList<string> excludeRarities)
     {
         var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var excludedRarities = excludeRarities.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var path in EnumerateCampaignTrinketEntryFiles(gameWorkingDirectory))
         {
             using var document = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions
@@ -432,6 +439,15 @@ internal static partial class ManagedActionSaveApplier
                     id.ValueKind == JsonValueKind.String &&
                     !string.IsNullOrWhiteSpace(id.GetString()))
                 {
+                    var rarity = entry.TryGetProperty("rarity", out var rarityElement) &&
+                        rarityElement.ValueKind == JsonValueKind.String
+                        ? rarityElement.GetString()
+                        : string.Empty;
+                    if (!string.IsNullOrWhiteSpace(rarity) && excludedRarities.Contains(rarity))
+                    {
+                        continue;
+                    }
+
                     ids.Add(id.GetString()!);
                 }
             }
@@ -473,6 +489,13 @@ internal static partial class ManagedActionSaveApplier
                 yield return path;
             }
         }
+    }
+
+    private static string FormatInventorySourceFilters(IReadOnlyList<string> excludeRarities)
+    {
+        return excludeRarities.Count == 0
+            ? string.Empty
+            : $" excludeRarities={string.Join(",", excludeRarities)}";
     }
 
     private static bool SetWalletCurrencyAmount(JsonObject wallet, string currency, int amount, bool writeChanges)
@@ -646,6 +669,40 @@ internal static partial class ManagedActionSaveApplier
     {
         return ReadNode(root, path)?.GetValue<string>()
             ?? throw new InvalidDataException($"{path} must be a string.");
+    }
+
+    private static IReadOnlyList<string> ReadOptionalStringArrayPath(JsonObject root, string path)
+    {
+        JsonNode? current = root;
+        foreach (var part in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            current = current is JsonObject obj ? obj[part] : null;
+            if (current is null)
+            {
+                return [];
+            }
+        }
+
+        if (current is not JsonArray array)
+        {
+            throw new InvalidDataException($"{path} must be a string array when present.");
+        }
+
+        return array
+            .Select((item, index) =>
+            {
+                if (item is JsonValue value &&
+                    value.TryGetValue<string>(out var text) &&
+                    !string.IsNullOrWhiteSpace(text))
+                {
+                    return text;
+                }
+
+                throw new InvalidDataException($"{path}[{index}] must be a non-empty string.");
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static string ReadOptionalString(JsonObject root, string key)

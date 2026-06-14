@@ -46,6 +46,7 @@ internal static partial class ManagedActionSaveApplier
         var baseRoot = EnsureObject(file.Root, "base_root");
         var heroes = EnsureObject(file.Root, "base_root.heroes");
         var existingHeroes = EnumerateRosterHeroes(heroes).ToArray();
+        var usedSingletonQuirks = BuildUsedSingletonQuirkSet(existingHeroes, quirkCatalog);
         var renameHeroIds = existingHeroes
             .Where(hero => ShouldRenameHeroName(hero.ActorName, nameRenamePolicy))
             .Select(hero => hero.Id)
@@ -102,7 +103,8 @@ internal static partial class ManagedActionSaveApplier
                     positiveQuirks,
                     negativeQuirks,
                     heroName,
-                    quirkCatalog);
+                    quirkCatalog,
+                    usedSingletonQuirks);
                 if (context.WriteChanges)
                 {
                     heroes[heroId.ToString(CultureInfo.InvariantCulture)] = heroEntry;
@@ -128,6 +130,7 @@ internal static partial class ManagedActionSaveApplier
                 $"ensure {classDefinitions.Count} hero classes from {classSource} copiesPerClass={copiesPerClass}",
                 $"added={added} renamed={renamed} unchangedClasses={unchanged} level={level} positiveQuirks={positiveQuirks} negativeQuirks={negativeQuirks}",
                 $"heroNames={FormatHeroNameSource(nameSource, nameLanguage, namePool)} renamePolicy={FormatHeroNameRenamePolicy(nameRenamePolicy)}",
+                $"singletonQuirksUsed={usedSingletonQuirks.Count}",
                 $"addedClasses={FormatAddedClassSummary(additionsByClass)}"
             ]);
     }
@@ -312,7 +315,8 @@ internal static partial class ManagedActionSaveApplier
         string positiveQuirkPolicy,
         string negativeQuirkPolicy,
         string heroName,
-        IReadOnlyList<QuirkDefinition> quirkCatalog)
+        IReadOnlyList<QuirkDefinition> quirkCatalog,
+        HashSet<string> usedSingletonQuirks)
     {
         var entry = new JsonObject();
         var heroRoot = EnsureObject(entry, "hero_file_data.raw_data.base_root");
@@ -368,8 +372,8 @@ internal static partial class ManagedActionSaveApplier
         actor["buff_group"] = new JsonObject();
         actor["actor_dot"] = new JsonObject();
 
-        var positiveQuirkIds = SelectQuirkIds(quirkCatalog, positive: true, positiveQuirkPolicy, classDefinition.Id, copyIndex);
-        var negativeQuirkIds = SelectQuirkIds(quirkCatalog, positive: false, negativeQuirkPolicy, classDefinition.Id, copyIndex);
+        var positiveQuirkIds = SelectQuirkIds(quirkCatalog, positive: true, positiveQuirkPolicy, classDefinition.Id, copyIndex, usedSingletonQuirks);
+        var negativeQuirkIds = SelectQuirkIds(quirkCatalog, positive: false, negativeQuirkPolicy, classDefinition.Id, copyIndex, usedSingletonQuirks);
         heroRoot["quirks"] = BuildRosterQuirkObject(positiveQuirkIds.Concat(negativeQuirkIds));
         heroRoot["skills"] = new JsonObject
         {
@@ -429,6 +433,50 @@ internal static partial class ManagedActionSaveApplier
             "content.hero_names.enabled" => LoadEnabledHeroNames(context.GameWorkingDirectory, resolvedLanguage),
             _ => throw new InvalidDataException($"Unsupported hero name source: {source}")
         };
+    }
+
+    private static HashSet<string> BuildUsedSingletonQuirkSet(
+        IReadOnlyList<RosterHeroEntry> heroes,
+        IReadOnlyList<QuirkDefinition> quirkCatalog)
+    {
+        var singletonIds = quirkCatalog
+            .Where(quirk => quirk.IsSingleton)
+            .Select(quirk => quirk.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (singletonIds.Count == 0)
+        {
+            return used;
+        }
+
+        foreach (var hero in heroes)
+        {
+            foreach (var quirkId in EnumerateHeroQuirkIds(hero.HeroRoot))
+            {
+                if (singletonIds.Contains(quirkId))
+                {
+                    used.Add(quirkId);
+                }
+            }
+        }
+
+        return used;
+    }
+
+    private static IEnumerable<string> EnumerateHeroQuirkIds(JsonObject heroRoot)
+    {
+        if (heroRoot["quirks"] is not JsonObject quirks)
+        {
+            yield break;
+        }
+
+        foreach (var pair in quirks)
+        {
+            if (!string.IsNullOrWhiteSpace(pair.Key))
+            {
+                yield return pair.Key;
+            }
+        }
     }
 
     private static IReadOnlyList<string> LoadEnabledHeroNames(string gameWorkingDirectory, string language)
@@ -825,7 +873,8 @@ internal static partial class ManagedActionSaveApplier
                 definitions[id] = new QuirkDefinition(
                     id,
                     positiveElement.GetBoolean(),
-                    ReadStringArrayProperty(quirk, "incompatible_quirks"));
+                    ReadStringArrayProperty(quirk, "incompatible_quirks"),
+                    ReadStringArrayProperty(quirk, "tags"));
             }
         }
 
@@ -873,7 +922,8 @@ internal static partial class ManagedActionSaveApplier
         bool positive,
         string policy,
         string classId,
-        int copyIndex)
+        int copyIndex,
+        HashSet<string> usedSingletonQuirks)
     {
         var count = policy switch
         {
@@ -893,12 +943,22 @@ internal static partial class ManagedActionSaveApplier
                      .OrderBy(quirk => StableOrderKey($"{classId}:{copyIndex}:{positive}:{policy}:{quirk.Id}"), StringComparer.Ordinal)
                      .ThenBy(quirk => quirk.Id, StringComparer.OrdinalIgnoreCase))
         {
+            if (quirk.IsSingleton && usedSingletonQuirks.Contains(quirk.Id))
+            {
+                continue;
+            }
+
             if (selected.Any(existing => QuirksConflict(existing, quirk)))
             {
                 continue;
             }
 
             selected.Add(quirk);
+            if (quirk.IsSingleton)
+            {
+                usedSingletonQuirks.Add(quirk.Id);
+            }
+
             if (selected.Count == count)
             {
                 break;
@@ -1289,5 +1349,9 @@ internal static partial class ManagedActionSaveApplier
     private sealed record QuirkDefinition(
         string Id,
         bool IsPositive,
-        IReadOnlyList<string> IncompatibleQuirks);
+        IReadOnlyList<string> IncompatibleQuirks,
+        IReadOnlyList<string> Tags)
+    {
+        public bool IsSingleton => Tags.Contains("singleton", StringComparer.OrdinalIgnoreCase);
+    }
 }

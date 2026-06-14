@@ -370,7 +370,8 @@
             "target": "profile.estate.inventory",
             "itemKind": "trinket",
             "source": "content.trinkets.enabled",
-            "count": "state.bossGauntlet.trinketCopies"
+            "count": "state.bossGauntlet.trinketCopies",
+            "excludeRarities": "state.bossGauntlet.initialTrinketExcludeRarities"
           }
         },
         {

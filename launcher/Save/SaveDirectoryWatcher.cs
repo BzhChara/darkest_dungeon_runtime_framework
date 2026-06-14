@@ -544,7 +544,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
 
     private void TryRefreshQuestBoardAfterRealtimeBridge(PendingBridgeProfile profile, SaveEventBridgeReport bridgeReport)
     {
-        if (!_config.QuestBoardAutoRefreshEnabled || !profile.ContainsLivePersistQuest)
+        if (!_config.QuestBoardAutoRefreshEnabled)
         {
             return;
         }
@@ -563,7 +563,9 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             CountEvent("save.quest_board_auto_refresh_requested");
             _log.Info(
                 $"event name=save.quest_board_auto_refresh_requested profile={profile.Profile} " +
-                $"root={Quote(profile.Root)} reason={Quote("live persist.quest.json changed")}");
+                $"root={Quote(profile.Root)} reason={Quote("stable save batch bridged")} " +
+                $"changes={profile.ChangeCount} lastPath={Quote(profile.LastRelativePath)} " +
+                $"containsPersistQuest={profile.ContainsLivePersistQuest}");
 
             var preview = QuestBoardPreviewReporter.Write(_config, _log, profile.Profile);
             var runtimeOverlay = QuestBoardRuntimeOverlayCompiler.Compile(_config, _log, preview);
