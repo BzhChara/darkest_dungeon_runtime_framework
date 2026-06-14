@@ -1,18 +1,26 @@
 # Plugins
 
-这里放运行时插件补丁清单。
+Runtime plugin patch manifests live here.
 
-当前已经支持的最小格式：
+Minimum supported format:
 
 ```text
 plugins/<plugin-id>/patches.json
 ```
 
-`patches.json` 目前支持插件元数据、可执行的 `virtualFileRules`、固定 `.dm` 地图模板 `mapTemplates`、高层地图布局 `mapLayoutTemplates`、关卡/章节顺序 `questChains`、任务板调度声明 `questBoardPolicies`、安全 `eventRules`、从存档 facts 推导事件的 `factEventRules`，以及独立 sidecar `stateSchema`。虚拟文件规则内可以写底层 `replacements`，也可以写启动前编译的结构化 `operations`。`mapTemplates` 会在启动前生成项目内 `.dm` artifact，再自动变成 `sourcePath` 虚拟文件规则。`mapLayoutTemplates` 会先校验高层房间/走廊图，再编译成受限低层 `mapTemplates` spec，最后同样生成 `.dm` artifact 和 `sourcePath` 虚拟文件规则。`questChains` 会校验固定顺序 stage、解锁条件和地图模板引用，并写出 sidecar 验证报告；`questBoard.mode="replaceWithFixedSet"` 会生成确定路径的 `questBoard.replaceWithFixedSet` managed action artifact，`questBoard.mode="linearProgression"` 会展开成 `questBoardPolicies` 策略事实。`questBoardPolicies` 是候选解析和物化 primitive：校验任务板可用性条件、刷新触发和完成后处理，写出 sidecar 策略事实，可通过 `--preview-quest-board-policies` 解析启用 plot quest 内容，通过 `--resolve-quest-board-policies --save-state-report <path>` 根据周数、完成任务和 sidecar 状态解析 eligible quest ids，也可通过 `--materialize-quest-board-policies` 显式生成同形状的 `questBoard.replaceWithFixedSet` managed action artifact；配置 `questBoardPolicyAutoMaterializeEnabled=true` 后，save-event bridge 还能在读取 save facts 时自动生成最新 artifact。带 `activeProfile` 的 save report 会让 artifact 带 `profileScope`，preview/刷新只会消费 global 或匹配 profile 的任务板 artifact，避免不同存档互相覆盖。它本身仍不直接写 `persist.quest.json` 或模拟周结算。后续复杂插件不应把所有内容都堆进 `patches.json`；`patches.json` 应作为入口索引，引用 quests/maps/encounters/spawn_pools/contentRefs 等领域文件。启动器会先计算插件加载顺序，再按顺序逐步生成最终虚拟文件规则，最后通过环境变量交给 RuntimeHook.dll。
+`patches.json` currently supports plugin metadata, executable `virtualFileRules`, fixed `.dm` map templates through `mapTemplates`, high-level map layout templates through `mapLayoutTemplates`, quest/chapter ordering through `questChains`, quest-board scheduling declarations through `questBoardPolicies`, safe `eventRules`, save-fact-derived `factEventRules`, and isolated sidecar `stateSchema`.
 
-`eventRules` 可通过 `--emit-event` 执行已实现的安全动作，或为已识别的 managed 动作生成 sidecar artifact。`factEventRules` 可通过 `--infer-save-events` 把 save state report 中的 facts 转成普通框架事件，再交给 `eventRules`；payload 支持有限的通用数组投影，例如 `where` 条件过滤、`whereIn` 成员过滤、展开、字符串化和去重。契约细节见 `docs/capability_rule_contract.md`。
+Virtual file rules can contain low-level `replacements` or startup-compiled structured `operations`. `mapTemplates` generate project-local `.dm` artifacts before launch, then automatically become `sourcePath` virtual file rules. `mapLayoutTemplates` validate high-level room/corridor graphs, compile them into restricted low-level `mapTemplates` specs, and then generate the same `.dm` artifacts and `sourcePath` virtual file rules.
 
-清单字段：
+`questChains` validate fixed stage order, unlock conditions, and map template references, then write sidecar validation reports. `questBoard.mode="replaceWithFixedSet"` generates deterministic `questBoard.replaceWithFixedSet` managed action artifacts. `questBoard.mode="linearProgression"` expands stage order into `questBoardPolicies` policy facts.
+
+`questBoardPolicies` are the candidate resolution and materialization primitive. They validate quest-board availability conditions, refresh triggers, and completion handling; write sidecar policy facts; preview enabled plot quest content through `--preview-quest-board-policies`; resolve eligible quest ids from week, completed quests, and sidecar state through `--resolve-quest-board-policies --save-state-report <path>`; and explicitly generate same-shaped `questBoard.replaceWithFixedSet` managed action artifacts through `--materialize-quest-board-policies`. When `questBoardPolicyAutoMaterializeEnabled=true`, the save-event bridge can generate the latest artifact automatically while reading save facts. Save reports with `activeProfile` make artifacts carry `profileScope`, so preview/refresh consumes only global artifacts or artifacts matching the active profile. This avoids cross-profile quest-board pollution. This layer still does not directly write `persist.quest.json` or simulate week settlement.
+
+Complex plugins should not keep adding all content to `patches.json`. Treat `patches.json` as an entry index that points to domain files such as quests, maps, encounters, spawn pools, and `contentRefs`. The launcher computes plugin load order first, then builds final virtual file rules in order, then hands them to RuntimeHook.dll through environment variables.
+
+`eventRules` can execute implemented safe actions through `--emit-event`, or materialize recognized managed actions into sidecar artifacts. `factEventRules` can turn facts from a save state report into normal framework events through `--infer-save-events`, then pass them to `eventRules`. Payload projection supports a limited generic array toolkit: `where`, `whereIn`, expansion, stringification, and distinct values. Contract details live in `docs/capability_rule_contract.md`.
+
+Manifest fields:
 
 ```json
 {
@@ -139,31 +147,31 @@ plugins/<plugin-id>/patches.json
 }
 ```
 
-加载关系：
+Load relationships:
 
-- `depends`：必需依赖；缺失时跳过当前插件并记录 warning，不阻止其他插件。
-- `optionalDepends`：目标存在时排在它后面，不存在时忽略。
-- `loadAfter` / `loadBefore`：只影响顺序，不表示依赖必须存在。
-- `phase` 顺序为 `base`、`early`、`normal`、`compat`、`late`。
-- `priority` 数值小的先加载，默认 `0`。
-- 重复 `id` 和 `conflicts` 默认只记录 warning；不会直接阻止启动。
+- `depends`: required dependency. If missing, skip the current plugin and warn without blocking other plugins.
+- `optionalDepends`: if the target exists, order after it; if absent, ignore it.
+- `loadAfter` / `loadBefore`: ordering only. They do not mean the target must exist.
+- `phase` order is `base`, `early`, `normal`, `compat`, `late`.
+- Lower `priority` loads earlier. Default is `0`.
+- Duplicate `id` and `conflicts` warn by default and do not directly block launch.
 
-规则级条件：
+Rule-level conditions:
 
-- `when.modsPresent`：所有列出的插件 id 都启用且未被跳过时，规则才生效。
-- `when.modsAbsent`：所有列出的插件 id 都未启用或已被跳过时，规则才生效。
-- `when.capabilitiesPresent`：所有列出的能力都由最终启用插件声明时，规则才生效。
-- `when.capabilitiesAbsent`：所有列出的能力都未被最终启用插件声明时，规则才生效。
-- 条件不满足的规则只会出现在 explain 诊断里，不参与编译、验证、预览或运行时替换。
+- `when.modsPresent`: the rule applies only when every listed plugin id is enabled and not skipped.
+- `when.modsAbsent`: the rule applies only when every listed plugin id is absent, disabled, or skipped.
+- `when.capabilitiesPresent`: the rule applies only when every listed capability is declared by final enabled plugins.
+- `when.capabilitiesAbsent`: the rule applies only when every listed capability is absent from final enabled plugins.
+- Rules whose conditions are not satisfied appear only in explain diagnostics and do not participate in compilation, validation, preview, or runtime replacement.
 
-内容引用边界：
+Content reference boundaries:
 
-- 框架不需要默认实现完整的新怪物、新技能、动画、贴图、音频、语言、普通 curio 或 loot authoring 工具。原版、DLC、创意工坊 mod 或插件自带文件可以提供这些静态内容。
-- 框架应该提供的是 `contentRefs`、依赖声明、存在性校验、加载来源报告，以及在 `encounters`、`spawnPools`、`questChains`、`mapLayoutTemplates` 中引用这些内容的能力。
-- 例如新怪物可以来自创意工坊；框架只需要在遭遇表中引用 `monsterId`，并在缺失时报告 required dependency，而不是复制一套怪物制作器。
-- 详细边界见 `docs/content_reference_boundaries.md`。
+- The framework does not need to implement full default authoring tools for new monsters, new skills, animation, textures, audio, localization, ordinary curios, or loot. Base game files, DLC files, Workshop mods, or plugin-provided files can provide that static content.
+- The framework should provide `contentRefs`, dependency declarations, existence validation, load-source reports, and the ability to reference this content from `encounters`, `spawnPools`, `questChains`, and `mapLayoutTemplates`.
+- For example, a new monster can come from Workshop content. The framework only needs to reference `monsterId` in an encounter table and report a required dependency if it is missing, instead of duplicating a monster authoring tool.
+- Detailed boundaries live in `docs/content_reference_boundaries.md`.
 
-推荐的复杂插件组织：
+Recommended complex plugin layout:
 
 ```text
 plugins/author.mod_id/
@@ -178,52 +186,52 @@ plugins/author.mod_id/
   assets/...
 ```
 
-注意：`modules.contentRefs`、`encounters`、`spawnPools`、`lootPolicies` 等是推荐方向，当前尚未全部实现为一等 schema。新增能力时应优先保持这种分层，而不是继续扩张单个 `patches.json`。
+Note: `modules.contentRefs`, `encounters`, `spawnPools`, `lootPolicies`, and similar fields are the recommended direction. They are not all first-class schema yet. When adding capabilities, prefer this layered structure instead of continuing to expand a single `patches.json`.
 
-固定地图模板：
+## Fixed Map Templates
 
-- `mapTemplates` 和 `mapLayoutTemplates` 是 optional/experimental 的固定 `.dm` overlay 与拓扑诊断能力，不是默认的自定义地图制作路线。普通随机地图、区域资源、遭遇池和完整固定图优先通过原版 DD/Workshop/plugin 内容文件提供，再由框架通过 `contentRefs`、任务板和虚拟文件层引用或调度。
-- `mapTemplates[].target` 是游戏内虚拟目标路径，例如 `maps/DD_map4.dm`。
-- `mapTemplates[].source` 是要复制修改的模板 `.dm`，相对路径优先按游戏目录解析；不存在时再按当前插件目录解析；省略时默认等于 `target`。
-- `mapTemplates[].specPath` 是模板改写 spec，相对路径按当前插件目录解析。
-- 也可以用 `mapTemplates[].spec` 内联 spec；`specPath` 和 `spec` 必须二选一。
-- 生成文件写入 `modStateDirectory/_map_templates/<plugin-id>/`，并自动加入最终 `sourcePath` overlay。
-- `mapTemplates[].when` 使用和 `virtualFileRules[].when` 相同的条件规则。
-- 当前只支持修改已存在的 `.dm` 标量字段，不能创建/删除 area、tile 或 door 对象。
+- `mapTemplates` and `mapLayoutTemplates` are optional/experimental fixed `.dm` overlay and topology diagnostic capabilities. They are not the default custom-map authoring path. Ordinary random maps, region resources, encounter pools, and full fixed maps should usually come from original DD / Workshop / plugin content files, then be referenced or scheduled by the framework through `contentRefs`, quest-board rules, and the virtual file layer.
+- `mapTemplates[].target` is the in-game virtual target path, for example `maps/DD_map4.dm`.
+- `mapTemplates[].source` is the template `.dm` to copy and modify. Relative paths resolve against the game directory first, then against the current plugin directory if not found. If omitted, it defaults to `target`.
+- `mapTemplates[].specPath` is the rewrite spec. Relative paths resolve against the current plugin directory.
+- `mapTemplates[].spec` can inline the spec. Exactly one of `specPath` or `spec` is required.
+- Generated files are written to `modStateDirectory/_map_templates/<plugin-id>/` and automatically added to final `sourcePath` overlays.
+- `mapTemplates[].when` uses the same condition rules as `virtualFileRules[].when`.
+- Currently only existing `.dm` scalar fields can be modified. The framework cannot create/delete area, tile, or door objects yet.
 
-高层地图布局：
+## High-Level Map Layouts
 
-- `mapLayoutTemplates[].target` 和 `source` 使用与 `mapTemplates` 相同的路径解析规则。
-- `layout.rooms[].templateAreaId` 和 `layout.corridors[].templateAreaId` 指向源 `.dm` 中已经存在的 area。
-- `layout.entrance`、`layout.finalRoom`、`layout.links` 会被校验为一张可从入口走到最终房间的图。
-- `tiles[]` 可写入已支持的动态 tile 字段：`content`、`light`、`knowledge`、`mashIndex`、`mashType`、`curioPropHash`、`trapHash`、`critScout`。
-- `content` 可使用数字或数字字符串；当前只额外支持 `empty`/`none` 作为 `0`，其他符号名不会猜测。
-- 生成的报告、编译 spec、`.dm` artifact 和低层模板报告写入 `modStateDirectory/_map_layout_templates/<plugin-id>/`。
-- 报告里的 `compileReady=true` 表示已通过受限编译并生成 runtime overlay；遇到创建/删除 area、tile、door，或命名 encounter 物化时仍会失败。
+- `mapLayoutTemplates[].target` and `source` use the same path resolution as `mapTemplates`.
+- `layout.rooms[].templateAreaId` and `layout.corridors[].templateAreaId` point to existing areas in the source `.dm`.
+- `layout.entrance`, `layout.finalRoom`, and `layout.links` are validated as a graph that can reach the final room from the entrance.
+- `tiles[]` can write supported dynamic tile fields: `content`, `light`, `knowledge`, `mashIndex`, `mashType`, `curioPropHash`, `trapHash`, and `critScout`.
+- `content` may be a number or numeric string. Only `empty` / `none` are additionally supported as aliases for `0`; other symbolic names are not guessed.
+- Generated reports, compiled specs, `.dm` artifacts, and low-level template reports are written to `modStateDirectory/_map_layout_templates/<plugin-id>/`.
+- `compileReady=true` in reports means the restricted compiler passed and generated a runtime overlay. Creating/deleting area, tile, or door objects, or materializing named encounters, still fails.
 
-关卡链：
+## Quest Chains
 
-- `questChains[]` 描述固定顺序或阶段式 quest/chapter chain，可用于 boss gauntlet、打完老祖后的新章节、或其他自定义关卡流程。
-- `questChains[].unlock.type="afterQuest"` 时必须提供 `unlock.questId`，表示该 chain 预期在某个 plot quest 完成后开放。
-- `stages[].order` 可显式控制顺序；不写时按数组顺序。重复 order 或重复 stage id 会作为编译错误报告。
-- `stages[].sourceQuestId` 是当前可实现切片的原版 quest 模板来源。后续真正自定义 quest writer 成熟后，可以扩展为非原版来源。
-- 每个 stage 可以引用 `mapLayoutTemplateId` 或 `mapTemplateId`，但不能同时引用。引用不存在会作为编译错误报告。
-- `questBoard.enabled=true` 是显式 opt-in：`mode="replaceWithFixedSet"` 会把按 stage 顺序得到的原版 plot quest id 写成静态 `questBoard.replaceWithFixedSet` managed artifact；`mode="linearProgression"` 会把 stage 顺序展开成 `questBoardPolicies`，让 A -> B -> C 这类长链不用手写重复前置条件。两种模式当前都要求 `questIdSource="sourceQuestId"`。
-- 静态 fixed-set artifact 会在启动和 `--dry-run` 时把 active plot quest 同步编译成 `campaign/quest/quest.plot_quests.json` 内容 overlay，将这些 quest 设为早期可用、可重复。线性 progression 需要 policy materializer 根据 save facts 和 sidecar state 生成当前阶段的同形状 artifact，再交给同一套 consumer。
-- 验证报告写入 `modStateDirectory/_quest_chains/<plugin-id>/`；quest-board materialization 报告也写在同目录。只有静态 fixed-set 模式会直接写入 `modStateDirectory/_managed_actions/`，linear progression 模式先写策略报告，等策略物化后再生成当前阶段 artifact。这些文件本身不修改原版存档或 UI。
+- `questChains[]` describes fixed-order or staged quest/chapter chains. It can support boss gauntlets, post-Ancestor chapters, or other custom quest flows.
+- `questChains[].unlock.type="afterQuest"` requires `unlock.questId` and means the chain is expected to open after that plot quest is completed.
+- `stages[].order` explicitly controls stage order. If omitted, array order is used. Duplicate order or duplicate stage id is reported as a compile error.
+- `stages[].sourceQuestId` is the original quest template source for the current implementable slice. A future mature custom quest writer can extend this beyond original quest sources.
+- A stage may reference `mapLayoutTemplateId` or `mapTemplateId`, but not both. Missing references are compile errors.
+- `questBoard.enabled=true` is explicit opt-in. `mode="replaceWithFixedSet"` writes original plot quest ids in stage order as a static `questBoard.replaceWithFixedSet` managed artifact. `mode="linearProgression"` expands stage order into `questBoardPolicies`, so long A -> B -> C chains do not require repeated manual prerequisites. Both modes currently require `questIdSource="sourceQuestId"`.
+- Static fixed-set artifacts are compiled at launch and `--dry-run` into `campaign/quest/quest.plot_quests.json` content overlays that make those quests early-available and repeatable. Linear progression requires the policy materializer to generate the current-stage artifact from save facts and sidecar state, then hand it to the same consumer.
+- Validation reports are written to `modStateDirectory/_quest_chains/<plugin-id>/`; quest-board materialization reports are written there too. Only static fixed-set mode writes directly to `modStateDirectory/_managed_actions/`. Linear progression writes policy reports first and generates the current-stage artifact after policy materialization. These files do not themselves modify original saves or UI.
 
-任务板策略：
+## Quest Board Policies
 
-- `questBoardPolicies[]` 描述任务何时可以出现在任务板，而不是直接定义任务、怪物、地图或美术资源。底层任务内容应优先来自原版、DLC、创意工坊或插件自带 DD 格式文件，并通过 `contentRefs.quests` 声明。
-- `mode` 当前支持 `fixed`、`random`、`mixed`；`refreshTriggers` 当前支持 `onProfileInitialize`、`onWeekAdvance`、`immediateOnQuestComplete`、`manual`。
-- `entries[].availableWhen` 可声明 `completedQuest(s)`、`notCompletedQuest(s)`、`weekGte`、`weekLte`、`weekEq`、`phase`、`stateKey/stateEquals`。
-- `entries[].onCompleted` 当前支持 `keep`、`remove`、`replace`、`advancePhase`。不写时按 `keep` 记录到报告。
-- 当前实现做 schema 校验、日志解释、sidecar report、内容候选预览、facts-driven 候选解析和显式任务板 artifact 物化，写入 `modStateDirectory/_quest_board_policies/<plugin-id>/`、`logs/quest_board_policy_preview_report.json`、`logs/quest_board_policy_resolve_report.json`、`logs/quest_board_policy_materialize_report.json`，以及 `modStateDirectory/_managed_actions/*_questBoardPolicies_questBoard.replaceWithFixedSet.json`；不会直接修改 `persist.quest.json` 或模拟周结算。
-- `--materialize-quest-board-policies` 会复用 resolve 结果，按加载顺序选择 fixed candidate，对 pool/weighted candidate 做可复现抽选，并支持 `--quest-board-policy-slots <n>` 与 `--quest-board-policy-seed <int>`。输出 artifact 继续交给现有 `questBoard.replaceWithFixedSet` consumer 处理。
-- `questBoardPolicyAutoMaterializeEnabled=true` 会让 `SaveEventBridge` 在读取 save-state report 后自动执行同一套物化逻辑，并把状态写入 `logs/save_event_bridge_report.json` 的 `questBoardPolicyMaterialization`。如果 save-state report 暴露 `activeProfile.profile`，生成的 artifact 会带 `profileScope`；`--preview-quest-board --quest-board-profile-scope <profileId>`、`--refresh-quest-board-profile <profileId>` 和实时 watcher 只消费 global 或匹配 profile 的 artifact。配合 `questBoardAutoRefreshEnabled=true` 时，实时 watcher 可在原版写入 live `persist.quest.json` 后先生成最新 policy artifact，再走既有 fixed-board refresh writer。
-- 详细 schema 见 `docs/quest_board_policies.md`。
+- `questBoardPolicies[]` describes when quests may appear on the quest board. It does not directly define quests, monsters, maps, or art resources. Underlying quest content should usually come from base game, DLC, Workshop, or plugin-provided DD format files and be declared through `contentRefs.quests`.
+- `mode` currently supports `fixed`, `random`, and `mixed`. `refreshTriggers` currently supports `onProfileInitialize`, `onWeekAdvance`, `immediateOnQuestComplete`, and `manual`.
+- `entries[].availableWhen` may declare `completedQuest(s)`, `notCompletedQuest(s)`, `weekGte`, `weekLte`, `weekEq`, `phase`, and `stateKey/stateEquals`.
+- `entries[].onCompleted` currently supports `keep`, `remove`, `replace`, and `advancePhase`. If omitted, it is reported as `keep`.
+- The current implementation performs schema validation, log explanation, sidecar reporting, content candidate preview, facts-driven candidate resolution, and explicit quest-board artifact materialization. It writes `modStateDirectory/_quest_board_policies/<plugin-id>/`, `logs/quest_board_policy_preview_report.json`, `logs/quest_board_policy_resolve_report.json`, `logs/quest_board_policy_materialize_report.json`, and `modStateDirectory/_managed_actions/*_questBoardPolicies_questBoard.replaceWithFixedSet.json`. It does not directly mutate `persist.quest.json` or simulate week settlement.
+- `--materialize-quest-board-policies` reuses resolve results, selects fixed candidates in load order, performs reproducible selection for pool/weighted candidates, and supports `--quest-board-policy-slots <n>` and `--quest-board-policy-seed <int>`. Its output still goes through the existing `questBoard.replaceWithFixedSet` consumer.
+- `questBoardPolicyAutoMaterializeEnabled=true` lets `SaveEventBridge` run the same materialization logic after reading a save-state report and write status into `logs/save_event_bridge_report.json` under `questBoardPolicyMaterialization`. If the save-state report exposes `activeProfile.profile`, generated artifacts carry `profileScope`. `--preview-quest-board --quest-board-profile-scope <profileId>`, `--refresh-quest-board-profile <profileId>`, and the realtime watcher consume only global or matching-profile artifacts. With `questBoardAutoRefreshEnabled=true`, the realtime watcher can generate the latest policy artifact after original live `persist.quest.json` writes, then use the existing fixed-board refresh writer.
+- Detailed schema lives in `docs/quest_board_policies.md`.
 
-第一批能力命名：
+First capability names:
 
 - `file.virtualize`
 - `content.patch`
@@ -239,7 +247,7 @@ plugins/author.mod_id/
 - `quest.observe_completion`
 - `save.observe_write`
 
-诊断命令：
+Diagnostic commands:
 
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --explain-patches
@@ -253,28 +261,34 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --prune-managed-actions --managed-action-retention-keep 5 --no-inject
 ```
 
-`--explain-patches` 会输出：
+`--explain-patches` outputs:
 
-- 每个插件的最终 `order`、`status`、`phase`、`priority`、`capabilities` 和跳过原因。
-- 每个插件声明的 `virtualRules`、`mapTemplates` 和 `mapLayoutTemplates` 数量。
-- 每个插件声明的 `questBoardPolicies` 数量，以及启用策略的 mode、refresh trigger、entry 和 availableWhen 摘要。
-- 每条排序边，例如 `mod.a -> mod.b reason=depends`。
-- 重复 id、缺依赖、声明冲突和顺序循环等加载诊断。
-- 每个 `target` 被哪些插件规则修改、哪些规则因 `when` 跳过，以及最终替换来源。
-- 每条替换的 operation subject，例如 `key:.max_campaign_log_file_size`。
+- Final `order`, `status`, `phase`, `priority`, `capabilities`, and skip reason for each plugin.
+- Counts for each plugin's `virtualRules`, `mapTemplates`, and `mapLayoutTemplates`.
+- Counts for each plugin's `questBoardPolicies`, plus enabled policy mode, refresh trigger, entry, and availableWhen summaries.
+- Ordering edges such as `mod.a -> mod.b reason=depends`.
+- Load diagnostics for duplicate ids, missing dependencies, declared conflicts, and order cycles.
+- Which plugin rules modify each `target`, which rules were skipped by `when`, and final replacement sources.
+- Replacement operation subjects such as `key:.max_campaign_log_file_size`.
 
-`--preview-patches` 会在 diff 中输出 operation subject，并在同一 `.darkest` key 被多个插件修改时记录 `patch-preview-key-conflict`。
+`--preview-patches` includes operation subjects in diffs and records `patch-preview-key-conflict` when multiple plugins modify the same `.darkest` key.
 
-`--explain-rules` 会输出声明型 `eventRules` 和 `factEventRules` 的事件、所需 capability、action capability、风险等级和跳过原因。
+`--explain-rules` outputs declarative `eventRules` and `factEventRules` events, required capability, action capability, risk level, and skip reason.
 
-`--init-mod-state` 会把启用插件的 `stateSchema` 默认值写到 `state/mod_state/<plugin-id>.json`。已有文件只补缺失键，不重置已有状态。`--dump-mod-state` 会读取这些 sidecar 状态并写入 `logs/mod_state_dump_report.json`。
+`--init-mod-state` writes enabled plugin `stateSchema` defaults into `state/mod_state/<plugin-id>.json`. Existing files only receive missing keys and are not reset. `--dump-mod-state` reads sidecar state and writes `logs/mod_state_dump_report.json`.
 
-`--emit-event` 会执行匹配事件的安全规则动作，并把执行结果写入 `logs/runtime_event_report.json`。当前 sidecar state 和 challenge state 相关安全动作会真实写入 sidecar state；`quest.injectFixedStage`、`roster.filterAvailableHeroes`、`equipment.filterAvailableTrinkets`、`roster.enforceAvailabilityFilter`、`equipment.enforceAvailabilityFilter` 和 boss gauntlet profile-normalization 动作会生成 `materialized` artifact，写入 `modStateDirectory/_managed_actions/`，不改游戏或原版存档。启动游戏或 `--dry-run` 前，启动器会把可消费的 `quest.injectFixedStage` 与 `questBoard.replaceWithFixedSet` artifact 编译进 `logs/managed_action_overlay_manifest.json`，并为对应 plot quest 源文件追加虚拟替换，把源 plot quest 设置为 `dungeon_level: 0` 和 `is_repeatable: true`；`inventory.disableItemSale` artifact 会进入 manifest policy 区域，记录禁售意图但不修改 trinket `price`；`roster.enforceAvailabilityFilter` 和 `equipment.enforceAvailabilityFilter` artifact 会进入 manifest 的 `availabilityPolicies`，标记为 `manifestOnly` 和 `liveEnforced:false`，并触发 focused `availability.*` runtime probe 观察候选 profile 文件，但仍不阻止原版 UI 选择。`--refresh-quest-board-profile <profileId>` 会复用固定任务板 runtime replacement，对配置的 watched profile 进行显式任务板刷新：可配合 `--dry-run` 预览，真实写入前会备份，并默认拒绝在真实游戏进程运行时写外部存档。配置 `questBoardAutoRefreshEnabled` 后，实时 save watcher 还能在原版写入 live `persist.quest.json` 后走同一个刷新 writer；真实运行中写外部存档需要同时配置 `questBoardAutoRefreshAllowRunningGameSaveWrite=true`。`--apply-managed-actions` 可对项目内 decoded JSON 存档副本 dry-run 这些 artifact，显式 `--write-managed-actions` 时当前可写入钱包资源、trinket inventory counts、roster class instances、roster progression、roster hero skill lists、content-defined upgrade purchases、stagecoach generated recruit suppression、district built flags、campaign plot progress reset、town-event current-event suppression，以及 `_ddrt_profile_policy.json` 中的 trinket-sale、hero/trinket availability 和 town-event message policy；`inventory.disableItemSale` 仍等待硬 runtime/UI/save consumer 才能真正阻止卖出，hero/trinket availability policy 仍需要硬 runtime/UI/save consumer 才能真正阻止选择，town-event message policy 仍等待 runtime/UI/content consumer。`--initialize-decoded-profile` 会把 managed apply 的 action/file 明细内联到初始化报告里。未物化的托管改游戏行为仍会报告未实现。
+`--emit-event` executes safe rule actions matching an event and writes `logs/runtime_event_report.json`. Current safe sidecar state and challenge state actions write real sidecar state. `quest.injectFixedStage`, `roster.filterAvailableHeroes`, `equipment.filterAvailableTrinkets`, `roster.enforceAvailabilityFilter`, `equipment.enforceAvailabilityFilter`, and boss-gauntlet profile-normalization actions produce `materialized` artifacts under `modStateDirectory/_managed_actions/` without mutating the game or original saves.
 
-`--preview-managed-action-retention` 会扫描 `modStateDirectory/_managed_actions/` 并写入 `logs/managed_action_retention_report.json`，只报告每组 artifact 中哪些超过保留数量，不删除文件。`--prune-managed-actions` 才会执行删除；分组键包含 action type、plugin id、rule id、action index、target、profileScope 和 sourcePath，所以不同 profile 或不同来源的 artifact 不会互相清理。无法解析的 artifact 会保留并记录 warning，删除失败会记录 error 且命令失败；不会用静默兜底掩盖底层文件系统问题。默认保留数量来自 `managedActionRetentionKeepLatestPerGroup`，也可用 `--managed-action-retention-keep <n>` 覆盖。
+Before launch or `--dry-run`, the launcher compiles consumable `quest.injectFixedStage` and `questBoard.replaceWithFixedSet` artifacts into `logs/managed_action_overlay_manifest.json`, then appends virtual replacements for related plot quest source files so source plot quests become `dungeon_level: 0` and `is_repeatable: true`. `inventory.disableItemSale` artifacts enter the manifest policy area and record sale-disable intent without changing trinket `price`. `roster.enforceAvailabilityFilter` and `equipment.enforceAvailabilityFilter` artifacts enter manifest `availabilityPolicies`, are marked `manifestOnly` and `liveEnforced:false`, and trigger the focused `availability.*` runtime probe for candidate profile files. They still do not stop original UI selection.
 
-`--infer-save-events` 会读取 save state report，按启用插件的 `factEventRules` 推导事件并写入 `logs/save_event_bridge_report.json`。桥接器不写原版存档，只把事实观察转成普通框架事件。
+`--refresh-quest-board-profile <profileId>` reuses the fixed quest-board runtime replacement to explicitly refresh the configured watched profile. It supports `--dry-run` preview, backs up before real writes, and rejects external save writes while the real game is running by default. With `questBoardAutoRefreshEnabled`, the realtime save watcher can use the same refresh writer after original live `persist.quest.json` writes. External running-game writes also require `questBoardAutoRefreshAllowRunningGameSaveWrite=true`.
 
-`example/patches.json` 默认 `enabled:false`，可以复制成自己的插件后再启用。
+`--apply-managed-actions` can dry-run these artifacts against project-local decoded JSON save copies. With explicit `--write-managed-actions`, current writers can update wallet resources, trinket inventory counts, roster class instances, roster progression, roster hero skill lists, content-defined upgrade purchases, stagecoach generated recruit suppression, district built flags, campaign plot progress reset, town-event current-event suppression, and `_ddrt_profile_policy.json` entries for trinket-sale, hero/trinket availability, and town-event message policy. `inventory.disableItemSale` still needs a hard runtime/UI/save consumer to truly block selling; hero/trinket availability policy still needs a hard runtime/UI/save consumer to truly block selection; town-event message policy still waits for a runtime/UI/content consumer. `--initialize-decoded-profile` inlines managed apply action/file details into the initialization report. Unmaterialized managed gameplay changes are reported as unimplemented.
 
-后续再考虑 native C ABI、Lua 或 C# 脚本层。
+`--preview-managed-action-retention` scans `modStateDirectory/_managed_actions/` and writes `logs/managed_action_retention_report.json`; it reports which artifacts exceed the retention count but does not delete files. `--prune-managed-actions` performs the deletion. Group keys include action type, plugin id, rule id, action index, target, `profileScope`, and `sourcePath`, so different profiles or sources do not clean up each other. Invalid artifacts are retained with warnings. Delete failures are errors and fail the command; there is no silent fallback that hides filesystem problems. The default retention count comes from `managedActionRetentionKeepLatestPerGroup` and can be overridden with `--managed-action-retention-keep <n>`.
+
+`--infer-save-events` reads a save state report, derives events from enabled plugin `factEventRules`, and writes `logs/save_event_bridge_report.json`. The bridge does not write original saves; it only turns observed facts into normal framework events.
+
+`example/patches.json` defaults to `enabled:false`; copy it into your own plugin before enabling it.
+
+Native C ABI, Lua, or C# script layers are future work.

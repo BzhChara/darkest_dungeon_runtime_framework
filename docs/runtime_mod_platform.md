@@ -1,23 +1,23 @@
 # Runtime Mod Platform Design
 
-这份文档定义框架后续要走向的运行时 Mod 平台，而不是只停留在文件替换工具。通用规则契约见 `docs/capability_rule_contract.md`；框架验收场景见 `docs/validation_scenarios.md`；本文里的玩法段落只是用例，不是专用模板。
+This document defines the runtime mod platform direction for the framework. The goal is not to stop at a file replacement tool. The generic rule contract lives in `docs/capability_rule_contract.md`; acceptance scenarios live in `docs/validation_scenarios.md`. Gameplay sections in this document are use cases, not dedicated one-off templates.
 
-目标不是让玩家只能改数值、替换贴图或追加文本，而是让玩家能重组《Darkest Dungeon》的关键玩法循环，例如：
+The target is to let players reshape key Darkest Dungeon gameplay loops instead of only changing numbers, replacing images, or appending text. Examples:
 
-- 打完祖父后不结束游戏，解锁新区域、新剧情和新任务链。
-- 把马车招募改成固定关卡挑战：预设满级英雄池、原版 Boss 关卡链、每关自选四人和饰品，失败可用原选择重试，通关后已选英雄和饰品进入不可用池。
-- 给建筑升级加入等待周数、并行升级补偿和跨周完成逻辑。
+- Keep the campaign going after the Ancestor finale by unlocking a new region, new story, and a new quest chain.
+- Replace stagecoach-based long-term roster growth with a fixed-stage boss gauntlet: a preset max-level hero pool, original boss quest chain, four heroes and trinkets selected per stage, locked retry selection on failure, and used heroes/trinkets removed from the pre-finale pool after resolved attempts.
+- Add building upgrade wait times, parallel upgrade compensation, and cross-week completion logic.
 
-这些能力不能只靠 `find -> replace` 完成。文件虚拟化仍然是内容地基，但平台还需要事件、状态、动作、Hook 能力和诊断工具。后续新增玩法应该先映射到 facts、events、predicates、actions、state、capabilities；映射不出来时扩展这些通用原语，而不是为某个玩法写特殊路径。
+These features cannot be done with only `find -> replace`. File virtualization remains the content foundation, but the platform also needs events, state, actions, hook capabilities, and diagnostics. New gameplay should first be mapped to facts, events, predicates, actions, state, and capabilities. If it cannot be expressed, extend those reusable primitives instead of adding a special path for a single gameplay idea.
 
 ## Design Principles
 
-- 兼容优先：重复修改同一内容默认不阻止启动，按顺序叠加执行，并在验证和预览里报告。
-- 诊断优先：玩家应该能看到加载顺序、事件触发、状态变化、最终虚拟文件和潜在冲突。
-- 安全边界硬处理：路径越界、位数不匹配、JSON 无法解析、明确 required 的操作失败，才默认阻止启动。
-- 数据层先行，代码层后置：优先做声明式规则和状态机；Lua/C#/native 插件层等核心能力稳定后再加。
-- 内容引用优先：怪物、技能、动画、贴图、音频、语言、普通 curio 和 loot 等静态内容优先由原版、DLC、创意工坊或插件自带文件提供；框架负责引用、校验、组合、排序和运行时投影。不要为了已有静态内容 authoring 流程添加专用 runtime 代码。
-- 最小可验证闭环：每个深层能力都先做 observe-only 探针，再做最小可回退 PoC，最后再开放给插件。
+- Compatibility first: multiple mods changing the same content should usually not block launch. Apply them in stable order and report the final result during validation and preview.
+- Diagnostics first: players and authors should be able to see load order, event triggers, state changes, final virtual files, and likely conflicts.
+- Hard safety boundaries: block launch by default for path traversal, architecture mismatch, JSON parse failures, and explicitly required operations that fail.
+- Data layer before code layer: prefer declarative rules and state machines. Add Lua/C#/native plugin layers only after the core primitives are stable.
+- Content references first: static content such as monsters, skills, animation, textures, audio, localization, ordinary curios, and loot should usually come from the base game, DLC, Workshop mods, or plugin-provided files. The framework references, validates, composes, orders, and projects that content at runtime. Do not add dedicated runtime code just to duplicate existing static content authoring workflows.
+- Small verifiable loops: every deep capability starts with observe-only probes, then a minimal reversible PoC, then plugin-facing exposure.
 
 ## Platform Layers
 
@@ -33,38 +33,40 @@ Plugin Manifest
 
 ### Content Patch Layer
 
-当前已经有原型：
+Current prototype:
 
-- 虚拟读取 `.darkest` / `.json` / localization / 资源文件。
-- `replacements` 底层字符串替换。
-- 插件 manifest 支持 `id`、`version`、`capabilities`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts`。
-- `virtualFileRules.when` 支持 `modsPresent` / `modsAbsent` / `capabilitiesPresent` / `capabilitiesAbsent`，用于声明兼容补丁或条件补丁。
-- `operations` 启动前按加载顺序、基于当前虚拟文本逐步编译成 `replacements`。
-- operation 编译会保留 subject，例如 `key:.some_key`，用于解释最终来源和发现同一 key 的多插件修改。
-- validate、preview、diff。
+- Virtual reads for `.darkest` / `.json` / localization / asset files.
+- Low-level string `replacements`.
+- Plugin manifest fields: `id`, `version`, `capabilities`, `phase`, `priority`, `depends`, `optionalDepends`, `loadAfter`, `loadBefore`, and `conflicts`.
+- `virtualFileRules.when` supports `modsPresent` / `modsAbsent` / `capabilitiesPresent` / `capabilitiesAbsent` for compatibility and conditional patches.
+- `operations` compile before launch into `replacements`, step by step, using the current virtual text and load order.
+- Operation compilation preserves subjects such as `key:.some_key`, which helps explain the final source and detect multiple mods changing the same key.
+- Validation, preview, and diff output.
 
-后续要增强：
+Planned improvements:
 
-- `.darkest` 专用解析器：理解 `.key value`、数组、继承式数据和常见 section。
-- 内容 id 索引和引用校验：怪物、技能、饰品、任务、区域、建筑、curio、loot table、资源文件等。索引的第一目标是让插件能引用原版、DLC、创意工坊或插件自带内容，并报告缺失/重复/来源，不是让框架重写所有静态内容生成器。
-- 更细的补丁解释器：说明某个 key 的最终值来自哪些插件和哪些规则。
+- A `.darkest` parser that understands `.key value`, arrays, inherited data, and common sections.
+- Content id indexing and reference validation for monsters, skills, trinkets, quests, regions, buildings, curios, loot tables, asset files, and similar content. The first goal of indexing is to let plugins reference base-game, DLC, Workshop, or plugin-provided content and report missing, duplicate, and source information. It is not to rebuild every static content generator inside the framework.
+- More detailed patch explain output that shows which plugins and rules produced the final value of a key.
 
-静态内容与运行时编排的边界见 `docs/content_reference_boundaries.md`。例如新怪物可以来自创意工坊；框架只需要让 `encounter` 或 `spawnPool` 引用这个 `monsterId`，并在缺失时阻止或降级对应模块。
+Static content and runtime orchestration boundaries are documented in `docs/content_reference_boundaries.md`. For example, a new monster can come from a Workshop mod; the framework only needs `encounter` or `spawnPool` rules to reference the `monsterId`, then block or degrade the dependent module if that reference is missing.
 
 ### Event Layer
 
-事件层负责把游戏内部流程暴露成可订阅的节点。
+The event layer exposes game flow points that rules can subscribe to.
 
-当前 observe-only v0 已实现最低风险探针：RuntimeHook 会观察 `CreateFileW/CreateFileA/WriteFile`、`MoveFile/MoveFileEx`、`CopyFile`、`DeleteFile`、`ReplaceFile` 和 `SetFileAttributes`，把已知文件活动分类为 `data.*`、`asset.*`、`save.*` 事件。这一步只写日志，不读取事件上下文，不拦截流程，也不修改存档。真实游戏采样默认优先保留 `save.*`，普通 data/asset 事件使用独立预算，并会过滤 Steam overlay 日志这类外部噪声。当 overlay manifest 中存在 hero/trinket availability policy 时，RuntimeHook 还会启用 focused `availability.*` probe，标记 `persist.roster.json`、`persist.estate.json`、`persist.raid.json`、`persist.quest.json`、campaign/town 相关文件的 open/write/lifecycle 事件，并可输出调用栈模块偏移。这个 probe 用于定位后续硬 consumer 的 hook 点，不改变游戏结果。
+Current observe-only v0 is the lowest-risk probe. RuntimeHook observes `CreateFileW/CreateFileA/WriteFile`, `MoveFile/MoveFileEx`, `CopyFile`, `DeleteFile`, `ReplaceFile`, and `SetFileAttributes`, then classifies known file activity as `data.*`, `asset.*`, or `save.*` events. It only writes logs. It does not read event context, intercept control flow, or modify saves. Real-game sampling keeps `save.*` events by default, gives ordinary data/asset events a separate budget, and filters external noise such as Steam overlay logs.
 
-优先级从低风险到高风险：
+When the overlay manifest contains hero/trinket availability policy, RuntimeHook enables the focused `availability.*` probe. The probe marks open/write/lifecycle events for `persist.roster.json`, `persist.estate.json`, `persist.raid.json`, `persist.quest.json`, and related campaign/town files, and can emit call-stack module offsets. This locates hook points for later hard consumers without changing game results.
 
-1. observe-only：只记录事件是否发生。
-2. passive read：读取事件上下文，但不改结果。
-3. intercept：允许取消原逻辑或替换结果。
-4. synthesize：框架主动生成额外事件。
+Priority from low risk to high risk:
 
-第一批候选事件：
+1. observe-only: record whether an event happened.
+2. passive read: read event context without changing the result.
+3. intercept: cancel original logic or replace a result.
+4. synthesize: generate additional framework events.
+
+First candidate events:
 
 ```text
 campaign.loaded
@@ -84,7 +86,7 @@ save.loaded
 save.before_write
 ```
 
-高风险事件暂缓：
+High-risk events are deferred:
 
 ```text
 battle.turn_started
@@ -95,15 +97,15 @@ ui.widget_created
 
 ### State Layer
 
-复杂 Mod 必须能保存自己的状态，不能只依赖原存档字段。
+Complex mods need their own durable state. They cannot depend only on original save fields.
 
-默认采用旁路存档：
+Default state is sidecar state:
 
 ```text
 state/mod_state/<plugin-id>.json
 ```
 
-状态命名空间按插件隔离：
+State namespaces are isolated by plugin:
 
 ```json
 {
@@ -125,19 +127,19 @@ state/mod_state/<plugin-id>.json
 }
 ```
 
-原则：
+Principles:
 
-- 默认不改原存档结构。
-- 初始实现先存放在框架项目目录下，避免污染原版 profile；后续可以按 campaign/run/profile 再分层。
-- 原存档写入前后都要有日志。
-- 旁路状态损坏时，默认禁用相关插件状态并 warning，不破坏原存档。
-- 插件卸载后，其状态保留但不执行，便于回退。
+- Do not change original save structure by default.
+- Store the initial implementation under the framework project directory to avoid polluting original profiles. Later versions can add campaign/run/profile scoping.
+- Log before and after original-save writes.
+- If sidecar state is corrupt, disable the affected plugin state namespace and warn. Do not damage original saves.
+- Keep state after plugin uninstall so users can roll back or inspect it.
 
 ### Action Layer
 
-动作层是给声明式事件规则使用的最小能力集合。
+The action layer is the minimal capability set used by declarative event rules.
 
-示例：
+Example:
 
 ```json
 {
@@ -159,15 +161,61 @@ state/mod_state/<plugin-id>.json
 }
 ```
 
-动作分级：
+Action risk levels:
 
-- safe：只写框架旁路状态或日志。
-- managed：通过已知游戏 API 或已验证 Hook 改结果。
-- risky：内存补丁、深层流程替换、UI 强改。默认需要显式启用。
+- safe: writes only framework sidecar state or logs.
+- managed: changes results through known game APIs or verified hooks.
+- risky: memory patches, deep flow replacement, or heavy UI changes. These require explicit opt-in by default.
 
-当前第一批 managed 动作仍采用 observe-first 物化：`quest.injectFixedStage`、`roster.filterAvailableHeroes`、`equipment.filterAvailableTrinkets` 以及 boss gauntlet 的 profile-normalization 动作会写入 `modStateDirectory/_managed_actions/`。启动器已经能把 `quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` artifact 编译成 `logs/managed_action_overlay_manifest.json`，并把 manifest 路径和计数传给 RuntimeHook 做诊断；同时会为相关 `quest.plot_quests.json` 文件追加虚拟文件替换，把源 plot quest 强制为早期可用、可重复。`town.unlockAllBuildings` artifact 也能生成城镇建筑 `.building.json` 的 `sourcePath` overlay，把原版入口 requirements 降为 0，用于立即开放生存大师、铁匠、工会等建筑入口；建筑升级等级仍由 `upgrade.ensurePurchases` 表达。`roster.enforceAvailabilityFilter` 和 `equipment.enforceAvailabilityFilter` 也会进入 overlay manifest 的 `availabilityPolicies`，并触发 focused availability probe，但仍不阻止原版 UI。`--refresh-quest-board-profile <profileId>` 还能把生成好的固定任务板写入配置的 watched profile 当前 `persist.quest.json`，支持 `--dry-run`、写前备份、路径校验和运行中游戏保护；`questBoardAutoRefreshEnabled` 还可以让实时 save watcher 在任意成功桥接的稳定 campaign 存档批次后走同一个 writer 自动重刷任务板，不再只依赖 `persist.quest.json` 自身变化。真实运行中外部存档写入需要配置 `questBoardAutoRefreshAllowRunningGameSaveWrite=true`。这些都是任务板刷新，不是完整周结算模拟。`inventory.disableItemSale` 的 trinket artifact 现在只记录到 manifest/profile policy，不再生成 trinket entry `sourcePath` 价格覆盖；彻底禁用 UI 卖出点击仍需要 runtime/UI/save consumer。`--apply-managed-actions --managed-action-save-dir <dir>` 现在能读取这些 artifact 并生成 `logs/managed_action_apply_report.json`；默认是 dry-run，只有同时传 `--write-managed-actions` 才会写入，而且第一版只允许项目目录内的 decoded JSON 存档副本。`--initialize-decoded-profile` 的汇总报告会内联 apply action/file 明细，方便直接检查每个 artifact 的 dry-run/applied/unsupported 状态。`--preview-managed-action-retention` / `--prune-managed-actions` 是 `_managed_actions/` 的显式维护工具：按 action、插件、规则、目标、profile scope 和来源分组保留最新 artifact，写 `logs/managed_action_retention_report.json`；无法解析的 artifact 会保留并警告，删除失败会报错。`tools/PrepareDecodedProfileWorkspace.ps1` 可以把真实 `profile_*` 的 top-level `persist*.json` 只读解码到 `state/decoded_profiles/<session>/decoded_save`，并可选调用 `--initialize-decoded-profile`；传入 `-EncodeInitializedProfile` 时，会把初始化后的 decoded persist 文件重新编码到同一 workspace 的 `encoded_profile`，再立即 roundtrip decode 到 `roundtrip_decoded` 并做 JSON parse 校验；它不写回 Steam userdata。`tools/PromoteEncodedProfileWorkspace.ps1` 是单独的晋级工具：默认 dry-run，只允许项目内 target profile，并且默认只提升 workspace 报告中 decoded 内容实际变化的 encoded 文件，避免单纯 re-encode 导致无关 persist 文件被重写；完整覆盖需要显式 `-PromoteAllEncodedFiles`。真实外部 profile 需要显式 `-AllowExternalTarget`，游戏运行中外部写入还需要 `-AllowRunningGameSaveWrite`。写入前会备份目标 profile 的现有文件快照和 manifest，写入后校验 hash；`-RestoreFromReport` 可以按 manifest 恢复被覆盖的原有文件，promotion 新增文件会保留并在报告中 warning，避免自动删除路径成为新的风险源。当前已支持 `wallet.setCurrencyAmounts` / `wallet.setCurrencyAmount` 写入 `persist.estate.json` 钱包资源，支持 `estate.ensureInventoryCounts` 为 trinket inventory 写入指定数量并按内容 rarity 排除初始来源，支持 `inventory.disableItemSale` 写入项目内 `_ddrt_profile_policy.json` 销售禁用策略，也支持 `roster.ensureClassInstances` 向 `persist.roster.json` 补齐每个可用职业的 hero 实例，支持 `roster.setProgression` 统一设置已有/生成英雄的 resolve XP、武器/护甲等级和 max 装备下的当前 HP，并支持 `roster.setSkillUnlocks` 按职业内容定义写入正常数量的 selected combat/camping skill 槽位；全部解锁/满级技能购买状态由 `upgrade.ensurePurchases` 写入 `persist.upgrades.json`。`upgrade.ensurePurchases` 现在能写入 decoded `persist.upgrades.json`，从原版内容定义读取 building、combat_skill、camping_skill、weapon、armour 等升级树，按 requirement code 补齐 purchase 记录；instanced 树会从 `profile.roster.heroes` 的英雄 id 和职业推导 `instance_number`。`stagecoach.suppressRecruits` 能清空 decoded `persist.town.json` 中 `stage_coach.store.*.generated` 招募池，`town.suppressStoreItems` 能清空指定城镇建筑商店的 `inventory.items` / `generated`，`town.unlockAllBuildings` 能把已存在的 district `built` 标志置为 true；`townEvent.overrideCurrent` 现在能写 `persist.town_event.json` 的 current event suppress 字段，并把请求的 message 记录到 `_ddrt_profile_policy.json`。普通镇建筑等级仍通过 `upgrade.ensurePurchases` 的购买树表达，当前没有 verified `persist.town.json` 直接等级字段。自定义城镇事件文本仍需要后续 runtime/UI/content consumer 才能在游戏内生效；当前 writer 不伪造未知 save 字段。`roster.ensureClassInstances` 现在用干净 hero blueprint 生成新英雄，而不是深拷贝现有存档英雄后覆盖字段，避免把旧英雄或测试样本里的无关状态带入新对象；随机 quirk 选择会读取内容 `tags` 并让 `singleton` quirk 在同一批生成中全 roster 只分配一次。`content.trinkets.enabled` 当前从安装目录的 base trinket entries 和官方非竞技场 DLC trinket entries 读取；`content.hero_classes.enabled` 当前从 base heroes 和官方非竞技场数字 DLC hero definitions 读取；`content.upgrades.enabled` 当前从 base upgrades、base camping skills 和官方非竞技场 DLC 定义读取。如果安装目录本身被 mod 改写，要得到纯原版结果需要干净内容源。其它 profile-normalization 或英雄/饰品硬限制仍等待后续 runtime consumer 或 schema-verified save writer；当前已知 live 缺口包括过周后马车/商店重新刷新、sidecar 已消耗英雄/饰品仍能在原版 UI 里再次选择。
+Current managed actions still use observe-first materialization. `quest.injectFixedStage`, `roster.filterAvailableHeroes`, `equipment.filterAvailableTrinkets`, and boss-gauntlet profile-normalization actions write artifacts into `modStateDirectory/_managed_actions/`.
 
-第一批动作候选：
+The launcher can compile `quest.injectFixedStage` and `questBoard.replaceWithFixedSet` artifacts into `logs/managed_action_overlay_manifest.json`, pass manifest path and counts to RuntimeHook for diagnostics, and append virtual replacements for related `quest.plot_quests.json` files so source plot quests become early-available and repeatable.
+
+`town.unlockAllBuildings` artifacts can generate town building `.building.json` `sourcePath` overlays that reduce original entrance requirements to 0. This opens buildings such as the Survivalist, Blacksmith, and Guild immediately. Building upgrade levels are still represented through `upgrade.ensurePurchases`.
+
+`roster.enforceAvailabilityFilter` and `equipment.enforceAvailabilityFilter` enter overlay manifest `availabilityPolicies` and trigger the focused availability probe, but they do not yet block the original UI.
+
+`--refresh-quest-board-profile <profileId>` can write the generated fixed quest board into the watched profile's current `persist.quest.json`, with `--dry-run`, pre-write backup, path validation, and running-game protection. `questBoardAutoRefreshEnabled` lets the realtime save watcher reapply the same writer after any successfully bridged stable campaign save batch, not only after `persist.quest.json` changes. Live writes to external saves require `questBoardAutoRefreshAllowRunningGameSaveWrite=true`. These are quest-board refreshes, not full week-settlement simulations.
+
+`inventory.disableItemSale` trinket artifacts are now recorded only in manifest/profile policy. They no longer generate trinket entry `sourcePath` price overlays. Hard UI sell-button disable still requires a runtime/UI/save consumer.
+
+`--apply-managed-actions --managed-action-save-dir <dir>` can read these artifacts and generate `logs/managed_action_apply_report.json`. It is dry-run by default. Writes require `--write-managed-actions`, and the first version only writes project-local decoded JSON save copies.
+
+`--initialize-decoded-profile` inlines apply action/file details into its summary report so each artifact's dry-run, applied, or unsupported status can be inspected directly.
+
+`--preview-managed-action-retention` and `--prune-managed-actions` explicitly maintain `_managed_actions/`: they group by action, plugin, rule, target, profile scope, and source; keep the newest artifacts; and write `logs/managed_action_retention_report.json`. Invalid artifacts are retained with warnings. Delete failures are errors.
+
+`tools/PrepareDecodedProfileWorkspace.ps1` can read a real `profile_*` top-level `persist*.json` set into `state/decoded_profiles/<session>/decoded_save`, optionally invoke `--initialize-decoded-profile`, and, with `-EncodeInitializedProfile`, re-encode initialized decoded persist files into the same workspace's `encoded_profile`, then immediately roundtrip-decode to `roundtrip_decoded` and JSON-parse them. It does not write Steam userdata.
+
+`tools/PromoteEncodedProfileWorkspace.ps1` is the separate promotion tool. It defaults to dry-run, allows only project-local target profiles by default, and promotes only encoded files whose decoded content changed in the workspace report. Full encoded-profile overwrite requires `-PromoteAllEncodedFiles`. External real profiles require `-AllowExternalTarget`, and external writes while the game is running require `-AllowRunningGameSaveWrite`. Before writing, it snapshots target files and a manifest; after writing, it verifies hashes. `-RestoreFromReport` restores overwritten original files from that manifest. Promotion-added files remain and are reported as warnings to avoid turning cleanup into a risky implicit deletion path.
+
+Currently implemented decoded-save writers:
+
+- `wallet.setCurrencyAmounts` / `wallet.setCurrencyAmount` write wallet resources into `persist.estate.json`.
+- `estate.ensureInventoryCounts` writes specified trinket inventory counts and can exclude initial sources by content rarity.
+- `inventory.disableItemSale` writes sale-disable policy into project-local `_ddrt_profile_policy.json`.
+- `roster.ensureClassInstances` adds hero instances for enabled classes into `persist.roster.json`.
+- `roster.setProgression` normalizes existing and generated heroes' resolve XP, weapon/armor level, and current HP under max equipment.
+- `roster.setSkillUnlocks` writes normal selected combat/camping skill slots from class content definitions. Full skill unlock/max purchase state is represented by `upgrade.ensurePurchases` in `persist.upgrades.json`.
+- `upgrade.ensurePurchases` writes decoded `persist.upgrades.json`, reads base content upgrade trees for building, combat skill, camping skill, weapon, and armour requirements, and fills purchase records by requirement code. Instanced trees infer `instance_number` from `profile.roster.heroes` hero ids and classes.
+- `stagecoach.suppressRecruits` clears `stage_coach.store.*.generated` recruit pools in decoded `persist.town.json`.
+- `town.suppressStoreItems` clears selected town building store `inventory.items` / `generated` fields.
+- `town.unlockAllBuildings` sets existing district `built` flags to true.
+- `townEvent.overrideCurrent` suppresses the current event in `persist.town_event.json` and records requested message policy into `_ddrt_profile_policy.json`.
+
+Ordinary town building levels are still expressed by `upgrade.ensurePurchases`; there is no verified direct `persist.town.json` building-level scalar. Custom town-event text still needs a runtime/UI/content consumer before it appears in game; the writer does not invent unknown save fields.
+
+`roster.ensureClassInstances` generates new heroes from a clean hero blueprint instead of deep-copying existing save heroes, which avoids carrying unrelated old hero or test sample state into new objects. Random quirk selection reads content tags and keeps `singleton` quirks unique across the generated roster pass.
+
+Content readers:
+
+- `content.trinkets.enabled` currently reads base trinket entries and official non-arena DLC trinket entries from the install directory.
+- `content.hero_classes.enabled` currently reads base heroes and official non-arena numeric DLC hero definitions.
+- `content.upgrades.enabled` currently reads base upgrades, base camping skills, and official non-arena DLC definitions.
+
+If the install directory itself has been modified by other mods, a clean content source is required for pure-base results. Other profile-normalization behavior and hard hero/trinket restrictions still need future runtime consumers or schema-verified save writers. Known live gaps include stagecoach/store regeneration after week settlement and consumed sidecar heroes/trinkets still being selectable in the original UI.
+
+First action candidates:
 
 ```text
 setFlag
@@ -188,9 +236,9 @@ cancelOriginal
 
 ### Hook Capability Layer
 
-Hook 不应该直接暴露成“任意函数地址”，而应该包装成能力。
+Hooks should not be exposed as arbitrary function addresses. They should be wrapped as capabilities.
 
-示例能力：
+Example capabilities:
 
 ```text
 file.virtualize
@@ -201,31 +249,31 @@ roster.filter_available_heroes
 save.attach_sidecar_state
 ```
 
-每个能力必须定义：
+Every capability must define:
 
-- 当前状态：planned / materialized / observed / intercepted / stable。
-- 适用游戏 exe hash。
-- 失败策略：disable capability / skip mod / fail launch。
-- 日志字段。
-- 最小测试场景。
+- current status: planned / materialized / observed / intercepted / stable
+- applicable game executable hash
+- failure strategy: disable capability / skip mod / fail launch
+- log fields
+- minimum test scenario
 
 ### Diagnostics Layer
 
-诊断层是通用框架的必要组成，不是附属工具。
+Diagnostics are a required part of the generic framework, not an accessory.
 
-必须能回答：
+They must answer:
 
-- 哪些插件启用了。
-- 最终加载顺序是什么。
-- 哪些补丁被跳过，为什么。
-- 哪些事件被触发。
-- 哪些动作执行了。
-- 哪些状态被写入。
-- 哪些 managed action artifact 被编译成 overlay manifest，哪些只是保留在 sidecar 中。
-- 最终游戏读到的虚拟文件是什么。
-- 某个玩法修改来自哪个插件、哪条规则、哪个动作。
+- Which plugins are enabled.
+- What the final load order is.
+- Which patches were skipped and why.
+- Which events fired.
+- Which actions executed.
+- Which state was written.
+- Which managed action artifacts were compiled into the overlay manifest and which remain only in sidecar state.
+- What virtual file the game finally read.
+- Which plugin, rule, and action produced a gameplay change.
 
-现有工具：
+Current tools:
 
 ```text
 --list-patches
@@ -247,7 +295,7 @@ save.attach_sidecar_state
 tools/PrepareDecodedProfileWorkspace.ps1
 ```
 
-后续工具：
+Future tools:
 
 ```text
 --trace-events
@@ -257,9 +305,9 @@ tools/PrepareDecodedProfileWorkspace.ps1
 
 ## Manifest Direction
 
-插件清单需要逐步扩展，但默认保持兼容。
+Plugin manifests should grow gradually while remaining compatible by default.
 
-草案：
+Draft:
 
 ```json
 {
@@ -286,25 +334,25 @@ tools/PrepareDecodedProfileWorkspace.ps1
 }
 ```
 
-依赖策略：
+Dependency policy:
 
-- `depends`：缺失时跳过当前插件并 warning；不阻止其他插件。
-- `optionalDepends`：存在则排在它后面，不存在不影响。
-- `loadAfter/loadBefore`：只影响顺序，不代表必须存在。
-- 重复 `id`：默认 warning，内部用路径生成唯一 instance id。
-- 冲突：当前默认 warning，不阻止启动。
+- `depends`: if missing, skip the affected plugin and warn; do not block other plugins.
+- `optionalDepends`: if present, order after it; if absent, ignore it.
+- `loadAfter/loadBefore`: ordering only; they do not mean the target must exist.
+- duplicate `id`: warn by default and derive a unique internal instance id from the path.
+- conflicts: warn by default and do not block launch.
 
 ## Example: Fixed Resource Boss Gauntlet
 
-当前目标规格见：
+Current target spec:
 
 ```text
 docs/boss_gauntlet_campaign_spec.md
 ```
 
-目标：取消长期马车养成，改成固定资源的 Boss 讨伐战役。新建存档第一次进入时自动初始化固定满级英雄池、固定饰品池、20000 金币、满级城镇和固定任务板，并禁用饰品出售；之后游戏正常保存，不再重建或恢复损失。前置 Boss 阶段中，人物和饰品在任意终局尝试后都会被消耗，成功和失败都不回滚结算状态；每次前置 Boss 胜利额外补充 10000 金币；如果人物死光或严重失误导致不可通关，这是预期失败状态，玩家删除存档并新建存档重新挑战。全部前置 Boss 被击败后进入极暗地牢终局，只解除前置 Boss 阶段的 sidecar 一次性使用限制，不复活此前死亡的英雄，并尽量复用原版极暗地牢“通关角色不能再次进入”的限制。
+Goal: replace long-term stagecoach growth with a fixed-resource boss campaign. On first entry to a new save, initialize a fixed max-level hero pool, fixed trinket pool, 20000 gold, maxed town, fixed quest board, and disabled trinket sale. After that, the game saves normally and losses are not rebuilt or restored. During the prerequisite boss phase, heroes and trinkets are consumed after any terminal attempt. Success and failure do not roll back settlement state. Each prerequisite boss victory adds 10000 gold. If the player runs out of heroes or makes the run unwinnable, that is an expected failure state; the player can delete the save and start over. After all prerequisite bosses are defeated, enter the Darkest Dungeon finale. Only the pre-finale sidecar one-use restrictions are cleared; dead heroes are not revived. Prefer reusing the original Darkest Dungeon rule that prevents victorious Darkest Dungeon heroes from entering again.
 
-需要能力：
+Required capabilities:
 
 ```text
 profile.entered
@@ -332,7 +380,7 @@ state.bossGauntlet.consumedHeroIds
 state.bossGauntlet.consumedTrinketIds
 ```
 
-声明式草案：
+Declarative draft:
 
 ```json
 {
@@ -375,23 +423,23 @@ state.bossGauntlet.consumedTrinketIds
 }
 ```
 
-最小 PoC：
+Minimum PoC:
 
-1. 不直接改真实存档。
-2. 先用旁路状态记录 initialized、fixedQuestIds、completedQuestIds、activeSelection、consumedHeroIds、consumedTrinketIds。
-3. 通过 dry-run 诊断报告证明初始化幂等：第一次进档构建，后续进档不重建、不复活、不补饰品。
-4. 再输出固定任务板和当前可选/不可选英雄、饰品。
-5. 再验证极暗地牢终局解锁只清除 sidecar 限制，不触发英雄复活或 roster rebuild。
-6. 再 Hook 任务板、可选角色列表、饰品列表和出征校验。
-7. 最后补 UI 提示。
+1. Do not directly mutate the real save.
+2. Record `initialized`, `fixedQuestIds`, `completedQuestIds`, `activeSelection`, `consumedHeroIds`, and `consumedTrinketIds` in sidecar state first.
+3. Use dry-run diagnostics to prove initialization is idempotent: first profile entry builds the setup, later entries do not rebuild, revive, or refill trinkets.
+4. Output the fixed quest board and current selectable/unselectable heroes and trinkets.
+5. Verify that finale unlock only clears sidecar pre-finale restrictions and does not revive heroes or rebuild the roster.
+6. Hook the quest board, selectable hero list, trinket list, and embark validation.
+7. Add UI hints last.
 
-早期 `validation.challenge_run_contract` 仍保留“失败锁定重试”的测试语义，用来验证 state/event/managed artifact 管线。它不是当前目标玩法的最终规格。
+The early `validation.challenge_run_contract` still preserves the "failure locks retry selection" test semantics to validate the state/event/managed-artifact pipeline. It is not the final target gameplay spec.
 
 ## Example: Delayed Building Upgrades
 
-目标：建筑升级不再立即完成，而是在若干周后完成；越高级等待越久；同时升级多个建筑时有时间补偿。
+Goal: building upgrades no longer complete immediately. They complete after several weeks; higher levels take longer; multiple simultaneous upgrades get time compensation.
 
-需要能力：
+Required capabilities:
 
 ```text
 building.upgrade_requested
@@ -401,7 +449,7 @@ state.pendingUpgrades
 ui.show_pending_upgrade
 ```
 
-声明式草案：
+Declarative draft:
 
 ```json
 {
@@ -432,19 +480,19 @@ ui.show_pending_upgrade
 }
 ```
 
-最小 PoC：
+Minimum PoC:
 
-1. observe building upgrade click。
-2. 阻止原升级，写入 pending 状态。
-3. observe week advance 并减少 remainingWeeks。
-4. 到 0 时调用或模拟原升级完成。
-5. 最后处理 UI 倒计时。
+1. Observe building upgrade clicks.
+2. Block the original upgrade and write pending state.
+3. Observe week advance and decrease `remainingWeeks`.
+4. At 0, call or simulate original upgrade completion.
+5. Add UI countdown handling last.
 
 ## Example: Post-Ancestor Campaign
 
-目标：祖父战结束后不直接结束，而是解锁新区域、新剧情、新任务链。
+Goal: do not end the campaign directly after the Ancestor battle. Unlock a new region, story, and quest chain.
 
-需要能力：
+Required capabilities:
 
 ```text
 quest.completed
@@ -455,7 +503,7 @@ dialogue.show
 state.storyFlags
 ```
 
-声明式草案：
+Declarative draft:
 
 ```json
 {
@@ -472,29 +520,29 @@ state.storyFlags
 }
 ```
 
-最小 PoC：
+Minimum PoC:
 
-1. observe final quest completion。
-2. 写入 `postgame_unlocked=true`。
-3. 阻止结局流程只打日志。
-4. 注入一个已有类型的新任务。
-5. 再做新区域 UI。
+1. Observe final quest completion.
+2. Write `postgame_unlocked=true`.
+3. Block the ending flow and only log first.
+4. Inject a quest using an existing quest type.
+5. Add new region UI later.
 
 ## Roadmap
 
-1. 保持文件虚拟化、验证、预览稳定。
-2. 设计并实现插件加载顺序和依赖图，但默认兼容优先。
-3. 做事件探针，只记录不改逻辑。
-4. 做旁路 Mod 状态存档。当前已有启动器级 `--init-mod-state` / `--dump-mod-state` 初始读写。
-5. 做最小事件规则执行器。当前已有 `--emit-event`，可执行已实现的安全 sidecar state 动作，并可为部分 managed 动作生成 sidecar artifact；真实游戏事件接入和真实游戏修改仍待做。
-6. 选择一个 PoC：固定关卡挑战适合作为第一个玩法 dry-run，因为它先验证 facts、sidecar state、选择过滤和状态推进，不需要马上拦截真实 UI。
-7. 再做建筑升级等待，因为它验证事件、状态、跨周推进和 UI 提示。
-8. 最后做 post-Ancestor campaign。
+1. Keep file virtualization, validation, and preview stable.
+2. Design and implement plugin load order and dependency graph with compatibility-first defaults.
+3. Build event probes that log only.
+4. Build sidecar mod state. The launcher already has initial `--init-mod-state` / `--dump-mod-state` read/write support.
+5. Build the smallest event rule executor. `--emit-event` already executes implemented safe sidecar state actions and can generate sidecar artifacts for selected managed actions. Real game event intake and real game mutation are still future work.
+6. Choose a PoC: the fixed-stage challenge is the best first gameplay dry-run because it validates facts, sidecar state, selection filtering, and state progression before intercepting real UI.
+7. Add delayed building upgrades next because they validate events, state, week progression, and UI hints.
+8. Add the post-Ancestor campaign after that.
 
 ## Non-Goals For Now
 
-- 不做任意 Lua/C#/native 插件加载。
-- 不承诺任意新增 UI。
-- 不改原版存档结构。
-- 不直接开放任意内存写入。
-- 不绕过 Steam、DRM 或系统安全机制。
+- Do not load arbitrary Lua/C#/native plugins yet.
+- Do not promise arbitrary new UI yet.
+- Do not change original save structure.
+- Do not expose arbitrary memory writes.
+- Do not bypass Steam, DRM, or system security mechanisms.

@@ -4,7 +4,7 @@ This repository is the runtime mod framework prototype for Darkest Dungeon 1 on 
 
 ## Project Boundary
 
-- Treat this project as the working root: `E:\数据文件\SelfMod\DarkestDungeonRuntimeFramework`.
+- Treat the current repository root as the working root for this project.
 - Do not modify the original game directory, Steam userdata saves, Workshop mods, or installed game files unless the user explicitly asks for that exact operation.
 - For live game validation, treat `E:\Steam\userdata\1097809614\262060\remote\profile_3` as the user's designated test profile unless the user says otherwise.
 - Runtime mod state belongs in framework sidecar files under `state/`, not in original `profile_*` saves.
@@ -52,7 +52,7 @@ dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --
 .\tools\TestMapFileInspector.ps1
 .\tools\TestChallengeRunDryRun.ps1 -AssertSample
 .\tools\TestSaveSampleFacts.ps1
-git -c safe.directory='E:/数据文件/SelfMod/DarkestDungeonRuntimeFramework' diff --check
+git -c safe.directory=. diff --check
 ```
 
 For documentation-only changes, `git diff --check` plus a focused read-through is usually enough.

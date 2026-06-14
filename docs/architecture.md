@@ -1,88 +1,88 @@
 # Architecture
 
-运行时平台的长期设计见 `docs/runtime_mod_platform.md`，通用规则契约见 `docs/capability_rule_contract.md`，新增能力前的通用性检查见 `docs/framework_capability_matrix.md`，内容引用和内容创作边界见 `docs/content_reference_boundaries.md`，验收场景见 `docs/validation_scenarios.md`。本文档记录当前骨架和短期组件边界；平台文档记录事件、状态、动作和深层 Hook 能力的方向。
+The long-term runtime platform design lives in `docs/runtime_mod_platform.md`. The generic rule contract lives in `docs/capability_rule_contract.md`. The generality checklist for new capabilities lives in `docs/framework_capability_matrix.md`. Content reference and authoring boundaries live in `docs/content_reference_boundaries.md`. Acceptance scenarios live in `docs/validation_scenarios.md`. This document records the current skeleton and short-term component boundaries; the platform document records the direction for events, state, actions, and deeper hook capabilities.
 
 ## Phase 1: Injection and Logging
 
-目标是证明三件事：
+The goal is to prove three things:
 
-1. 启动器可以稳定找到游戏入口。
-2. 启动器可以加载匹配位数的 `RuntimeHook.dll`。
-3. DLL 进入游戏进程后可以写日志。
+1. The launcher can reliably find the game entry point.
+2. The launcher can load a `RuntimeHook.dll` that matches the game architecture.
+3. The DLL can write logs after entering the game process.
 
-这一阶段不修改游戏逻辑。
+This phase does not change game logic.
 
 ## Components
 
 ### DDRuntimeLoader
 
-C# 控制台启动器。
+C# console launcher.
 
-职责：
+Responsibilities:
 
-- 读取 `config/default_config.json` 或 `config/config.json`。
-- 校验游戏路径、DLL 路径、日志目录。
-- 计算并记录游戏 exe SHA-256。
-- 默认以 suspended 模式启动 `Darkest.exe`，先注入 DLL 再恢复主线程，避免错过早期资源读取。
-- 通过 `LoadLibraryW` 远程线程注入 RuntimeHook.dll。
-- 将 `DD_RUNTIME_FRAMEWORK_ROOT`、`DD_RUNTIME_LOG_DIR`、文件 IO 观察配置和事件探针配置写入游戏进程环境。
-- 可选启动器侧存档目录 watcher，监控 Steam userdata / Documents Darkest 中的真实存档落盘，并在游戏退出后继续短暂监听外部同步写入。
-- 扫描插件补丁清单 `plugins/<plugin-id>/patches.json`，按 manifest 依赖和顺序字段生成加载计划，再把虚拟文件规则写入 `DD_RUNTIME_VIRTUAL_RULE_*` 环境变量。
-- 在启动前验证补丁规则：目标文件存在性、当前虚拟文件大小限制、按最终替换顺序统计字符串命中次数和同目标多规则提示。
-- 在不启动游戏的情况下解释和预览补丁结果，输出加载顺序、排序边、跳过原因、虚拟文件文本、简短 diff 和同一目标行冲突提示。
-- 在不启动游戏的情况下用 `--emit-event` 模拟事件，执行已实现的安全 `eventRules` 动作并写入 sidecar state；部分 managed 动作先物化为 sidecar artifact，不执行真实游戏修改。
-- 在启动游戏或 `--dry-run` 前，把 `_managed_actions/` 中可消费的 sidecar artifact 编译成 `logs/managed_action_overlay_manifest.json`，并通过 `DD_RUNTIME_MANAGED_OVERLAY_*` 环境变量暴露给 RuntimeHook 诊断；当前 `quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` 会追加到既有虚拟文件规则环境变量，`questBoard.replaceWithFixedSet` 也可以通过 `--refresh-quest-board-profile` 显式刷新 watched profile 的当前任务板，或在 `questBoardAutoRefreshEnabled` 下由 save watcher 在 live `persist.quest.json` 改变后自动重刷，`inventory.disableItemSale` 只进入 profile sale policy，不再修改官方 trinket `price`；`roster.enforceAvailabilityFilter` 和 `equipment.enforceAvailabilityFilter` 会进入 manifest 的 `availabilityPolicies`，作为后续 runtime/UI/save consumer 的统一输入，但当前标记为 manifest-only，不宣称已经硬拦截原版选择 UI 或经济 UI。
+- Read `config/default_config.json` or `config/config.json`.
+- Validate the game path, DLL path, and log directory.
+- Compute and log the game executable SHA-256.
+- Start `Darkest.exe` suspended by default, inject the DLL first, then resume the main thread so early resource reads are not missed.
+- Inject RuntimeHook.dll through a remote `LoadLibraryW` thread.
+- Write `DD_RUNTIME_FRAMEWORK_ROOT`, `DD_RUNTIME_LOG_DIR`, file IO observation config, and event probe config into the game process environment.
+- Optionally run a launcher-side save directory watcher for real Steam userdata / Documents Darkest save writes, then keep listening briefly after game exit for external sync writes.
+- Scan plugin patch manifests at `plugins/<plugin-id>/patches.json`, build a load plan from manifest dependency and ordering fields, then write virtual file rules into `DD_RUNTIME_VIRTUAL_RULE_*` environment variables.
+- Validate patch rules before launch: target file existence, current virtual file size limits, string hit counts after final replacement ordering, and same-target multi-rule hints.
+- Explain and preview patch results without launching the game, including load order, ordering edges, skip reasons, virtual file text, short diffs, and same-target line conflict hints.
+- Simulate events with `--emit-event` without launching the game, execute implemented safe `eventRules` actions, and write sidecar state. Some managed actions are materialized as sidecar artifacts first and do not directly change the live game.
+- Before game launch or `--dry-run`, compile consumable sidecar artifacts from `_managed_actions/` into `logs/managed_action_overlay_manifest.json`, then expose them to RuntimeHook diagnostics through `DD_RUNTIME_MANAGED_OVERLAY_*`. Today `quest.injectFixedStage` and `questBoard.replaceWithFixedSet` are appended to the existing virtual file rule environment. `questBoard.replaceWithFixedSet` can also explicitly refresh the current quest board for a watched profile through `--refresh-quest-board-profile`, or be reapplied by the save watcher when `questBoardAutoRefreshEnabled` observes live `persist.quest.json` changes. `inventory.disableItemSale` only enters the profile sale policy and no longer mutates official trinket `price` values. `roster.enforceAvailabilityFilter` and `equipment.enforceAvailabilityFilter` enter manifest `availabilityPolicies` as stable inputs for future runtime/UI/save consumers, but they are currently manifest-only and do not claim hard enforcement against the original party UI or economy UI.
 
 ### RuntimeHook.dll
 
-C++ DLL。
+C++ DLL.
 
-职责：
+Responsibilities:
 
-- 在 `DLL_PROCESS_ATTACH` 后创建初始化线程。
-- 初始化日志。
-- 记录进程、模块路径和环境变量。
-- 初始化文件 IO Hook、虚拟文件通道和 observe-only 事件探针。
-- 记录 managed action overlay manifest 的路径、文件大小、overlay 数量、availability policy 数量和 issue 数量，并通过既有虚拟文件通道消费启动器追加的 overlay 规则；当 availability policy 存在时，启用 focused availability probe，对候选 profile 文件事件输出 `availability.*` 诊断和可选调用栈模块偏移。availability policy 当前只作为 manifest/probe 输入暴露，尚未硬拦截原版选择 UI。
+- Create an initialization thread after `DLL_PROCESS_ATTACH`.
+- Initialize logging.
+- Record process, module path, and environment variables.
+- Initialize file IO hooks, the virtual file channel, and observe-only event probes.
+- Record managed action overlay manifest path, file size, overlay count, availability policy count, and issue count. Consume launcher-added overlay rules through the existing virtual file channel. When availability policies exist, enable a focused availability probe that emits `availability.*` diagnostics and optional call-stack module offsets for candidate profile file events. Availability policies are currently exposed only as manifest/probe inputs and do not hard-block the original selection UI.
 
 ### Hook Layer
 
-后续阶段会在这里加入 MinHook 或等价库。
+Later phases add MinHook or an equivalent library here.
 
-建议顺序：
+Recommended order:
 
-1. 观察文件读取路径，只记录不修改。当前阶段通过 MinHook 挂 `CreateFileW/CreateFileA`。
-2. 对 `.darkest` / localization 文件做虚拟内容返回。当前原型支持配置规则列表：每条规则匹配一个路径后缀，并按顺序执行多条字符串替换，通过虚拟句柄响应 `ReadFile` / `GetFileSize` / `SetFilePointer` / `CloseHandle`。规则也可以使用 `sourcePath` 从项目根下的生成文件提供整文件字节，用于 `.dm` 这类二进制覆盖；`sourcePath` 当前不和文本替换/operation 混用，并且 RuntimeHook 读取 `sourcePath` 时使用 Win32 extended path 形式，避免项目路径超过 260 字符时打不开生成文件。存档文件 `profile_*/persist.*.json` 默认不走运行时虚拟文件覆盖，因为游戏的 StorageManager 会在启动同步、备份和转移存档时依赖目录枚举得到的真实文件大小；这类修改应通过 managed save writer 写入真实 profile，并保留备份和报告。
-3. 观察文件写入和生命周期操作，只记录不修改。当前阶段通过 MinHook 挂 `WriteFile`、`MoveFile/MoveFileEx`、`CopyFile`、`DeleteFile`、`ReplaceFile` 和 `SetFileAttributes`，把已知真实文件活动分类成 `data` / `asset` / `save` 事件；`save` 事件有独立日志预算，外部噪声路径可通过配置过滤。availability policy 存在时，focused probe 会额外标记 `persist.roster.json`、`persist.estate.json`、`persist.raid.json`、`persist.quest.json` 等候选文件，帮助定位选人/饰品/出征流程的真实调用点。
-4. 对 DLL 无法覆盖的外部存档落盘，先由启动器 sidecar watcher 做 observe-only 记录。
-5. 对数据加载函数做结构化 Hook。
-6. 最后才碰战斗、AI 和存档相关逻辑。
+1. Observe file read paths. Log only. The current phase hooks `CreateFileW/CreateFileA` through MinHook.
+2. Return virtual content for `.darkest` / localization files. The current prototype supports configured rule lists: each rule matches one path suffix and applies ordered string replacements, then serves the result through virtual handles for `ReadFile` / `GetFileSize` / `SetFilePointer` / `CloseHandle`. Rules may also use `sourcePath` to provide full-file bytes generated under the project root, mainly for binary replacements such as `.dm` files. `sourcePath` is not mixed with text replacements or operations today, and RuntimeHook reads `sourcePath` through Win32 extended-path form so generated files still open when the project path exceeds 260 characters. Save files such as `profile_*/persist.*.json` do not use runtime virtual file replacement by default, because the game's StorageManager relies on real directory enumeration sizes during startup sync, backup, and save transfer. Those changes should go through managed save writers with backup and reporting.
+3. Observe file writes and lifecycle operations. Log only. The current phase hooks `WriteFile`, `MoveFile/MoveFileEx`, `CopyFile`, `DeleteFile`, `ReplaceFile`, and `SetFileAttributes`, classifies known real file activity as `data` / `asset` / `save`, and gives `save` events a separate log budget. External noisy paths can be filtered by config. When availability policy exists, the focused probe additionally marks candidate files such as `persist.roster.json`, `persist.estate.json`, `persist.raid.json`, and `persist.quest.json` to help locate the real selection, trinket, and embark flow call points.
+4. Use the launcher sidecar watcher for observe-only records of external save writes the DLL cannot cover.
+5. Add structured hooks for data loading functions.
+6. Touch battle, AI, and save logic last.
 
 ### Plugin Layer
 
-第一版插件层先只实现补丁清单，不加载第三方代码：
+The first plugin layer implements patch manifests only and does not load third-party code:
 
-- 启动器扫描配置中的 `pluginDirectories`。
-- 每个插件目录读取一个 `patches.json`。
-- `enabled:false` 的清单只记录日志，不参与规则合并。
-- `enabled:true` 的清单可提供 `id`、`version`、`capabilities`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts` 和 `virtualFileRules`。
-- 清单现在也可以声明 `eventRules`、`stateSchema`，后续还应支持模块化 `contentRefs`。`eventRules` 可通过 `--explain-rules` 解释，并可通过 `--emit-event` 执行已实现的安全动作或物化 selected managed action artifact；`quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` artifact 会在启动前进入 overlay manifest，并生成相关 `quest.plot_quests.json` 的虚拟替换入口；固定任务板还可通过 `--refresh-quest-board-profile <profileId>` 受控写入 watched profile 的 `persist.quest.json`，或由 save watcher 在 live 任务板保存后受控重刷；`inventory.disableItemSale` artifact 会进入 manifest policy 区域但不生成 price overlay；availability filter artifact 会进入 manifest policy 区域并触发 focused availability probe，等待更深的 hard consumer；`stateSchema` 可初始化/读取到框架 sidecar 状态目录。
-- 静态内容创作和运行时编排分层处理。怪物、怪物技能、贴图、动画、音频、语言、普通 curio/loot 定义可以由原版、DLC、创意工坊或插件自带文件提供；框架优先做引用、校验、依赖报告、组合和运行时投影，只有规则生成或运行时强制确有必要时才实现 writer。
-- 重复 `id`、声明冲突和顺序循环默认只记录 warning；必需依赖缺失时跳过当前插件，不阻止其他插件。
-- `virtualFileRules` 可使用 `when.modsPresent` / `when.modsAbsent` / `when.capabilitiesPresent` / `when.capabilitiesAbsent` 做规则级条件；条件不满足的规则只进入 explain 诊断，不参与最终补丁链。
-- `operations` 会在启动前按加载顺序、基于当前虚拟文本逐步编译成底层字符串 `replacements`。
-- 编译后的替换会保留 operation subject，例如 `key:.some_key`，用于 explain、validate、preview diff 和 key 级冲突提示。
+- The launcher scans configured `pluginDirectories`.
+- Each plugin directory contains one `patches.json`.
+- Manifests with `enabled:false` are logged but do not participate in rule merging.
+- Manifests with `enabled:true` may provide `id`, `version`, `capabilities`, `phase`, `priority`, `depends`, `optionalDepends`, `loadAfter`, `loadBefore`, `conflicts`, and `virtualFileRules`.
+- Manifests can now also declare `eventRules` and `stateSchema`; modular `contentRefs` should continue to grow. `eventRules` can be explained with `--explain-rules` and executed with `--emit-event` for implemented safe actions or selected managed action materialization. `quest.injectFixedStage` and `questBoard.replaceWithFixedSet` artifacts enter the overlay manifest before launch and generate virtual replacement entries for related `quest.plot_quests.json` files. Fixed quest boards can also be written in a controlled way to watched profile `persist.quest.json` through `--refresh-quest-board-profile <profileId>`, or reapplied by the save watcher after live quest-board saves. `inventory.disableItemSale` artifacts enter the manifest policy area but do not generate price overlays. Availability filter artifacts enter the manifest policy area and trigger the focused availability probe while waiting for a deeper hard consumer. `stateSchema` can be initialized and read from framework sidecar state directories.
+- Static content authoring and runtime orchestration are separate layers. Monsters, monster skills, textures, animation, audio, localization, and ordinary curio/loot definitions may come from the base game, DLC, Workshop mods, or plugin-provided files. The framework should prioritize references, validation, dependency reports, composition, ordering, and runtime projection. It should implement a writer only when rule generation or runtime enforcement truly requires one.
+- Duplicate `id`, declared conflicts, and order cycles default to warnings. Missing required dependencies skip the affected plugin without blocking other plugins.
+- `virtualFileRules` can use `when.modsPresent` / `when.modsAbsent` / `when.capabilitiesPresent` / `when.capabilitiesAbsent` as rule-level conditions. Rules whose conditions are not satisfied appear only in explain diagnostics and do not enter final patch compilation.
+- `operations` are compiled before launch into low-level string `replacements`, applying load order and the current virtual text step by step.
+- Compiled replacements keep their operation subject, such as `key:.some_key`, for explain, validate, preview diff, and key-level conflict hints.
 
-稳定后再考虑：
+Consider these only after the foundation is stable:
 
-- native C ABI 插件
-- Lua 插件
-- C# 插件宿主
+- native C ABI plugins
+- Lua plugins
+- C# plugin host
 
 ## Risk Control
 
-- 所有 Hook 必须可配置关闭。
-- 所有深层 Hook 必须绑定游戏 exe hash。
-- 插件启用顺序必须记录到日志。
-- 默认不写入自定义存档状态。
-- 崩溃排查优先看最后一条 runtime 日志。
+- Every hook must be configurable off.
+- Every deep hook must bind to the game executable hash.
+- Plugin enable order must be logged.
+- Custom save state is not written by default.
+- Crash triage should start from the last runtime log entry.
