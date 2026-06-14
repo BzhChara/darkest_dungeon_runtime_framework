@@ -21,6 +21,7 @@ Runtime file interception is the harder layer. It should be implemented as gener
 
 - Detect original game generation points that rewrite quest boards, stagecoach recruits, town stores, town events, and other week-settlement data.
 - Prefer explicit post-generation reconciliation only when brief UI drift is acceptable.
+- Full original week-settlement takeover is deferred. The current quest-board path may refresh the generated board after stable saves, but it should not pretend to replace treatment timers, construction queues, hero consequences, event rolls, campaign logs, or other original settlement work.
 - Add hard runtime consumers only when the mod requires no visible drift, such as an always-empty stagecoach or hard-locked party selection.
 - Keep generation consumers idempotent and report when no mutation was needed.
 
@@ -28,7 +29,7 @@ Runtime file interception is the harder layer. It should be implemented as gener
 
 - Replace task-board reads only from resolved `questBoard.replaceWithFixedSet` or `questBoardPolicies` artifacts that match the active profile.
 - Replace stagecoach or store data only from continuous profile policies such as `stagecoach.suppressRecruits` and `town.suppressStoreItems`.
-- Replace selection or economy behavior only after a verified consumer exists. Sidecar selection consumption is not hard enforcement; hero unavailability should first be projected through original roster unavailable/missing/status fields. Manifest-only `inventory.disableItemSale` must not claim hard enforcement.
+- Replace selection or economy behavior only after a verified consumer exists. Sidecar selection consumption is not hard enforcement; hero unavailability should first be projected through original roster unavailable/missing/status fields. Manifest-only `inventory.disableItemSale` must not claim hard enforcement. The removed trinket `price = 0` overlay suppressed sale value only; restore it only as a clearly named sale-value policy or after live testing proves that original content fields truly disable selling.
 - Keep `.dm` map replacement under the map template/overlay layer. Per-cell dynamic map mutation during a raid remains experimental and should not be mixed with task-board refresh.
 
 ## Acceptance Gates

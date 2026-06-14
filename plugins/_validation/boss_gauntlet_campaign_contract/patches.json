@@ -20,7 +20,6 @@
     "campaign.reset_plot_progress",
     "town.unlock_all_buildings",
     "town.suppress_store_items",
-    "town_event.override_current",
     "quest_board.replace_with_fixed_set",
     "quest_board.filter_completed_fixed_quests",
     "quest.observe_selection_confirmed",
@@ -342,7 +341,6 @@
         "inventory.disable_item_sale",
         "campaign.reset_plot_progress",
         "town.unlock_all_buildings",
-        "town_event.override_current",
         "quest_board.replace_with_fixed_set",
         "profile.mark_initialized"
       ],
@@ -495,16 +493,6 @@
             "mode": "state.bossGauntlet.townStoreItems.mode",
             "buildingIds": "state.bossGauntlet.townStoreItems.buildingIds",
             "sections": "state.bossGauntlet.townStoreItems.sections"
-          }
-        },
-        {
-          "type": "townEvent.overrideCurrent",
-          "capability": "town_event.override_current",
-          "risk": "managed",
-          "required": true,
-          "args": {
-            "target": "profile.town_event",
-            "event": "state.bossGauntlet.townEvent"
           }
         },
         {

@@ -169,7 +169,7 @@ Assert-True (@($dd2PolicyEntry.availableWhen.completedQuests) -contains "plot_da
 Assert-True (@($dd2PolicyEntry.availableWhen.notCompletedQuests) -contains "plot_darkest_dungeon_2") "DD2 should disappear after completion."
 
 $initializationReport = Read-RuntimeEventReport
-Assert-True ([int]$initializationReport.materializedActionCount -eq 13) "Initialization should materialize thirteen managed profile-normalization actions."
+Assert-True ([int]$initializationReport.materializedActionCount -eq 12) "Initialization should materialize twelve managed profile-normalization actions."
 
 $rosterAction = Get-ActionReport -Report $initializationReport -Type "roster.ensureClassInstances"
 $rosterArtifact = Read-ManagedActionArtifact -Action $rosterAction -ExpectedType "roster.ensureClassInstances"
@@ -216,10 +216,6 @@ $questBoardAction = Get-ActionReport -Report $initializationReport -Type "questB
 $questBoardArtifact = Read-ManagedActionArtifact -Action $questBoardAction -ExpectedType "questBoard.replaceWithFixedSet"
 Assert-True ((Convert-ToArray $questBoardArtifact.plan.arguments.questIds) -contains "plot_kill_necromancer_3") "Quest board normalization should include the Necromancer fixture quest."
 Assert-True ([bool]$questBoardArtifact.plan.arguments.removeCompleted) "Quest board normalization should request completed fixed quests to be removed."
-
-$townEventAction = Get-ActionReport -Report $initializationReport -Type "townEvent.overrideCurrent"
-$townEventArtifact = Read-ManagedActionArtifact -Action $townEventAction -ExpectedType "townEvent.overrideCurrent"
-Assert-True ($townEventArtifact.plan.arguments.event.message -eq "Enjoy the inferno") "Town event normalization should request the fixed event message."
 
 $townStoreAction = Get-ActionReport -Report $initializationReport -Type "town.suppressStoreItems"
 $townStoreArtifact = Read-ManagedActionArtifact -Action $townStoreAction -ExpectedType "town.suppressStoreItems"

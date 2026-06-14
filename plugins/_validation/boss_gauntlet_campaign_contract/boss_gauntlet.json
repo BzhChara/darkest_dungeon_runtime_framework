@@ -55,10 +55,6 @@
       "generated"
     ]
   },
-  "townEvent": {
-    "mode": "override",
-    "message": "Enjoy the inferno"
-  },
   "resetPlotProgress": {
     "plotQuestIds": [
       "plot_darkest_dungeon_1",
