@@ -69,6 +69,10 @@
     "plot_kill_drowned_crew_3",
     "plot_kill_siren_3"
   ],
+  "finaleQuestIds": [
+    "plot_darkest_dungeon_1"
+  ],
+  "finaleQuestBoardMaterialized": false,
   "fixedBossQuests": [
     {
       "id": "plot_kill_necromancer_3",

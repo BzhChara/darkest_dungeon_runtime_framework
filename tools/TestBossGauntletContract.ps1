@@ -77,6 +77,12 @@ function Read-RuntimeEventReport {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-QuestBoardPreviewReport {
+    $path = Join-Path $projectRoot.Path "logs\quest_board_preview_report.json"
+    Assert-True (Test-Path -LiteralPath $path) "Quest board preview report was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Get-ActionReport {
     param(
         [object]$Report,
@@ -137,6 +143,9 @@ Assert-True ([int]$state.wallet.gold -eq 20000) "Initialization should set gold 
 Assert-True ([bool]$state.trinketSaleDisabled) "Initialization should disable trinket selling in sidecar state."
 Assert-True ((Convert-ToArray $state.fixedQuestIds).Count -eq 8) "Initialization should load the fixed boss quest ids from the definition."
 Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necromancer_3") "Fixed quest ids should include the Necromancer fixture quest."
+Assert-True ((Convert-ToArray $state.finaleQuestIds).Count -eq 1) "Initialization should load the finale quest ids from the definition."
+Assert-True ((Convert-ToArray $state.finaleQuestIds) -contains "plot_darkest_dungeon_1") "Finale quest ids should begin with DD1."
+Assert-True (-not [bool]$state.finaleQuestBoardMaterialized) "Initialization should not materialize the finale quest board yet."
 Assert-True ([bool]$state.finaleDoesNotReviveDeadHeroes) "Definition should record that finale unlock does not revive dead heroes."
 
 $initializationReport = Read-RuntimeEventReport
@@ -318,6 +327,20 @@ Assert-True ((Convert-ToArray $state.consumedHeroIds).Count -eq 0) "Finale unloc
 Assert-True ((Convert-ToArray $state.consumedTrinketIds).Count -eq 0) "Finale unlock should clear sidecar trinket reuse restrictions."
 Assert-True ((Convert-ToArray $state.observedDeadHeroIds) -contains "dead_hero_1") "Finale unlock should not erase observed dead hero state."
 Assert-True ($null -eq $state.activeSelection) "Finale unlock should leave active selection cleared."
+Assert-True ([bool]$state.finaleQuestBoardMaterialized) "Finale unlock should materialize the finale quest board once."
+
+$finaleUnlockReport = Read-RuntimeEventReport
+$finaleQuestBoardAction = Get-ActionReport -Report $finaleUnlockReport -Type "questBoard.replaceWithFixedSet"
+$finaleQuestBoardArtifact = Read-ManagedActionArtifact -Action $finaleQuestBoardAction -ExpectedType "questBoard.replaceWithFixedSet"
+Assert-True ((Convert-ToArray $finaleQuestBoardArtifact.plan.arguments.questIds).Count -eq 1) "Finale quest board should contain exactly one entry in the first slice."
+Assert-True ((Convert-ToArray $finaleQuestBoardArtifact.plan.arguments.questIds) -contains "plot_darkest_dungeon_1") "Finale quest board should unlock DD1 after all fixed bosses are completed."
+Assert-True (-not [bool]$finaleQuestBoardArtifact.plan.arguments.removeCompleted) "Finale quest board should not filter DD1 through the pre-finale completed boss list."
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--preview-quest-board"))
+$questBoardPreview = Read-QuestBoardPreviewReport
+$activePreviewQuests = Convert-ToArray $questBoardPreview.finalActiveQuests
+Assert-True ([int]$questBoardPreview.finalActiveQuestCount -eq 1) "Quest board preview should resolve the latest artifact to one finale quest."
+Assert-True ($activePreviewQuests[0].questId -eq "plot_darkest_dungeon_1") "Quest board preview should make DD1 the active finale quest."
 
 $postFinaleSelectionPayloadPath = Write-JsonPayload "selection_after_finale.json" ([pscustomobject]@{
     questId = "plot_kill_necromancer_3"

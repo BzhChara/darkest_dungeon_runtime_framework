@@ -670,11 +670,65 @@
       ]
     },
     {
-      "id": "resolve_failed_prefinale_boss_attempt",
+      "id": "materialize_finale_quest_board_after_all_bosses",
       "enabled": true,
       "on": "quest.attempt_resolved",
       "phase": "normal",
       "priority": 1,
+      "requiresCapabilities": [
+        "state.sidecar",
+        "quest.observe_attempt_resolved",
+        "quest_board.replace_with_fixed_set"
+      ],
+      "when": {
+        "all": [
+          {
+            "state": "bossGauntlet.phase",
+            "op": "equals",
+            "value": "darkest_finale"
+          },
+          {
+            "state": "bossGauntlet.finaleQuestBoardMaterialized",
+            "op": "equals",
+            "value": false
+          },
+          {
+            "event": "success",
+            "op": "equals",
+            "value": true
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "questBoard.replaceWithFixedSet",
+          "capability": "quest_board.replace_with_fixed_set",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.quest_board",
+            "questIds": "state.bossGauntlet.finaleQuestIds",
+            "removeCompleted": false
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "bossGauntlet.finaleQuestBoardMaterialized",
+            "value": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "resolve_failed_prefinale_boss_attempt",
+      "enabled": true,
+      "on": "quest.attempt_resolved",
+      "phase": "normal",
+      "priority": 2,
       "requiresCapabilities": [
         "state.sidecar",
         "quest.observe_attempt_resolved",
@@ -765,6 +819,8 @@
           "gold": 0
         },
         "fixedQuestIds": [],
+        "finaleQuestIds": [],
+        "finaleQuestBoardMaterialized": false,
         "completedQuestIds": [],
         "consumedHeroIds": [],
         "consumedTrinketIds": [],
