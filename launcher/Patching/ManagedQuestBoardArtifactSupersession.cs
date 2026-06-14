@@ -40,7 +40,7 @@ internal static class ManagedQuestBoardArtifactSupersession
 
                 var candidate = new QuestBoardArtifactCandidate(
                     path,
-                    BuildSupersedeKey(artifact, profileScope),
+                    BuildSupersedeKey(artifact, normalizedTargetProfileId, profileScope),
                     File.GetLastWriteTimeUtc(path));
                 candidates.Add(candidate);
                 latestByKey[candidate.Key] = candidate;
@@ -63,8 +63,18 @@ internal static class ManagedQuestBoardArtifactSupersession
         return result;
     }
 
-    private static string BuildSupersedeKey(JsonObject artifact, ManagedActionProfileScope profileScope)
+    private static string BuildSupersedeKey(
+        JsonObject artifact,
+        string targetProfileId,
+        ManagedActionProfileScope profileScope)
     {
+        var effectiveProfileKind = string.IsNullOrWhiteSpace(targetProfileId)
+            ? (profileScope.IsGlobal ? "global" : profileScope.Kind)
+            : "profile";
+        var effectiveProfileId = string.IsNullOrWhiteSpace(targetProfileId)
+            ? profileScope.ProfileId
+            : targetProfileId;
+
         return string.Join('|',
             Normalize(ReadOptionalStringPath(artifact, "action.type")),
             Normalize(ReadOptionalStringPath(artifact, "plan.target")),
@@ -72,9 +82,8 @@ internal static class ManagedQuestBoardArtifactSupersession
             Normalize(ReadOptionalStringPath(artifact, "sourcePath")),
             Normalize(ReadOptionalStringPath(artifact, "ruleId")),
             ReadOptionalIntPath(artifact, "actionIndex")?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-            Normalize(profileScope.Kind),
-            Normalize(profileScope.ProfileId),
-            Normalize(profileScope.ProfileRoot));
+            Normalize(effectiveProfileKind),
+            Normalize(effectiveProfileId));
     }
 
     private static string ReadOptionalStringPath(JsonObject root, string path)

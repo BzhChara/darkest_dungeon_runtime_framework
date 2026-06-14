@@ -23,6 +23,7 @@ internal static partial class ManagedActionSaveApplier
     private static IReadOnlyList<string> SelectArtifactPaths(
         string artifactDirectory,
         ManagedActionApplyMode applyMode,
+        string? targetProfileId,
         LauncherLog log)
     {
         var allPaths = Directory.EnumerateFiles(artifactDirectory, "*.json")
@@ -42,11 +43,19 @@ internal static partial class ManagedActionSaveApplier
 
         var invalidPaths = new List<string>();
         var candidates = new List<ContinuousProfileArtifactCandidate>();
+        var profileSkippedCount = 0;
+        var normalizedTargetProfileId = ManagedActionProfileScopeResolver.NormalizeTargetProfileId(targetProfileId);
         foreach (var path in allPaths)
         {
-            if (!TryReadContinuousProfileCandidate(path, log, out var candidate))
+            if (!TryReadContinuousProfileCandidate(path, normalizedTargetProfileId, log, out var candidate, out var profileSkipped))
             {
                 invalidPaths.Add(path);
+                continue;
+            }
+
+            if (profileSkipped)
+            {
+                profileSkippedCount++;
                 continue;
             }
 
@@ -69,7 +78,9 @@ internal static partial class ManagedActionSaveApplier
 
         log.Info(
             $"managed-action-apply continuous-profile selection scanned={allPaths.Length} " +
-            $"selected={selected.Length} invalid={invalidPaths.Count} ignored={allPaths.Length - selected.Length - invalidPaths.Count}");
+            $"selected={selected.Length} invalid={invalidPaths.Count} profileSkipped={profileSkippedCount} " +
+            $"ignored={allPaths.Length - selected.Length - invalidPaths.Count - profileSkippedCount} " +
+            $"targetProfile={Quote(normalizedTargetProfileId)}");
 
         return invalidPaths
             .OrderBy(path => File.GetLastWriteTimeUtc(path))
@@ -80,10 +91,13 @@ internal static partial class ManagedActionSaveApplier
 
     private static bool TryReadContinuousProfileCandidate(
         string artifactPath,
+        string targetProfileId,
         LauncherLog log,
-        out ContinuousProfileArtifactCandidate? candidate)
+        out ContinuousProfileArtifactCandidate? candidate,
+        out bool profileSkipped)
     {
         candidate = null;
+        profileSkipped = false;
 
         JsonObject artifact;
         try
@@ -108,6 +122,13 @@ internal static partial class ManagedActionSaveApplier
             var status = ReadOptionalStringPath(artifact, "status");
             if (!status.Equals("materialized", StringComparison.OrdinalIgnoreCase))
             {
+                return true;
+            }
+
+            var profileScope = ManagedActionProfileScopeResolver.FromArtifact(artifact);
+            if (!profileScope.Matches(targetProfileId))
+            {
+                profileSkipped = true;
                 return true;
             }
 

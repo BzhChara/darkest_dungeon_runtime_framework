@@ -116,7 +116,8 @@ internal static class ContinuousProfileActionRefreshWriter
                 projectRoot,
                 decodedSaveDirectory,
                 !dryRun,
-                ManagedActionApplyMode.ContinuousProfile);
+                ManagedActionApplyMode.ContinuousProfile,
+                normalizedProfileId);
             if (!applyReport.Succeeded)
             {
                 issues.Add(Error(

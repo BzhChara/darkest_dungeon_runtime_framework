@@ -143,10 +143,11 @@ function Write-ManagedActionArtifact {
         [string]$Capability,
         [string]$Effect,
         [string]$Target,
-        [hashtable]$Arguments
+        [hashtable]$Arguments,
+        [string]$ArtifactStateRoot = $stateRoot
     )
 
-    $artifactDirectory = Join-Path $stateRoot "_managed_actions"
+    $artifactDirectory = Join-Path $ArtifactStateRoot "_managed_actions"
     New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
     $path = Join-Path $artifactDirectory $Name
     $artifact = [ordered]@{
@@ -387,7 +388,9 @@ function Write-DecodedUpgradesFixture {
 }
 
 function Write-DecodedTownFixture {
-    $path = Join-Path $saveRoot "persist.town.json"
+    param([string]$TargetSaveRoot = $saveRoot)
+
+    $path = Join-Path $TargetSaveRoot "persist.town.json"
     @'
 {
   "base_root": {
@@ -965,6 +968,49 @@ $townEvent = Read-DecodedTownEvent
 Assert-True ([int]$townEvent.base_root.current_result_event_id -ne 0) "Fixture should start with a current town event id."
 Assert-True ([bool]$townEvent.base_root.has_unclaimed_interaction) "Fixture should start with an unclaimed town event interaction."
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $saveRoot "_ddrt_profile_policy.json") -PathType Leaf)) "Fixture should start without a generated profile policy file."
+
+$noneModeStateRoot = Join-Path $stateRoot "none_mode_state"
+$noneModeSaveRoot = Join-Path $stateRoot "none_mode_decoded_save"
+New-Item -ItemType Directory -Force -Path $noneModeStateRoot, $noneModeSaveRoot | Out-Null
+Write-DecodedTownFixture -TargetSaveRoot $noneModeSaveRoot
+Write-ManagedActionArtifact `
+    -ArtifactStateRoot $noneModeStateRoot `
+    -Name "stagecoach_none.json" `
+    -ActionType "stagecoach.suppressRecruits" `
+    -Capability "stagecoach.suppress_recruits" `
+    -Effect "suppressRecruits" `
+    -Target "profile.stagecoach" `
+    -Arguments @{
+        mode = "none"
+    } | Out-Null
+Write-ManagedActionArtifact `
+    -ArtifactStateRoot $noneModeStateRoot `
+    -Name "town_store_none.json" `
+    -ActionType "town.suppressStoreItems" `
+    -Capability "town.suppress_store_items" `
+    -Effect "suppressStoreItems" `
+    -Target "profile.town.stores" `
+    -Arguments @{
+        mode = "none"
+        buildingIds = @("nomad_wagon")
+        sections = @("generated", "inventory.items")
+    } | Out-Null
+$noneModeArgs = @(
+    "--config", (Resolve-ProjectPath $ConfigPath),
+    "--no-inject",
+    "--allow-non-atomic-state-writes",
+    "--mod-state-id", $pluginId,
+    "--mod-state-dir", $noneModeStateRoot
+)
+Invoke-Loader -LoaderArgs ($noneModeArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $noneModeSaveRoot))
+$noneModeReport = Read-ApplyReport
+Assert-True ([int]$noneModeReport.supportedActionCount -eq 2) "mode=none probe should recognize both no-op town actions."
+Assert-True ([int]$noneModeReport.appliedActionCount -eq 2) "mode=none probe should report both no-op town actions as applied."
+Assert-True ([int]$noneModeReport.changedFileCount -eq 0) "mode=none probe must not mark decoded save files changed."
+$noneModeTown = Get-Content -Raw -LiteralPath (Join-Path $noneModeSaveRoot "persist.town.json") | ConvertFrom-Json -AsHashtable
+Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $noneModeTown) -eq 2) "stagecoach.suppressRecruits mode=none must not remove generated recruits."
+Assert-True ((Get-TownStoreInventoryItemCount -Town $noneModeTown -BuildingId "nomad_wagon") -eq 3) "town.suppressStoreItems mode=none must not remove inventory store items."
+Assert-True ((Get-TownStoreGeneratedItemCount -Town $noneModeTown -BuildingId "nomad_wagon") -eq 1) "town.suppressStoreItems mode=none must not remove generated store items."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--initialize-decoded-profile", "--managed-action-save-dir", $saveRoot))
 $dryRunInitializationReport = Read-DecodedProfileInitializationReport

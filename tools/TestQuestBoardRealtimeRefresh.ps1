@@ -136,6 +136,17 @@ function Write-TownFixture {
             }
           }
         }
+      },
+      "blacksmith": {
+        "store": {
+          "0": {
+            "generated": {
+              "0": {
+                "id": "foreign_profile_should_not_clear"
+              }
+            }
+          }
+        }
       }
     },
     "districts": {
@@ -236,6 +247,7 @@ function Write-StaleDd4PolicyArtifact {
     $artifactRoot = Join-Path $stateRoot "_managed_actions"
     New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
     $resolveReportPath = Join-Path $projectRoot "logs\quest_board_policy_resolve_report.json"
+    $staleProfileRoot = Join-Path $profileRoot "stale_root_that_should_not_split_supersession"
     $artifact = [ordered]@{
         version = 1
         generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
@@ -247,7 +259,7 @@ function Write-StaleDd4PolicyArtifact {
         profileScope = [ordered]@{
             kind = "profile"
             profileId = $profileId
-            profileRoot = $profileRoot
+            profileRoot = $staleProfileRoot
             source = "test.staleArtifact"
         }
         loadOrder = 2147483647
@@ -273,7 +285,7 @@ function Write-StaleDd4PolicyArtifact {
             profileScope = [ordered]@{
                 kind = "profile"
                 profileId = $profileId
-                profileRoot = $profileRoot
+                profileRoot = $staleProfileRoot
                 source = "test.staleArtifact"
             }
             arguments = [ordered]@{
@@ -290,6 +302,49 @@ function Write-StaleDd4PolicyArtifact {
     }
 
     $artifactPath = Join-Path $artifactRoot "manual_stale_dd4_questBoard.replaceWithFixedSet.json"
+    $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $artifactPath -Encoding UTF8
+}
+
+function Write-ForeignProfileContinuousArtifact {
+    $artifactRoot = Join-Path $stateRoot "_managed_actions"
+    New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
+    $artifact = [ordered]@{
+        version = 1
+        generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+        status = "materialized"
+        eventId = "test.foreign_profile"
+        pluginId = "validation.foreign_profile_probe"
+        sourceName = "Foreign Profile Probe"
+        sourcePath = "tools/TestQuestBoardRealtimeRefresh.ps1"
+        profileScope = [ordered]@{
+            kind = "profile"
+            profileId = "profile_0"
+            profileRoot = (Join-Path $remoteRoot "profile_0")
+            source = "test.foreignProfile"
+        }
+        loadOrder = 0
+        ruleIndex = 0
+        ruleId = "foreign_profile_store_probe"
+        actionIndex = 0
+        action = [ordered]@{
+            type = "town.suppressStoreItems"
+            capability = "town.suppress_store_items"
+            risk = "managed"
+            required = $true
+        }
+        plan = [ordered]@{
+            kind = "town.suppressStoreItems"
+            effect = "suppressStoreItems"
+            target = "profile.town.stores"
+            arguments = [ordered]@{
+                mode = "empty"
+                buildingIds = @("blacksmith")
+                sections = @("generated")
+            }
+        }
+    }
+
+    $artifactPath = Join-Path $artifactRoot "manual_foreign_profile_town.suppressStoreItems.json"
     $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $artifactPath -Encoding UTF8
 }
 
@@ -324,6 +379,7 @@ try {
     Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "profile.initialization_requested"))
     Set-CompletedBossState
     Write-StaleDd4PolicyArtifact
+    Write-ForeignProfileContinuousArtifact
 
     $startedAt = Get-Date
     $arguments = @(
@@ -381,9 +437,11 @@ try {
     $stageCoachGenerated = @($town.base_root.buildings.stage_coach.store.'0'.generated.PSObject.Properties).Count
     $nomadGenerated = @($town.base_root.buildings.nomad_wagon.store.'0'.generated.PSObject.Properties).Count
     $nomadInventory = @($town.base_root.buildings.nomad_wagon.store.'0'.inventory.items.PSObject.Properties).Count
+    $blacksmithGenerated = @($town.base_root.buildings.blacksmith.store.'0'.generated.PSObject.Properties).Count
     Assert-True ($stageCoachGenerated -eq 0) "Continuous profile apply should clear regenerated stagecoach recruits."
     Assert-True ($nomadGenerated -eq 0) "Continuous profile apply should clear generated nomad wagon stock."
     Assert-True ($nomadInventory -eq 0) "Continuous profile apply should clear nomad wagon inventory items."
+    Assert-True ($blacksmithGenerated -eq 1) "Continuous profile apply must ignore artifacts scoped to another profile."
 
     $backupFiles = @(Get-ChildItem -LiteralPath (Join-Path $stateRoot "_live_save_backups\quest_board_refresh") -Filter "persist.quest.json" -Recurse -ErrorAction SilentlyContinue)
     Assert-True ($backupFiles.Count -ge 1) "Realtime quest board refresh should create a backup before writing."

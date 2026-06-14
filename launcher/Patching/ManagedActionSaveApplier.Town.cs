@@ -14,6 +14,20 @@ internal static partial class ManagedActionSaveApplier
             throw new InvalidDataException($"Unsupported stagecoach recruit suppression mode: {mode}");
         }
 
+        if (mode.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            AddSuccessfulAction(
+                context,
+                artifactPath,
+                artifact,
+                Path.Combine(context.SaveDirectory, "persist.town.json"),
+                [
+                    "stagecoach recruit suppression mode=none",
+                    "no decoded save changes requested"
+                ]);
+            return;
+        }
+
         var file = context.LoadDecodedJsonFile("persist.town.json");
         var stagecoach = RequireObject(file.Root, "base_root.buildings.stage_coach");
         var stores = RequireObject(stagecoach, "store");
@@ -134,6 +148,20 @@ internal static partial class ManagedActionSaveApplier
             !mode.Equals("none", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException($"Unsupported town store suppression mode: {mode}");
+        }
+
+        if (mode.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            AddSuccessfulAction(
+                context,
+                artifactPath,
+                artifact,
+                Path.Combine(context.SaveDirectory, "persist.town.json"),
+                [
+                    "town store suppression mode=none",
+                    "no decoded save changes requested"
+                ]);
+            return;
         }
 
         var requestedBuildingIds = ReadOptionalStringArrayPath(artifact, "plan.arguments.buildingIds")

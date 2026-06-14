@@ -19,7 +19,8 @@ internal static partial class ManagedActionSaveApplier
         string projectRoot,
         string saveDirectory,
         bool writeChanges,
-        ManagedActionApplyMode applyMode = ManagedActionApplyMode.All)
+        ManagedActionApplyMode applyMode = ManagedActionApplyMode.All,
+        string? targetProfileId = null)
     {
         var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
         var resolvedSaveDirectory = ResolveProjectLocalDirectory(projectRoot, saveDirectory, "--managed-action-save-dir");
@@ -31,7 +32,7 @@ internal static partial class ManagedActionSaveApplier
         var context = new ApplyContext(config.GameWorkingDirectory, config.ModStateDirectory, resolvedSaveDirectory, writeChanges);
         if (Directory.Exists(artifactDirectory))
         {
-            foreach (var artifactPath in SelectArtifactPaths(artifactDirectory, applyMode, log))
+            foreach (var artifactPath in SelectArtifactPaths(artifactDirectory, applyMode, targetProfileId, log))
             {
                 context.ArtifactCount++;
                 ApplyArtifact(context, artifactPath, log);
