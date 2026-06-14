@@ -377,7 +377,6 @@ wallet.modify_currency
 inventory.disable_item_sale
 stagecoach.suppress_recruits
 town.unlock_all_buildings
-town.set_building_levels
 town_event.override_current
 state.bossGauntlet.consumedHeroIds
 state.bossGauntlet.consumedTrinketIds
@@ -391,12 +390,11 @@ Declarative draft:
   "actions": [
     { "type": "roster.ensureClassInstances", "classCount": 2, "level": "max" },
     { "type": "estate.ensureInventoryCounts", "kind": "trinket", "count": 2 },
-    { "type": "wallet.setCurrencyAmounts", "amounts": { "gold": 20000, "bust": 0, "portrait": 0, "deed": 0, "crest": 0, "shard": 0 } },
+    { "type": "wallet.setCurrencyAmounts", "amounts": { "gold": 20000, "bust": 0, "portrait": 0, "deed": 0, "crest": 0, "shard": 36 } },
     { "type": "inventory.disableItemSale", "kind": "trinket" },
     { "type": "stagecoach.suppressRecruits" },
     { "type": "town.unlockAllBuildings" },
     { "type": "town.suppressStoreItems", "buildingIds": ["nomad_wagon"], "sections": ["inventory.items", "generated"] },
-    { "type": "town.setBuildingLevels", "level": "max" },
     { "type": "questBoard.replaceWithFixedSet", "source": "highest_non_darkest_bosses" },
     { "type": "profile.markInitialized", "stateKey": "bossGauntlet.initialized" }
   ]

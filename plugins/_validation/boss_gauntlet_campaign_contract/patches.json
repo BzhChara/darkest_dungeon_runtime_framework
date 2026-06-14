@@ -19,7 +19,6 @@
     "inventory.disable_item_sale",
     "campaign.reset_plot_progress",
     "town.unlock_all_buildings",
-    "town.set_building_levels",
     "town.suppress_store_items",
     "town_event.override_current",
     "quest_board.replace_with_fixed_set",
@@ -345,7 +344,6 @@
         "inventory.disable_item_sale",
         "campaign.reset_plot_progress",
         "town.unlock_all_buildings",
-        "town.set_building_levels",
         "town_event.override_current",
         "quest_board.replace_with_fixed_set",
         "profile.mark_initialized"
@@ -487,16 +485,6 @@
           "args": {
             "target": "profile.town",
             "mode": "state.bossGauntlet.townBuildings"
-          }
-        },
-        {
-          "type": "town.setBuildingLevels",
-          "capability": "town.set_building_levels",
-          "risk": "managed",
-          "required": true,
-          "args": {
-            "target": "profile.town",
-            "level": "max"
           }
         },
         {

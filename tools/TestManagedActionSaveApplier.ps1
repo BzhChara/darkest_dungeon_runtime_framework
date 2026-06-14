@@ -972,7 +972,7 @@ Assert-True ([bool]$dryRunInitializationReport.succeeded) "Decoded profile dry-r
 Assert-True ([bool]$dryRunInitializationReport.dryRun) "Decoded profile dry-run initialization should record dryRun=true."
 Assert-True ([bool]$dryRunInitializationReport.stateSucceeded) "Decoded profile dry-run initialization should initialize sidecar state."
 Assert-True ([bool]$dryRunInitializationReport.eventSucceeded) "Decoded profile dry-run initialization should run the initialization event."
-Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 14) "Decoded profile dry-run initialization should materialize fourteen actions."
+Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 13) "Decoded profile dry-run initialization should materialize thirteen actions."
 Assert-True ([bool]$dryRunInitializationReport.questBoardPreviewSucceeded) "Decoded profile dry-run initialization should preview the quest board."
 Assert-True ([int]$dryRunInitializationReport.questBoardCandidateCount -eq 8) "Decoded profile dry-run initialization should preview eight fixed boss quests."
 Assert-True (-not [bool]$dryRunInitializationReport.applySkipped) "Decoded profile dry-run initialization should run managed action apply."
@@ -983,11 +983,11 @@ Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 8) "Deco
 Assert-True (@(Convert-ToArray $dryRunInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "dry-run" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression dry-run action details."
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
-Assert-True ([int]$dryRunReport.artifactCount -eq 14) "Dry-run should inspect fourteen boss gauntlet initialization artifacts."
+Assert-True ([int]$dryRunReport.artifactCount -eq 13) "Dry-run should inspect thirteen boss gauntlet initialization artifacts."
 Assert-True ([int]$dryRunReport.supportedActionCount -eq 13) "Dry-run should recognize thirteen currently supported decoded-save/policy actions."
 Assert-True ([int]$dryRunReport.dryRunActionCount -eq 13) "Dry-run should report thirteen dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
-Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 1) "Dry-run should report the remaining profile-normalization action as unsupported."
+Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 0) "Dry-run should not report unsupported boss gauntlet initialization actions."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
 Assert-True ([int]$dryRunReport.changedFileCount -eq 8) "Dry-run should report eight would-change decoded save or policy files."
 
@@ -1039,7 +1039,7 @@ Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=fa
 Assert-True ([int]$writeReport.supportedActionCount -eq 13) "Write pass should recognize thirteen currently supported decoded-save/policy actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
 Assert-True ([int]$writeReport.appliedActionCount -eq 13) "Write pass should apply thirteen currently supported decoded-save/policy actions."
-Assert-True ([int]$writeReport.unsupportedActionCount -eq 1) "Write pass should leave only one future profile-normalization action unsupported."
+Assert-True ([int]$writeReport.unsupportedActionCount -eq 0) "Write pass should not leave unsupported boss gauntlet initialization actions."
 Assert-True ([int]$writeReport.changedFileCount -eq 8) "Write pass should change eight decoded save or policy files."
 Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 8) "Write pass should mark eight files as written."
 
