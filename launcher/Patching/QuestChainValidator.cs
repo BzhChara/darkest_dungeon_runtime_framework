@@ -2,6 +2,12 @@ namespace DDRuntimeLoader;
 
 internal static class QuestChainValidator
 {
+    private static readonly string[] SupportedQuestBoardModes =
+    [
+        "replaceWithFixedSet",
+        "linearProgression"
+    ];
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -111,6 +117,11 @@ internal static class QuestChainValidator
         {
             AddError(issues, "missing-unlock-quest", "unlock.questId", "unlock type afterQuest requires questId");
         }
+
+        if (string.IsNullOrWhiteSpace(unlock.StateKey) && !string.IsNullOrWhiteSpace(unlock.StateEquals))
+        {
+            AddError(issues, "missing-unlock-state-key", "unlock.stateKey", "unlock.stateEquals requires unlock.stateKey");
+        }
     }
 
     private static QuestChainUnlockFacts BuildUnlockFacts(QuestChainUnlockRule unlock)
@@ -118,7 +129,9 @@ internal static class QuestChainValidator
         return new QuestChainUnlockFacts(
             unlock.Type,
             unlock.QuestId,
-            unlock.Phase);
+            unlock.Phase,
+            unlock.StateKey,
+            unlock.StateEquals);
     }
 
     private static QuestChainBoardFacts BuildQuestBoardFacts(
@@ -132,7 +145,7 @@ internal static class QuestChainValidator
 
         if (board.Enabled)
         {
-            if (!mode.Equals("replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
+            if (!SupportedQuestBoardModes.Contains(mode, StringComparer.OrdinalIgnoreCase))
             {
                 AddError(issues, "unsupported-quest-board-mode", "questBoard.mode", $"unsupported questBoard mode: {mode}");
             }
@@ -142,7 +155,9 @@ internal static class QuestChainValidator
                 AddError(issues, "unsupported-quest-id-source", "questBoard.questIdSource", "questBoard currently supports only sourceQuestId");
             }
 
-            if (board.RemoveCompleted && string.IsNullOrWhiteSpace(board.CompletedStateKey))
+            if (mode.Equals("replaceWithFixedSet", StringComparison.OrdinalIgnoreCase) &&
+                board.RemoveCompleted &&
+                string.IsNullOrWhiteSpace(board.CompletedStateKey))
             {
                 AddError(issues, "missing-completed-state-key", "questBoard.completedStateKey", "completedStateKey is required when removeCompleted is true");
             }
@@ -170,6 +185,8 @@ internal static class QuestChainValidator
             questIdSource,
             board.RemoveCompleted,
             board.CompletedStateKey,
+            board.RefreshTriggers ?? [],
+            string.IsNullOrWhiteSpace(board.OnCompleted) ? "remove" : board.OnCompleted,
             questIds);
     }
 
@@ -321,7 +338,9 @@ internal sealed record QuestChainValidationReport(
 internal sealed record QuestChainUnlockFacts(
     string Type,
     string QuestId,
-    string Phase);
+    string Phase,
+    string StateKey,
+    string StateEquals);
 
 internal sealed record QuestChainBoardFacts(
     bool Enabled,
@@ -329,6 +348,8 @@ internal sealed record QuestChainBoardFacts(
     string QuestIdSource,
     bool RemoveCompleted,
     string CompletedStateKey,
+    IReadOnlyList<string> RefreshTriggers,
+    string OnCompleted,
     IReadOnlyList<string> QuestIds);
 
 internal sealed record QuestChainStageFacts(

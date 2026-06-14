@@ -33,6 +33,14 @@ internal static class QuestChainManagedActionMaterializer
                 "questBoard.enabled",
                 "quest chain did not request a quest board managed artifact"));
         }
+        else if (!validationReport.QuestBoard.Mode.Equals("replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
+        {
+            issues.Add(new QuestChainManagedActionIssue(
+                "info",
+                "quest-board-mode-not-static",
+                "questBoard.mode",
+                $"quest board mode {validationReport.QuestBoard.Mode} is handled outside static questBoard.replaceWithFixedSet materialization"));
+        }
         else if (!validationReport.Succeeded)
         {
             issues.Add(new QuestChainManagedActionIssue(
@@ -46,12 +54,17 @@ internal static class QuestChainManagedActionMaterializer
             status = "materialized";
         }
 
-        var now = DateTimeOffset.UtcNow;
-        Directory.CreateDirectory(Path.GetDirectoryName(artifactPath) ?? ".");
-        File.WriteAllText(
-            artifactPath,
-            BuildQuestBoardArtifact(plugin, ruleIndex, validationReport, now, status, issues).ToJsonString(JsonOptions),
-            Encoding.UTF8);
+        var writtenArtifactPath = "";
+        if (status.Equals("materialized", StringComparison.OrdinalIgnoreCase))
+        {
+            var now = DateTimeOffset.UtcNow;
+            Directory.CreateDirectory(Path.GetDirectoryName(artifactPath) ?? ".");
+            File.WriteAllText(
+                artifactPath,
+                BuildQuestBoardArtifact(plugin, ruleIndex, validationReport, now, status, issues).ToJsonString(JsonOptions),
+                Encoding.UTF8);
+            writtenArtifactPath = artifactPath;
+        }
 
         var report = new QuestChainManagedActionReport(
             ReportVersion,
@@ -61,7 +74,7 @@ internal static class QuestChainManagedActionMaterializer
             validationReport.StageCount,
             validationReport.QuestBoard.Enabled,
             status,
-            artifactPath,
+            writtenArtifactPath,
             validationReport.QuestBoard.QuestIds,
             issues);
 

@@ -33,11 +33,81 @@
     "selection.consume_trinkets",
     "quest.mark_completed",
     "state.transition_phase",
+    "quest.chain.define",
     "progression.observe_plot_completion"
   ],
   "phase": "normal",
   "priority": 16,
   "virtualFileRules": [],
+  "questChains": [
+    {
+      "id": "boss_gauntlet_darkest_finale_chain",
+      "name": "Boss Gauntlet Darkest Finale Chain",
+      "mode": "linear_progression",
+      "unlock": {
+        "type": "stateEquals",
+        "stateKey": "bossGauntlet.phase",
+        "stateEquals": "darkest_finale"
+      },
+      "questBoard": {
+        "enabled": true,
+        "mode": "linearProgression",
+        "questIdSource": "sourceQuestId",
+        "refreshTriggers": [
+          "immediateOnQuestComplete",
+          "onWeekAdvance",
+          "manual"
+        ],
+        "onCompleted": "remove"
+      },
+      "stages": [
+        {
+          "id": "dd1",
+          "name": "Darkest Dungeon I",
+          "order": 0,
+          "sourceQuestId": "plot_darkest_dungeon_1",
+          "region": "darkestdungeon",
+          "difficulty": 6,
+          "tags": [
+            "finale"
+          ]
+        },
+        {
+          "id": "dd2",
+          "name": "Darkest Dungeon II",
+          "order": 1,
+          "sourceQuestId": "plot_darkest_dungeon_2",
+          "region": "darkestdungeon",
+          "difficulty": 6,
+          "tags": [
+            "finale"
+          ]
+        },
+        {
+          "id": "dd3",
+          "name": "Darkest Dungeon III",
+          "order": 2,
+          "sourceQuestId": "plot_darkest_dungeon_3",
+          "region": "darkestdungeon",
+          "difficulty": 6,
+          "tags": [
+            "finale"
+          ]
+        },
+        {
+          "id": "dd4",
+          "name": "Darkest Dungeon IV",
+          "order": 3,
+          "sourceQuestId": "plot_darkest_dungeon_4",
+          "region": "darkestdungeon",
+          "difficulty": 6,
+          "tags": [
+            "finale"
+          ]
+        }
+      ]
+    }
+  ],
   "factEventRules": [
     {
       "id": "emit_boss_selection_confirmed_from_active_raid",
@@ -670,60 +740,6 @@
       ]
     },
     {
-      "id": "materialize_finale_quest_board_after_all_bosses",
-      "enabled": true,
-      "on": "quest.attempt_resolved",
-      "phase": "normal",
-      "priority": 1,
-      "requiresCapabilities": [
-        "state.sidecar",
-        "quest.observe_attempt_resolved",
-        "quest_board.replace_with_fixed_set"
-      ],
-      "when": {
-        "all": [
-          {
-            "state": "bossGauntlet.phase",
-            "op": "equals",
-            "value": "darkest_finale"
-          },
-          {
-            "state": "bossGauntlet.finaleQuestBoardMaterialized",
-            "op": "equals",
-            "value": false
-          },
-          {
-            "event": "success",
-            "op": "equals",
-            "value": true
-          }
-        ]
-      },
-      "actions": [
-        {
-          "type": "questBoard.replaceWithFixedSet",
-          "capability": "quest_board.replace_with_fixed_set",
-          "risk": "managed",
-          "required": true,
-          "args": {
-            "target": "profile.quest_board",
-            "questIds": "state.bossGauntlet.finaleQuestIds",
-            "removeCompleted": false
-          }
-        },
-        {
-          "type": "state.setValue",
-          "capability": "state.sidecar",
-          "risk": "safe",
-          "required": true,
-          "args": {
-            "key": "bossGauntlet.finaleQuestBoardMaterialized",
-            "value": true
-          }
-        }
-      ]
-    },
-    {
       "id": "resolve_failed_prefinale_boss_attempt",
       "enabled": true,
       "on": "quest.attempt_resolved",
@@ -819,8 +835,7 @@
           "gold": 0
         },
         "fixedQuestIds": [],
-        "finaleQuestIds": [],
-        "finaleQuestBoardMaterialized": false,
+        "finaleQuestChainId": "",
         "completedQuestIds": [],
         "consumedHeroIds": [],
         "consumedTrinketIds": [],

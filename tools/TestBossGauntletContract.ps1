@@ -83,6 +83,12 @@ function Read-QuestBoardPreviewReport {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-QuestBoardPolicyMaterializeReport {
+    $path = Join-Path $projectRoot.Path "logs\quest_board_policy_materialize_report.json"
+    Assert-True (Test-Path -LiteralPath $path) "Quest board policy materialize report was not created: $path"
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Get-ActionReport {
     param(
         [object]$Report,
@@ -143,10 +149,24 @@ Assert-True ([int]$state.wallet.gold -eq 20000) "Initialization should set gold 
 Assert-True ([bool]$state.trinketSaleDisabled) "Initialization should disable trinket selling in sidecar state."
 Assert-True ((Convert-ToArray $state.fixedQuestIds).Count -eq 8) "Initialization should load the fixed boss quest ids from the definition."
 Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necromancer_3") "Fixed quest ids should include the Necromancer fixture quest."
-Assert-True ((Convert-ToArray $state.finaleQuestIds).Count -eq 1) "Initialization should load the finale quest ids from the definition."
-Assert-True ((Convert-ToArray $state.finaleQuestIds) -contains "plot_darkest_dungeon_1") "Finale quest ids should begin with DD1."
-Assert-True (-not [bool]$state.finaleQuestBoardMaterialized) "Initialization should not materialize the finale quest board yet."
+Assert-True ($state.finaleQuestChainId -eq "boss_gauntlet_darkest_finale_chain") "Initialization should load the finale quest chain id from the definition."
 Assert-True ([bool]$state.finaleDoesNotReviveDeadHeroes) "Definition should record that finale unlock does not revive dead heroes."
+
+$generatedPolicyReportPath = Join-Path $stateRoot "_quest_board_policies\validation.boss_gauntlet_campaign_contract\001_boss_gauntlet_darkest_finale_chain.generated.linear_progression_policy.json"
+Assert-True (Test-Path -LiteralPath $generatedPolicyReportPath -PathType Leaf) "Finale quest chain should generate a quest board policy report: $generatedPolicyReportPath"
+$generatedPolicyReport = Get-Content -Raw -LiteralPath $generatedPolicyReportPath | ConvertFrom-Json
+Assert-True ([bool]$generatedPolicyReport.succeeded) "Finale quest chain generated policy should validate successfully."
+Assert-True ([int]$generatedPolicyReport.entryCount -eq 4) "Finale quest chain generated policy should contain DD1-DD4."
+Assert-True (@($generatedPolicyReport.refreshTriggers) -contains "immediateOnQuestComplete") "Finale generated policy should refresh immediately on quest completion."
+Assert-True (@($generatedPolicyReport.refreshTriggers) -contains "onWeekAdvance") "Finale generated policy should also refresh after week advance."
+$dd1PolicyEntry = @($generatedPolicyReport.entries)[0]
+$dd2PolicyEntry = @($generatedPolicyReport.entries)[1]
+Assert-True ($dd1PolicyEntry.effectiveQuestId -eq "plot_darkest_dungeon_1") "Finale generated policy should start at DD1."
+Assert-True ($dd1PolicyEntry.availableWhen.stateKey -eq "bossGauntlet.phase") "DD1 should be gated by the chain unlock state key."
+Assert-True ($dd1PolicyEntry.availableWhen.stateEquals -eq "darkest_finale") "DD1 should require darkest_finale phase."
+Assert-True (@($dd1PolicyEntry.availableWhen.notCompletedQuests) -contains "plot_darkest_dungeon_1") "DD1 should disappear after completion."
+Assert-True (@($dd2PolicyEntry.availableWhen.completedQuests) -contains "plot_darkest_dungeon_1") "DD2 should require DD1 completion."
+Assert-True (@($dd2PolicyEntry.availableWhen.notCompletedQuests) -contains "plot_darkest_dungeon_2") "DD2 should disappear after completion."
 
 $initializationReport = Read-RuntimeEventReport
 Assert-True ([int]$initializationReport.materializedActionCount -eq 13) "Initialization should materialize thirteen managed profile-normalization actions."
@@ -327,20 +347,73 @@ Assert-True ((Convert-ToArray $state.consumedHeroIds).Count -eq 0) "Finale unloc
 Assert-True ((Convert-ToArray $state.consumedTrinketIds).Count -eq 0) "Finale unlock should clear sidecar trinket reuse restrictions."
 Assert-True ((Convert-ToArray $state.observedDeadHeroIds) -contains "dead_hero_1") "Finale unlock should not erase observed dead hero state."
 Assert-True ($null -eq $state.activeSelection) "Finale unlock should leave active selection cleared."
-Assert-True ([bool]$state.finaleQuestBoardMaterialized) "Finale unlock should materialize the finale quest board once."
 
-$finaleUnlockReport = Read-RuntimeEventReport
-$finaleQuestBoardAction = Get-ActionReport -Report $finaleUnlockReport -Type "questBoard.replaceWithFixedSet"
-$finaleQuestBoardArtifact = Read-ManagedActionArtifact -Action $finaleQuestBoardAction -ExpectedType "questBoard.replaceWithFixedSet"
+$finaleNoCompletedFactsPath = Write-JsonPayload "finale_chain_no_dd_completed.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "boss_gauntlet_contract_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        progression = [pscustomobject]@{
+            completedQuestIds = @()
+        }
+    }
+})
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--materialize-quest-board-policies", "--save-state-report", $finaleNoCompletedFactsPath, "--quest-board-policy-slots", "1"))
+$finalePolicyMaterialize = Read-QuestBoardPolicyMaterializeReport
+Assert-True ([bool]$finalePolicyMaterialize.succeeded) "Finale quest board policy materialization should succeed."
+Assert-True ($finalePolicyMaterialize.status -eq "materialized") "Finale quest board policy should materialize DD1."
+Assert-True ([int]$finalePolicyMaterialize.selectedQuestCount -eq 1) "Finale policy should select one current DD quest."
+Assert-True (@($finalePolicyMaterialize.selectedQuestIds) -contains "plot_darkest_dungeon_1") "Finale policy should unlock DD1 after all fixed bosses are completed."
+$finaleQuestBoardArtifact = Get-Content -Raw -LiteralPath $finalePolicyMaterialize.artifactPath | ConvertFrom-Json
 Assert-True ((Convert-ToArray $finaleQuestBoardArtifact.plan.arguments.questIds).Count -eq 1) "Finale quest board should contain exactly one entry in the first slice."
 Assert-True ((Convert-ToArray $finaleQuestBoardArtifact.plan.arguments.questIds) -contains "plot_darkest_dungeon_1") "Finale quest board should unlock DD1 after all fixed bosses are completed."
-Assert-True (-not [bool]$finaleQuestBoardArtifact.plan.arguments.removeCompleted) "Finale quest board should not filter DD1 through the pre-finale completed boss list."
+Assert-True (-not [bool]$finaleQuestBoardArtifact.plan.arguments.removeCompleted) "Generated finale policy should pre-filter completed quests instead of using pre-finale completed boss state."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @("--preview-quest-board"))
 $questBoardPreview = Read-QuestBoardPreviewReport
 $activePreviewQuests = Convert-ToArray $questBoardPreview.finalActiveQuests
 Assert-True ([int]$questBoardPreview.finalActiveQuestCount -eq 1) "Quest board preview should resolve the latest artifact to one finale quest."
 Assert-True ($activePreviewQuests[0].questId -eq "plot_darkest_dungeon_1") "Quest board preview should make DD1 the active finale quest."
+
+$dd1CompletedFactsPath = Write-JsonPayload "finale_chain_dd1_completed.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "boss_gauntlet_contract_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        progression = [pscustomobject]@{
+            completedQuestIds = @("plot_darkest_dungeon_1")
+            lastRaidQuest = [pscustomobject]@{
+                names = @("plot_darkest_dungeon_1")
+            }
+            lastRaidSuccess = $true
+        }
+        campaignLog = [pscustomobject]@{
+            latestCompletedPartyRaidRecord = [pscustomobject]@{
+                questId = [pscustomobject]@{
+                    names = @("plot_darkest_dungeon_1")
+                }
+                start = $false
+                success = $true
+            }
+        }
+    }
+})
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--materialize-quest-board-policies", "--save-state-report", $dd1CompletedFactsPath, "--quest-board-policy-slots", "1"))
+$dd2PolicyMaterialize = Read-QuestBoardPolicyMaterializeReport
+Assert-True ([bool]$dd2PolicyMaterialize.succeeded) "Finale policy materialization should succeed after DD1 completion."
+Assert-True ($dd2PolicyMaterialize.status -eq "materialized") "Finale policy should materialize DD2 after DD1 completion."
+Assert-True (@($dd2PolicyMaterialize.selectedQuestIds) -contains "plot_darkest_dungeon_2") "Finale policy should advance to DD2 after DD1 completion."
+Assert-True (-not (@($dd2PolicyMaterialize.selectedQuestIds) -contains "plot_darkest_dungeon_1")) "Finale policy should not keep DD1 after DD1 completion."
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--preview-quest-board"))
+$questBoardPreview = Read-QuestBoardPreviewReport
+$activePreviewQuests = Convert-ToArray $questBoardPreview.finalActiveQuests
+Assert-True ([int]$questBoardPreview.finalActiveQuestCount -eq 1) "Quest board preview should resolve the latest artifact to one advanced finale quest."
+Assert-True ($activePreviewQuests[0].questId -eq "plot_darkest_dungeon_2") "Quest board preview should advance the finale board to DD2."
 
 $postFinaleSelectionPayloadPath = Write-JsonPayload "selection_after_finale.json" ([pscustomobject]@{
     questId = "plot_kill_necromancer_3"

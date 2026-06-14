@@ -202,7 +202,7 @@ This keeps policy scheduling, artifact production, and live save refresh as sepa
 
 ## Relationship To Quest Chains
 
-`questChains` is best for authored ordered stage flows and can already materialize a deterministic `questBoard.replaceWithFixedSet` artifact when a plugin explicitly opts in.
+`questChains` is best for authored ordered stage flows. It can materialize a deterministic `questBoard.replaceWithFixedSet` artifact when a plugin explicitly opts into a static fixed board, and `questBoard.mode="linearProgression"` can generate policy entries for long A -> B -> C chains so authors do not hand-write repetitive prerequisites.
 
 `questBoardPolicies` is best for broader scheduling rules:
 

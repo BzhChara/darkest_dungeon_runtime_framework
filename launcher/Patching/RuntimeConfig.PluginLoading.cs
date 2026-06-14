@@ -68,6 +68,7 @@ internal sealed partial class RuntimeConfig
                 $"questBoardPolicies={plugin.QuestBoardPolicyRuleCount} contentRefs={plugin.ContentReferenceRuleCount} eventRules={plugin.EventRuleCount} " +
                 $"factEventRules={plugin.FactEventRuleCount} path={plugin.Path}");
             AddQuestChainReports(
+                questBoardPolicyReports,
                 compileIssues,
                 plugin,
                 activePluginIds,
@@ -145,6 +146,7 @@ internal sealed partial class RuntimeConfig
     }
 
     private void AddQuestChainReports(
+        List<QuestBoardPolicyValidationReport> questBoardPolicyReports,
         List<PatchCompileIssue> compileIssues,
         PluginManifestCandidate plugin,
         IReadOnlySet<string> activePluginIds,
@@ -222,6 +224,54 @@ internal sealed partial class RuntimeConfig
                     0,
                     $"questChains/{chain.Id}",
                     $"{issue.Code} at {issue.Path}: {issue.Message}");
+            }
+
+            var generatedPolicyReportPath = Path.Combine(
+                ModStateDirectory,
+                "_quest_board_policies",
+                SafeFileName(plugin.Id),
+                reportBaseName + ".generated.linear_progression_policy.json");
+            try
+            {
+                var generatedPolicy = QuestChainPolicyExpander.WriteLinearProgressionPolicyReport(
+                    plugin,
+                    ruleIndex,
+                    report,
+                    generatedPolicyReportPath);
+                if (generatedPolicy is not null)
+                {
+                    questBoardPolicyReports.Add(generatedPolicy);
+                    log.Info(
+                        $"quest-chain-generated-policy source={plugin.SourceName} rule={ruleIndex} " +
+                        $"id={QuoteLogValue(chain.Id)} policy={QuoteLogValue(generatedPolicy.Id)} " +
+                        $"entries={generatedPolicy.EntryCount} triggers={FormatLogList(generatedPolicy.RefreshTriggers)} " +
+                        $"succeeded={generatedPolicy.Succeeded} report={QuoteLogValue(generatedPolicyReportPath)}");
+
+                    foreach (var issue in generatedPolicy.Issues.Where(issue => issue.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        AddCompileIssue(
+                            compileIssues,
+                            true,
+                            plugin.SourceName,
+                            plugin.Path,
+                            ruleIndex,
+                            0,
+                            $"questChains/{chain.Id}/linearProgressionPolicy",
+                            $"{issue.Code} at {issue.Path}: {issue.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AddCompileIssue(
+                    compileIssues,
+                    true,
+                    plugin.SourceName,
+                    plugin.Path,
+                    ruleIndex,
+                    0,
+                    $"questChains/{chain.Id}/linearProgressionPolicy",
+                    $"quest chain linear progression policy generation failed: {ex.Message}");
             }
         }
     }

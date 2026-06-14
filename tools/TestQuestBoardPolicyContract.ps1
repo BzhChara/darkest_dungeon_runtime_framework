@@ -37,6 +37,8 @@ try {
     $saveEventBridgeReportPath = Join-Path $projectRoot.Path "logs\save_event_bridge_report.json"
     $materializeStateRoot = Join-Path $projectRoot.Path "state\quest_board_policy_contract_materialize"
     $autoMaterializeStateRoot = Join-Path $projectRoot.Path "state\quest_board_policy_contract_auto_materialize"
+    $fixtureDir = Join-Path $projectRoot.Path "logs\quest_board_policy_contract_test"
+    $policyOnlyConfigPath = Join-Path $fixtureDir "policy_only_config.json"
     Remove-Item -LiteralPath $previewReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $resolveReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $materializeReportPath -Force -ErrorAction SilentlyContinue
@@ -45,7 +47,11 @@ try {
     Remove-Item -LiteralPath $materializeStateRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $autoMaterializeStateRoot -Recurse -Force -ErrorAction SilentlyContinue
 
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --validate-only --explain-patches --preview-quest-board-policies --no-inject
+    $policyOnlyConfig = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
+    $policyOnlyConfig.pluginDirectories = @("./plugins/_validation/quest_board_policy_contract")
+    Write-JsonPayload $policyOnlyConfigPath $policyOnlyConfig
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --validate-only --explain-patches --preview-quest-board-policies --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader failed with exit code $LASTEXITCODE"
     }
@@ -106,12 +112,6 @@ try {
     Assert-True ([int]$secondCandidate.weight -eq 2) "Second preview candidate weight mismatch."
     Assert-True ($secondCandidate.availabilityStatus -eq "requiresRuntimeFacts") "Second preview candidate should require runtime facts."
 
-    $fixtureDir = Join-Path $projectRoot.Path "logs\quest_board_policy_contract_test"
-    $policyOnlyConfigPath = Join-Path $fixtureDir "policy_only_config.json"
-    $policyOnlyConfig = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
-    $policyOnlyConfig.pluginDirectories = @("./plugins/_validation/quest_board_policy_contract")
-    Write-JsonPayload $policyOnlyConfigPath $policyOnlyConfig
-
     $beforeNecromancerReportPath = Join-Path $fixtureDir "policy_week_5_no_completed_quests.json"
     Write-JsonPayload $beforeNecromancerReportPath ([pscustomobject]@{
         version = 1
@@ -128,7 +128,7 @@ try {
         }
     })
 
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --resolve-quest-board-policies --save-state-report $beforeNecromancerReportPath --no-inject
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --resolve-quest-board-policies --save-state-report $beforeNecromancerReportPath --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader policy resolve failed with exit code $LASTEXITCODE"
     }
@@ -185,7 +185,7 @@ try {
     })
     Write-JsonPayload $afterNecromancerProfile3ReportPath $profileScopedReport
 
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --resolve-quest-board-policies --save-state-report $afterNecromancerReportPath --no-inject
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --resolve-quest-board-policies --save-state-report $afterNecromancerReportPath --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader policy resolve after completed quest failed with exit code $LASTEXITCODE"
     }
@@ -205,7 +205,7 @@ try {
     Assert-True ($resolvedSecond.resolutionStatus -eq "eligiblePoolCandidate") "Prophet should be an eligible pool candidate after necromancer completion."
     Assert-True ($resolvedSecond.predicateStatus -eq "matched") "Prophet predicate should match after necromancer completion."
 
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --materialize-quest-board-policies --save-state-report $afterNecromancerReportPath --quest-board-policy-slots 1 --quest-board-policy-seed 42 --mod-state-dir $materializeStateRoot --no-inject
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --materialize-quest-board-policies --save-state-report $afterNecromancerReportPath --quest-board-policy-slots 1 --quest-board-policy-seed 42 --mod-state-dir $materializeStateRoot --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader policy materialize failed with exit code $LASTEXITCODE"
     }
@@ -227,7 +227,7 @@ try {
     Assert-True (-not [bool]$artifact.plan.arguments.removeCompleted) "Policy materializer should pre-filter completed quests instead of delegating removeCompleted."
     Assert-True (@($artifact.plan.arguments.questIds) -contains "plot_kill_prophet_3") "Materialized artifact should contain prophet."
 
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --preview-quest-board --mod-state-dir $materializeStateRoot --no-inject
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --preview-quest-board --mod-state-dir $materializeStateRoot --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader quest board preview failed with exit code $LASTEXITCODE"
     }
@@ -268,7 +268,7 @@ try {
     $autoArtifact = Get-Content -Raw -LiteralPath $bridge.questBoardPolicyMaterialization.artifactPath | ConvertFrom-Json
     Assert-True ($autoArtifact.profileScope.profileId -eq "profile_3") "Auto materialized artifact should keep profile scope."
 
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --preview-quest-board --mod-state-dir $autoMaterializeStateRoot --no-inject
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --preview-quest-board --mod-state-dir $autoMaterializeStateRoot --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader quest board preview after auto materialize failed with exit code $LASTEXITCODE"
     }
@@ -279,7 +279,7 @@ try {
     Assert-True (@($autoPolicyPreviewArtifact).Count -eq 1) "Quest board preview should include the auto materialized policy artifact."
     Assert-True ($autoPolicyPreviewArtifact.status -eq "ignored") "Unscoped quest board preview should ignore profile-scoped policy artifact."
 
-    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $ConfigPath --preview-quest-board --quest-board-profile-scope profile_3 --mod-state-dir $autoMaterializeStateRoot --no-inject
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --preview-quest-board --quest-board-profile-scope profile_3 --mod-state-dir $autoMaterializeStateRoot --no-inject
     if ($LASTEXITCODE -ne 0) {
         throw "DDRuntimeLoader scoped quest board preview after auto materialize failed with exit code $LASTEXITCODE"
     }

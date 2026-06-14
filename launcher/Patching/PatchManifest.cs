@@ -134,10 +134,14 @@ internal sealed class PluginPatchManifest
                 chain.Unlock.Type ??= string.Empty;
                 chain.Unlock.QuestId ??= string.Empty;
                 chain.Unlock.Phase ??= string.Empty;
+                chain.Unlock.StateKey ??= string.Empty;
+                chain.Unlock.StateEquals ??= string.Empty;
                 chain.QuestBoard ??= new QuestChainBoardRule();
                 chain.QuestBoard.Mode ??= string.Empty;
                 chain.QuestBoard.QuestIdSource ??= string.Empty;
                 chain.QuestBoard.CompletedStateKey ??= string.Empty;
+                chain.QuestBoard.RefreshTriggers ??= [];
+                chain.QuestBoard.OnCompleted ??= string.Empty;
                 chain.Stages ??= [];
                 foreach (var stage in chain.Stages)
                 {
@@ -617,6 +621,12 @@ internal sealed class QuestChainUnlockRule
 
     [JsonPropertyName("phase")]
     public string Phase { get; set; } = string.Empty;
+
+    [JsonPropertyName("stateKey")]
+    public string StateKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("stateEquals")]
+    public string StateEquals { get; set; } = string.Empty;
 }
 
 internal sealed class QuestChainBoardRule
@@ -635,6 +645,12 @@ internal sealed class QuestChainBoardRule
 
     [JsonPropertyName("completedStateKey")]
     public string CompletedStateKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("refreshTriggers")]
+    public string[] RefreshTriggers { get; set; } = [];
+
+    [JsonPropertyName("onCompleted")]
+    public string OnCompleted { get; set; } = string.Empty;
 }
 
 internal sealed class QuestChainStageRule

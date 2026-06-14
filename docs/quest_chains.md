@@ -2,14 +2,15 @@
 
 `questChains` is the generic content schema for ordered quest or chapter flows. It is intentionally not boss-specific. The same shape should describe a boss gauntlet, a post-Ancestor expansion chapter, or any fixed set of custom stages.
 
-The current implementation is a validation and reporting slice, with an opt-in managed quest-board artifact:
+The current implementation is a validation and reporting slice, with two opt-in quest-board outputs:
 
 ```text
 questChains
   -> validate stage order and unlock metadata
   -> validate references to mapLayoutTemplates or mapTemplates
   -> write modStateDirectory/_quest_chains/<plugin-id>/*.validation.json
-  -> when questBoard.enabled=true, write a deterministic questBoard.replaceWithFixedSet artifact
+  -> when questBoard.mode=replaceWithFixedSet, write a deterministic questBoard.replaceWithFixedSet artifact
+  -> when questBoard.mode=linearProgression, generate a questBoardPolicies report from the ordered stages
   -> optional --preview-quest-board report shows the final fixed quest board before any write/live path
 ```
 
@@ -52,6 +53,37 @@ It does not directly modify the quest board, campaign progression, or original s
 }
 ```
 
+A linear progression chain uses the same stage list but delegates task-board selection to `questBoardPolicies`:
+
+```json
+{
+  "questChains": [
+    {
+      "id": "darkest_finale_chain",
+      "mode": "linear_progression",
+      "unlock": {
+        "type": "stateEquals",
+        "stateKey": "bossGauntlet.phase",
+        "stateEquals": "darkest_finale"
+      },
+      "questBoard": {
+        "enabled": true,
+        "mode": "linearProgression",
+        "questIdSource": "sourceQuestId",
+        "refreshTriggers": ["immediateOnQuestComplete", "onWeekAdvance", "manual"],
+        "onCompleted": "remove"
+      },
+      "stages": [
+        { "id": "dd1", "order": 0, "sourceQuestId": "plot_darkest_dungeon_1" },
+        { "id": "dd2", "order": 1, "sourceQuestId": "plot_darkest_dungeon_2" }
+      ]
+    }
+  ]
+}
+```
+
+The generated policy makes the first stage available when the unlock predicate matches and the stage quest is not completed. Each later stage requires every previous stage quest to be completed and hides itself after completion. This is a declaration wrapper over `questBoardPolicies`, not a separate task-board engine.
+
 ## Validation Rules
 
 - Chain `id` is required.
@@ -62,8 +94,9 @@ It does not directly modify the quest board, campaign progression, or original s
 - A stage may reference either `mapLayoutTemplateId` or `mapTemplateId`, not both.
 - Map references must point at templates declared in the same plugin manifest.
 - `unlock.type="afterQuest"` requires `unlock.questId`.
-- `questBoard.enabled=true` currently supports only `mode="replaceWithFixedSet"` and `questIdSource="sourceQuestId"`.
-- `questBoard.removeCompleted=true` requires `questBoard.completedStateKey`.
+- `questBoard.enabled=true` currently supports `mode="replaceWithFixedSet"` for a static fixed board and `mode="linearProgression"` for generated task-board policy entries.
+- `questBoard.questIdSource` currently supports only `sourceQuestId`.
+- `questBoard.removeCompleted=true` requires `questBoard.completedStateKey` for `replaceWithFixedSet`; `linearProgression` pre-filters completed quests through generated policy entries instead.
 - When quest-board materialization is enabled, duplicate effective quest ids are errors because the current decoded-save writer cannot represent two distinct board entries with the same source quest id.
 
 ## Managed Quest-Board Artifact
@@ -74,6 +107,8 @@ When `questBoard.enabled=true`, the loader writes two sidecar files:
 - `_managed_actions/static_<plugin-id>_<chain>_questBoard.replaceWithFixedSet.json`: deterministic managed action artifact.
 
 The artifact uses the existing `questBoard.replaceWithFixedSet` action shape, so the startup overlay compiler can force active plot quests to early/repeatable availability and the managed-action applier can dry-run it against a project-local decoded `persist.quest.json` copy. It intentionally uses `sourceQuestId` as the concrete quest id because the current writer resolves only existing plot quest definitions. `targetQuestId` remains metadata for future custom quest writers.
+
+`linearProgression` does not write this static artifact. Instead, the loader writes a generated policy report under `_quest_board_policies/<plugin-id>/`. The existing policy materializer can then produce a current one-stage `questBoard.replaceWithFixedSet` artifact from save facts and sidecar state. This keeps the chain shorthand small while reusing the same quest-board preview, profile refresh, realtime refresh, and content-overlay consumers.
 
 `--preview-quest-board` reads materialized `questBoard.replaceWithFixedSet` artifacts, resolves their quest ids against enabled original plot quest content, applies `removeCompleted` filtering when sidecar state is available, and writes:
 
@@ -101,7 +136,7 @@ Regression coverage:
 
 ## Current Limits
 
-- Quest-board output is opt-in and currently materializes only fixed-set board entries from `sourceQuestId`.
+- Quest-board output is opt-in. Static `replaceWithFixedSet` materializes fixed-set board entries from `sourceQuestId`; `linearProgression` generates policy entries that must be resolved/materialized from runtime save facts and sidecar state.
 - Live quest-board replacement currently has four paths: a content overlay that forces active plot quest definitions to early/repeatable availability, a virtual-save overlay for `profile_*/persist.quest.json` when readable watched profiles and DDSaveEditor are available, an explicit profile refresh command that writes the generated `persist.quest.json` replacement with backup and safety checks, and an opt-in realtime watcher refresh that reapplies the generated board after original live task-board saves. The explicit refresh is the preferred initialization path when the original game has already cached the current week's board; watcher refresh is for original week-transition board regeneration.
 - No custom quest object writer exists yet; `sourceQuestId` still anchors a stage to original quest content.
 - No encounter mash writer exists yet, so stage-specific monster lineups are still represented by future `encounter.*` primitives.
