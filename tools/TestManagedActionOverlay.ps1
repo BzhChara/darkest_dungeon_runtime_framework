@@ -75,6 +75,51 @@ function Get-TownBuildingFilesWithPositiveRequirements {
     return $files
 }
 
+function Get-TrinketEntryFilesWithPositivePrices {
+    param([string]$GameWorkingDirectory)
+
+    $files = @()
+    $roots = @()
+    $baseTrinketDirectory = Join-Path $GameWorkingDirectory "trinkets"
+    if (Test-Path -LiteralPath $baseTrinketDirectory -PathType Container) {
+        $roots += [ordered]@{
+            Path = $baseTrinketDirectory
+            Recurse = $false
+        }
+    }
+
+    $dlcDirectory = Join-Path $GameWorkingDirectory "dlc"
+    if (Test-Path -LiteralPath $dlcDirectory -PathType Container) {
+        foreach ($directory in @(Get-ChildItem -LiteralPath $dlcDirectory -Directory | Sort-Object FullName)) {
+            if ([string]::IsNullOrWhiteSpace($directory.Name) -or
+                -not [char]::IsDigit($directory.Name[0]) -or
+                $directory.Name.Contains("arena", [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            $roots += [ordered]@{
+                Path = $directory.FullName
+                Recurse = $true
+            }
+        }
+    }
+
+    foreach ($root in $roots) {
+        $searchOption = if ([bool]$root.Recurse) { [System.IO.SearchOption]::AllDirectories } else { [System.IO.SearchOption]::TopDirectoryOnly }
+        foreach ($path in @([System.IO.Directory]::EnumerateFiles([string]$root.Path, "*.entries.trinkets.json", $searchOption) | Sort-Object)) {
+            $content = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+            $positivePrices = @($content.entries | Where-Object {
+                $null -ne $_.price -and [int]$_.price -ne 0
+            })
+            if ($positivePrices.Count -gt 0) {
+                $files += $path
+            }
+        }
+    }
+
+    return $files
+}
+
 function Invoke-Loader {
     param([string[]]$LoaderArgs)
 
@@ -114,6 +159,8 @@ try {
     $gameWorkingDirectory = Resolve-ProjectPath ([string]$config.gameWorkingDirectory)
     $lockedTownBuildingFiles = @(Get-TownBuildingFilesWithPositiveRequirements -GameWorkingDirectory $gameWorkingDirectory)
     Assert-True ($lockedTownBuildingFiles.Count -gt 0) "Expected at least one town building content file with positive unlock requirements."
+    $trinketEntryFilesWithPositivePrices = @(Get-TrinketEntryFilesWithPositivePrices -GameWorkingDirectory $gameWorkingDirectory)
+    Assert-True ($trinketEntryFilesWithPositivePrices.Count -gt 0) "Expected at least one trinket entry content file with positive prices."
 
     $inventoryArtifactPath = Join-Path $artifactRoot "manual_inventory.disableItemSale.json"
     $inventoryArtifact = [ordered]@{
@@ -134,6 +181,7 @@ try {
             target = "profile.inventory"
             arguments = [ordered]@{
                 itemKind = "trinket"
+                method = "content_price_zero"
                 disabled = $true
             }
         }
@@ -211,7 +259,7 @@ try {
     Assert-True ([int]$manifest.overlayCount -eq 4) "Overlay compiler should expose the latest quest.injectFixedStage overlay, the inventory policy overlay, the fixed-board overlay, and the town unlock overlay."
     Assert-True ([int]$manifest.ignoredArtifactCount -eq 4) "Overlay manifest should still ignore hero/trinket preview filter artifacts for now."
     Assert-True ([int]$manifest.supersededOverlayCount -eq 1) "Overlay manifest should supersede the older quest injection artifact."
-    Assert-True ([int]$manifest.virtualFileRuleCount -eq (1 + $lockedTownBuildingFiles.Count)) "Overlay manifest should compile one quest plot virtual file rule plus town building sourcePath rules."
+    Assert-True ([int]$manifest.virtualFileRuleCount -eq (1 + $lockedTownBuildingFiles.Count + $trinketEntryFilesWithPositivePrices.Count)) "Overlay manifest should compile one quest plot virtual file rule plus town building and trinket sourcePath rules."
     Assert-True ([int]$manifest.virtualFileReplacementCount -eq 2) "Overlay manifest should compile quest plot replacements for the selected stage and fixed board."
     Assert-True ((@($manifest.issues)).Count -eq 0) "Overlay manifest should not contain issues."
 
@@ -223,9 +271,10 @@ try {
     Assert-True ($overlay.sourceQuestId -eq "plot_kill_necromancer_1") "Overlay should carry the source quest id."
     Assert-True (Test-Path -LiteralPath ([string]$overlay.artifactPath) -PathType Leaf) "Overlay artifact path should point to an existing artifact."
     $inventoryOverlay = @($overlays | Where-Object { $_.kind -eq "inventory.disableItemSale" })[0]
-    Assert-True ($inventoryOverlay.effect -eq "recordSalePolicy") "Inventory overlay should record sale policy intent without mutating content prices."
-    Assert-True ($inventoryOverlay.target -eq "profile.inventory.saleDisabled") "Inventory overlay should target the profile sale policy."
+    Assert-True ($inventoryOverlay.effect -eq "suppressSaleValue") "Inventory overlay should request original content sale-value suppression."
+    Assert-True ($inventoryOverlay.target -eq "content.trinkets.price") "Inventory overlay should target trinket price content."
     Assert-True ($inventoryOverlay.itemKind -eq "trinket") "Inventory overlay should target trinkets."
+    Assert-True ($inventoryOverlay.method -eq "content_price_zero") "Inventory overlay should preserve the explicit content price-zero method."
     Assert-True ([bool]$inventoryOverlay.disabled) "Inventory overlay should be enabled."
     $questBoardOverlay = @($overlays | Where-Object { $_.kind -eq "questBoard.replaceWithFixedSet" })[0]
     Assert-True ($questBoardOverlay.effect -eq "replaceWithFixedSet") "Fixed-board overlay should record board replacement intent."
@@ -237,7 +286,7 @@ try {
     Assert-True ($townUnlockOverlay.mode -eq "all_unlocked_and_maxed") "Town unlock overlay should preserve the requested mode."
 
     $virtualRules = @($manifest.virtualFileRules)
-    Assert-True ($virtualRules.Count -eq (1 + $lockedTownBuildingFiles.Count)) "Expected quest overlay plus town building content sourcePath overlays."
+    Assert-True ($virtualRules.Count -eq (1 + $lockedTownBuildingFiles.Count + $trinketEntryFilesWithPositivePrices.Count)) "Expected quest overlay plus town building and trinket content sourcePath overlays."
     $virtualRule = @($virtualRules | Where-Object { $_.effect -eq "forcePlotQuestAvailable" })[0]
     Assert-True ($virtualRule.target -eq "campaign/quest/quest.plot_quests.json") "Overlay virtual rule should target the base plot quest file."
     Assert-True ($virtualRule.effect -eq "forcePlotQuestAvailable") "Overlay virtual rule should force the selected plot quest available."
@@ -255,7 +304,10 @@ try {
     Assert-True ([int]$questBoardReplacement.setDungeonLevel -eq 0) "Fixed-board replacement should force dungeon_level to 0."
     Assert-True ([bool]$questBoardReplacement.setRepeatable) "Fixed-board replacement should force repeatable availability."
     $trinketRules = @($virtualRules | Where-Object { $_.effect -eq "suppressTrinketSaleValue" })
-    Assert-True ($trinketRules.Count -eq 0) "Inventory sale policy must not generate trinket price sourcePath overlays."
+    Assert-True ($trinketRules.Count -eq $trinketEntryFilesWithPositivePrices.Count) "Explicit content_price_zero inventory policy should generate one trinket price sourcePath overlay per priced trinket entry file."
+    $baseTrinketRule = @($trinketRules | Where-Object { $_.target -eq "trinkets/base.entries.trinkets.json" })[0]
+    Assert-True ($null -ne $baseTrinketRule) "Expected a generated sourcePath overlay for base trinket entries."
+    Assert-True ([int]$baseTrinketRule.affectedEntryCount -gt 0) "Base trinket overlay should affect at least one entry."
     $townBuildingRules = @($virtualRules | Where-Object { $_.effect -eq "suppressTownBuildingRequirements" })
     Assert-True ($townBuildingRules.Count -eq $lockedTownBuildingFiles.Count) "Expected one town building requirement sourcePath rule per locked building file."
     $campingTrainerRule = @($townBuildingRules | Where-Object { $_.target -eq "campaign/town/buildings/camping_trainer/camping_trainer.building.json" })[0]
@@ -285,7 +337,15 @@ try {
     $campingTrainerPreview = Get-Content -Raw -LiteralPath $campingTrainerPreviewPath | ConvertFrom-Json
     Assert-True ([int]$campingTrainerPreview.requirements.highest_dungeon_level -eq 0) "Camping trainer overlay preview should suppress highest dungeon level requirement."
 
-    Write-Host "PASS: managed action artifacts compiled into quest, inventory sale policy, and town building unlock overlay manifest."
+    $baseTrinketPreviewPath = Join-Path $previewRoot "trinkets_base.entries.trinkets.json.preview.bin"
+    Assert-True (Test-Path -LiteralPath $baseTrinketPreviewPath -PathType Leaf) "Managed overlay base trinket sourcePath preview was not written: $baseTrinketPreviewPath"
+    $baseTrinketPreview = Get-Content -Raw -LiteralPath $baseTrinketPreviewPath | ConvertFrom-Json
+    $pricedPreviewEntries = @($baseTrinketPreview.entries | Where-Object {
+        $null -ne $_.price -and [int]$_.price -ne 0
+    })
+    Assert-True ($pricedPreviewEntries.Count -eq 0) "Base trinket overlay preview should suppress all nonzero prices to zero."
+
+    Write-Host "PASS: managed action artifacts compiled into quest, trinket sale-value, and town building unlock overlay manifest."
 }
 finally {
     Pop-Location

@@ -459,6 +459,7 @@
           "args": {
             "target": "profile.inventory",
             "itemKind": "trinket",
+            "method": "content_price_zero",
             "disabled": "state.bossGauntlet.trinketSaleDisabled"
           }
         },
