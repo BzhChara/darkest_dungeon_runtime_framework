@@ -29,7 +29,7 @@ These capabilities should usually be treated as externally authored content. The
 | --- | --- | --- |
 | Monsters | monster class definitions, stats, resistances, rank rules, art ids | `monsterId` references, existence checks, dependency reports |
 | Monster skills | skill effect definitions, animation ids, targeting data | `skillId` references and optional compatibility checks |
-| Heroes/classes | class files, skill files, animations, icons | roster generation by class id, skill unlock state, availability filters |
+| Heroes/classes | class files, skill files, animations, icons | roster generation by class id, skill unlock state, original roster state references |
 | Trinkets/items | item definitions, icons, rarity, prices, equip rules | inventory counts, sale policy, reward references |
 | Curios/props | prop definition files, art, default interaction tables | map placement, interaction gating, event hooks, dependency validation |
 | Loot tables | ordinary loot table definitions | reward selection references, phase gating, deterministic reward policies |

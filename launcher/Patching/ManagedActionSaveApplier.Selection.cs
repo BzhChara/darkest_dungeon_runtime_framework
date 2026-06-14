@@ -15,8 +15,6 @@ internal static partial class ManagedActionSaveApplier
         "stagecoach.suppressRecruits",
         "town.suppressStoreItems",
         "inventory.disableItemSale",
-        "roster.enforceAvailabilityFilter",
-        "equipment.enforceAvailabilityFilter",
         "townEvent.overrideCurrent"
     };
 

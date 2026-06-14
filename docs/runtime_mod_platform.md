@@ -57,8 +57,6 @@ The event layer exposes game flow points that rules can subscribe to.
 
 Current observe-only v0 is the lowest-risk probe. RuntimeHook observes `CreateFileW/CreateFileA/WriteFile`, `MoveFile/MoveFileEx`, `CopyFile`, `DeleteFile`, `ReplaceFile`, and `SetFileAttributes`, then classifies known file activity as `data.*`, `asset.*`, or `save.*` events. It only writes logs. It does not read event context, intercept control flow, or modify saves. Real-game sampling keeps `save.*` events by default, gives ordinary data/asset events a separate budget, and filters external noise such as Steam overlay logs.
 
-When the overlay manifest contains hero/trinket availability policy, RuntimeHook enables the focused `availability.*` probe. The probe marks open/write/lifecycle events for `persist.roster.json`, `persist.estate.json`, `persist.raid.json`, `persist.quest.json`, and related campaign/town files, and can emit call-stack module offsets. This locates hook points for later hard consumers without changing game results.
-
 Priority from low risk to high risk:
 
 1. observe-only: record whether an event happened.
@@ -173,7 +171,7 @@ The launcher can compile `quest.injectFixedStage` and `questBoard.replaceWithFix
 
 `town.unlockAllBuildings` artifacts can generate town building `.building.json` `sourcePath` overlays that reduce original entrance requirements to 0. This opens buildings such as the Survivalist, Blacksmith, and Guild immediately. Building upgrade levels are still represented through `upgrade.ensurePurchases`.
 
-`roster.enforceAvailabilityFilter` and `equipment.enforceAvailabilityFilter` enter overlay manifest `availabilityPolicies` and trigger the focused availability probe, but they do not yet block the original UI.
+Pre-finale hero and trinket consumption remains sidecar state only until a verified original-first projection exists. For heroes, the next candidate is a schema-verified writer over original roster unavailable/missing/status fields. The removed custom selection-policy path should not be reintroduced as a parallel selection system.
 
 `--refresh-quest-board-profile <profileId>` can write the generated fixed quest board into the watched profile's current `persist.quest.json`, with `--dry-run`, pre-write backup, path validation, and running-game protection. `questBoardAutoRefreshEnabled` lets the realtime save watcher reapply the same writer after any successfully bridged stable campaign save batch, not only after `persist.quest.json` changes. Live writes to external saves require `questBoardAutoRefreshAllowRunningGameSaveWrite=true`. Quest-board policy materialization writes an explicit `status=empty` marker when no policy quests are currently selected, so stale dynamic quest-board artifacts such as an old finale board cannot continue overriding the current board. These are quest-board refreshes, not full week-settlement simulations.
 
@@ -181,7 +179,7 @@ The launcher can compile `quest.injectFixedStage` and `questBoard.replaceWithFix
 
 `--apply-managed-actions --managed-action-save-dir <dir>` can read these artifacts and generate `logs/managed_action_apply_report.json`. It is dry-run by default. Writes require `--write-managed-actions`, and the first version only writes project-local decoded JSON save copies.
 
-`--apply-continuous-profile-actions --managed-action-save-dir <dir>` is the narrower reapply mode for rules that should remain true after original week settlement rewrites profile files. It selects the latest artifact per action/plugin/rule/profile-scope/source group, then applies only continuous profile actions: stagecoach recruit suppression, town store suppression, trinket sale policy, hero/trinket availability policy, and current town-event suppression. It intentionally does not replay one-time initialization actions such as wallet setup, initial trinket inventory, hero generation, upgrade purchases, campaign progress reset, or quest-board replacement. `continuousProfileActionAutoApplyEnabled` lets the realtime save watcher run this same narrow path after a stable bridged save batch; for live Steam saves it decodes the target profile files into a project-local workspace, applies the continuous actions there, re-encodes changed `persist.*.json` files, backs up the originals, and writes them back only when `continuousProfileActionAutoApplyAllowRunningGameSaveWrite` permits running-game writes.
+`--apply-continuous-profile-actions --managed-action-save-dir <dir>` is the narrower reapply mode for rules that should remain true after original week settlement rewrites profile files. It selects the latest artifact per action/plugin/rule/profile-scope/source group, then applies only continuous profile actions: stagecoach recruit suppression, town store suppression, trinket sale policy, and current town-event suppression. It intentionally does not replay one-time initialization actions such as wallet setup, initial trinket inventory, hero generation, upgrade purchases, campaign progress reset, quest-board replacement, or sidecar-only selection consumption. `continuousProfileActionAutoApplyEnabled` lets the realtime save watcher run this same narrow path after a stable bridged save batch; for live Steam saves it decodes the target profile files into a project-local workspace, applies the continuous actions there, re-encodes changed `persist.*.json` files, backs up the originals, and writes them back only when `continuousProfileActionAutoApplyAllowRunningGameSaveWrite` permits running-game writes.
 
 `--initialize-decoded-profile` inlines apply action/file details into its summary report so each artifact's dry-run, applied, or unsupported status can be inspected directly.
 
@@ -369,8 +367,6 @@ quest_board.filter_completed_fixed_quests
 roster.ensure_class_instances
 roster.set_progression
 roster.set_skill_unlocks
-roster.enforce_availability_filter
-equipment.enforce_availability_filter
 estate.ensure_inventory_counts
 wallet.set_currency_amounts
 wallet.modify_currency

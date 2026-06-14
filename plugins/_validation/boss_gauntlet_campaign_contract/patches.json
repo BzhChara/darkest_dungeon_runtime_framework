@@ -31,8 +31,6 @@
     "selection.lock",
     "selection.consume_heroes",
     "selection.consume_trinkets",
-    "roster.enforce_availability_filter",
-    "equipment.enforce_availability_filter",
     "quest.mark_completed",
     "state.transition_phase",
     "quest.chain.define",
@@ -625,8 +623,6 @@
         "attempt.record_once",
         "selection.consume_heroes",
         "selection.consume_trinkets",
-        "roster.enforce_availability_filter",
-        "equipment.enforce_availability_filter",
         "wallet.modify_currency",
         "quest.mark_completed",
         "state.transition_phase"
@@ -733,28 +729,6 @@
           }
         },
         {
-          "type": "roster.enforceAvailabilityFilter",
-          "capability": "roster.enforce_availability_filter",
-          "risk": "managed",
-          "required": true,
-          "args": {
-            "target": "profile.roster.availability",
-            "filterId": "boss_gauntlet.prefinale",
-            "unavailableHeroIds": "state.bossGauntlet.consumedHeroIds"
-          }
-        },
-        {
-          "type": "equipment.enforceAvailabilityFilter",
-          "capability": "equipment.enforce_availability_filter",
-          "risk": "managed",
-          "required": true,
-          "args": {
-            "target": "profile.equipment.availability",
-            "filterId": "boss_gauntlet.prefinale",
-            "unavailableTrinketIds": "state.bossGauntlet.consumedTrinketIds"
-          }
-        },
-        {
           "type": "state.setValue",
           "capability": "state.sidecar",
           "risk": "safe",
@@ -777,9 +751,7 @@
         "quest.observe_attempt_resolved",
         "attempt.record_once",
         "selection.consume_heroes",
-        "selection.consume_trinkets",
-        "roster.enforce_availability_filter",
-        "equipment.enforce_availability_filter"
+        "selection.consume_trinkets"
       ],
       "when": {
         "all": [
@@ -839,28 +811,6 @@
           "args": {
             "key": "bossGauntlet.consumedTrinketIds",
             "selectionStateKey": "bossGauntlet.activeSelection"
-          }
-        },
-        {
-          "type": "roster.enforceAvailabilityFilter",
-          "capability": "roster.enforce_availability_filter",
-          "risk": "managed",
-          "required": true,
-          "args": {
-            "target": "profile.roster.availability",
-            "filterId": "boss_gauntlet.prefinale",
-            "unavailableHeroIds": "state.bossGauntlet.consumedHeroIds"
-          }
-        },
-        {
-          "type": "equipment.enforceAvailabilityFilter",
-          "capability": "equipment.enforce_availability_filter",
-          "risk": "managed",
-          "required": true,
-          "args": {
-            "target": "profile.equipment.availability",
-            "filterId": "boss_gauntlet.prefinale",
-            "unavailableTrinketIds": "state.bossGauntlet.consumedTrinketIds"
           }
         },
         {

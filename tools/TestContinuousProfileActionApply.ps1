@@ -197,23 +197,7 @@ New-ManagedActionArtifact `
     -Arguments @{ itemKind = "trinket"; disabled = $true }
 
 New-ManagedActionArtifact `
-    -Path (Join-Path $artifactRoot "005_roster.enforceAvailabilityFilter.json") `
-    -Type "roster.enforceAvailabilityFilter" `
-    -Target "profile.roster.availability" `
-    -RuleId "continuous_roster_availability" `
-    -ActionIndex 0 `
-    -Arguments @{ filterId = "pre_finale"; unavailableHeroIds = @("hero_1", "hero_2") }
-
-New-ManagedActionArtifact `
-    -Path (Join-Path $artifactRoot "006_equipment.enforceAvailabilityFilter.json") `
-    -Type "equipment.enforceAvailabilityFilter" `
-    -Target "profile.equipment.availability" `
-    -RuleId "continuous_equipment_availability" `
-    -ActionIndex 0 `
-    -Arguments @{ filterId = "pre_finale"; unavailableTrinketIds = @("trinket_a") }
-
-New-ManagedActionArtifact `
-    -Path (Join-Path $artifactRoot "007_townEvent.overrideCurrent.json") `
+    -Path (Join-Path $artifactRoot "005_townEvent.overrideCurrent.json") `
     -Type "townEvent.overrideCurrent" `
     -Target "profile.townEvent" `
     -RuleId "continuous_town_event" `
@@ -230,7 +214,7 @@ $baseArgs = @("--config", $config, "--mod-state-dir", $stateRoot, "--apply-conti
 Invoke-Loader -LoaderArgs $baseArgs
 $dryRunReport = Read-ApplyReport
 Assert-True ($dryRunReport.applyMode -eq "continuousProfile") "Dry-run report should use continuousProfile apply mode."
-Assert-True ($dryRunReport.artifactCount -eq 6) "Dry-run should select only the six continuous artifacts."
+Assert-True ($dryRunReport.artifactCount -eq 4) "Dry-run should select only the four continuous artifacts."
 Assert-True ($dryRunReport.actions.actionType -notcontains "wallet.setCurrencyAmounts") "Dry-run should not apply one-shot wallet artifacts."
 
 $town = Read-Utf8Text -Path (Join-Path $saveRoot "persist.town.json") | ConvertFrom-Json
@@ -240,7 +224,7 @@ Assert-True ((Count-ObjectProperties $town.base_root.buildings.nomad_wagon.store
 Invoke-Loader -LoaderArgs ($baseArgs + @("--write-managed-actions"))
 $writeReport = Read-ApplyReport
 Assert-True ($writeReport.applyMode -eq "continuousProfile") "Write report should use continuousProfile apply mode."
-Assert-True ($writeReport.appliedActionCount -eq 6) "Write pass should apply six continuous artifacts."
+Assert-True ($writeReport.appliedActionCount -eq 4) "Write pass should apply four continuous artifacts."
 Assert-True ($writeReport.actions.actionType -notcontains "wallet.setCurrencyAmounts") "Write pass should not apply one-shot wallet artifacts."
 
 $town = Read-Utf8Text -Path (Join-Path $saveRoot "persist.town.json") | ConvertFrom-Json
@@ -257,8 +241,6 @@ Assert-True (-not [bool]$townEvent.base_root.has_unclaimed_interaction) "Write p
 
 $profilePolicy = Read-Utf8Text -Path (Join-Path $saveRoot "_ddrt_profile_policy.json") | ConvertFrom-Json
 Assert-True ([bool]$profilePolicy.profilePolicies.inventory.saleDisabled.trinket) "Write pass should record trinket sale-disable policy."
-Assert-True (@($profilePolicy.profilePolicies.roster.unavailableHeroIds).Count -eq 2) "Write pass should record unavailable heroes."
-Assert-True (@($profilePolicy.profilePolicies.equipment.unavailableTrinketIds).Count -eq 1) "Write pass should record unavailable trinkets."
 Assert-True ($profilePolicy.profilePolicies.townEvent.mode -eq "suppress") "Write pass should record town-event policy."
 
 Write-Host "Continuous profile action apply test passed: $sessionId"

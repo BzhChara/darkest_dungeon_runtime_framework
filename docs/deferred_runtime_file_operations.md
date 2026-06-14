@@ -28,7 +28,7 @@ Runtime file interception is the harder layer. It should be implemented as gener
 
 - Replace task-board reads only from resolved `questBoard.replaceWithFixedSet` or `questBoardPolicies` artifacts that match the active profile.
 - Replace stagecoach or store data only from continuous profile policies such as `stagecoach.suppressRecruits` and `town.suppressStoreItems`.
-- Replace availability or economy behavior only after a verified consumer exists. Manifest-only `roster.enforceAvailabilityFilter`, `equipment.enforceAvailabilityFilter`, and `inventory.disableItemSale` must not claim hard enforcement.
+- Replace selection or economy behavior only after a verified consumer exists. Sidecar selection consumption is not hard enforcement; hero unavailability should first be projected through original roster unavailable/missing/status fields. Manifest-only `inventory.disableItemSale` must not claim hard enforcement.
 - Keep `.dm` map replacement under the map template/overlay layer. Per-cell dynamic map mutation during a raid remains experimental and should not be mixed with task-board refresh.
 
 ## Acceptance Gates

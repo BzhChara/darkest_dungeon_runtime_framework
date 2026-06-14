@@ -249,16 +249,7 @@ $firstSuccessPayloadPath = Write-JsonPayload "attempt_necromancer_success.json" 
 })
 Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $firstSuccessPayloadPath))
 $firstSuccessReport = Read-RuntimeEventReport
-Assert-True ([int]$firstSuccessReport.materializedActionCount -eq 2) "Successful pre-finale attempt should materialize hero and trinket availability policy actions."
-$firstSuccessRosterAvailabilityAction = Get-ActionReport -Report $firstSuccessReport -Type "roster.enforceAvailabilityFilter"
-$firstSuccessRosterAvailabilityArtifact = Read-ManagedActionArtifact -Action $firstSuccessRosterAvailabilityAction -ExpectedType "roster.enforceAvailabilityFilter"
-Assert-True ($firstSuccessRosterAvailabilityArtifact.plan.arguments.filterId -eq "boss_gauntlet.prefinale") "Roster availability policy should use a phase-scoped filter id."
-Assert-True ((Convert-ToArray $firstSuccessRosterAvailabilityArtifact.plan.arguments.unavailableHeroIds).Count -eq 4) "Successful pre-finale policy should carry consumed hero ids."
-Assert-True ((Convert-ToArray $firstSuccessRosterAvailabilityArtifact.plan.arguments.unavailableHeroIds) -contains "hero_1") "Successful pre-finale policy should include the selected hero."
-$firstSuccessTrinketAvailabilityAction = Get-ActionReport -Report $firstSuccessReport -Type "equipment.enforceAvailabilityFilter"
-$firstSuccessTrinketAvailabilityArtifact = Read-ManagedActionArtifact -Action $firstSuccessTrinketAvailabilityAction -ExpectedType "equipment.enforceAvailabilityFilter"
-Assert-True ((Convert-ToArray $firstSuccessTrinketAvailabilityArtifact.plan.arguments.unavailableTrinketIds).Count -eq 2) "Successful pre-finale policy should carry consumed trinket ids."
-Assert-True ((Convert-ToArray $firstSuccessTrinketAvailabilityArtifact.plan.arguments.unavailableTrinketIds) -contains "trinket_1") "Successful pre-finale policy should include the selected trinket."
+Assert-True ([int]$firstSuccessReport.materializedActionCount -eq 0) "Successful pre-finale attempt should only update sidecar selection state."
 $state = Read-BossGauntletState
 Assert-True ((Convert-ToArray $state.attempts).Count -eq 1) "Successful attempt should be recorded once."
 Assert-True ((Convert-ToArray $state.consumedHeroIds).Count -eq 4) "Successful attempt should consume selected heroes."
@@ -295,15 +286,7 @@ $failedAttemptPayloadPath = Write-JsonPayload "attempt_prophet_failed.json" ([ps
 })
 Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $failedAttemptPayloadPath))
 $failedAttemptReport = Read-RuntimeEventReport
-Assert-True ([int]$failedAttemptReport.materializedActionCount -eq 2) "Failed pre-finale attempt should materialize hero and trinket availability policy actions."
-$failedRosterAvailabilityAction = Get-ActionReport -Report $failedAttemptReport -Type "roster.enforceAvailabilityFilter"
-$failedRosterAvailabilityArtifact = Read-ManagedActionArtifact -Action $failedRosterAvailabilityAction -ExpectedType "roster.enforceAvailabilityFilter"
-Assert-True ((Convert-ToArray $failedRosterAvailabilityArtifact.plan.arguments.unavailableHeroIds).Count -eq 8) "Failed pre-finale policy should carry accumulated consumed hero ids."
-Assert-True ((Convert-ToArray $failedRosterAvailabilityArtifact.plan.arguments.unavailableHeroIds) -contains "hero_5") "Failed pre-finale policy should include failed-attempt heroes."
-$failedTrinketAvailabilityAction = Get-ActionReport -Report $failedAttemptReport -Type "equipment.enforceAvailabilityFilter"
-$failedTrinketAvailabilityArtifact = Read-ManagedActionArtifact -Action $failedTrinketAvailabilityAction -ExpectedType "equipment.enforceAvailabilityFilter"
-Assert-True ((Convert-ToArray $failedTrinketAvailabilityArtifact.plan.arguments.unavailableTrinketIds).Count -eq 4) "Failed pre-finale policy should carry accumulated consumed trinket ids."
-Assert-True ((Convert-ToArray $failedTrinketAvailabilityArtifact.plan.arguments.unavailableTrinketIds) -contains "trinket_3") "Failed pre-finale policy should include failed-attempt trinkets."
+Assert-True ([int]$failedAttemptReport.materializedActionCount -eq 0) "Failed pre-finale attempt should only update sidecar selection state."
 $state = Read-BossGauntletState
 Assert-True ((Convert-ToArray $state.attempts).Count -eq 2) "Failed attempt should be recorded."
 Assert-True ((Convert-ToArray $state.consumedHeroIds).Count -eq 8) "Failed attempt should also consume selected heroes."
@@ -366,13 +349,7 @@ $secondSuccessPayloadPath = Write-JsonPayload "attempt_prophet_success.json" ([p
 })
 Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $secondSuccessPayloadPath))
 $finalPrerequisiteReport = Read-RuntimeEventReport
-Assert-True ([int]$finalPrerequisiteReport.materializedActionCount -eq 2) "Final prerequisite completion should materialize cleared availability policy actions."
-$finalRosterAvailabilityAction = Get-ActionReport -Report $finalPrerequisiteReport -Type "roster.enforceAvailabilityFilter"
-$finalRosterAvailabilityArtifact = Read-ManagedActionArtifact -Action $finalRosterAvailabilityAction -ExpectedType "roster.enforceAvailabilityFilter"
-Assert-True ((Convert-ToArray $finalRosterAvailabilityArtifact.plan.arguments.unavailableHeroIds).Count -eq 0) "Finale unlock should clear the roster availability policy."
-$finalTrinketAvailabilityAction = Get-ActionReport -Report $finalPrerequisiteReport -Type "equipment.enforceAvailabilityFilter"
-$finalTrinketAvailabilityArtifact = Read-ManagedActionArtifact -Action $finalTrinketAvailabilityAction -ExpectedType "equipment.enforceAvailabilityFilter"
-Assert-True ((Convert-ToArray $finalTrinketAvailabilityArtifact.plan.arguments.unavailableTrinketIds).Count -eq 0) "Finale unlock should clear the trinket availability policy."
+Assert-True ([int]$finalPrerequisiteReport.materializedActionCount -eq 0) "Final prerequisite completion should only update sidecar selection state."
 $state = Read-BossGauntletState
 Assert-True ($state.phase -eq "darkest_finale") "Completing all fixed bosses should unlock darkest_finale."
 Assert-True ((Convert-ToArray $state.completedQuestIds).Count -eq 8) "All fixed boss quests should be completed."

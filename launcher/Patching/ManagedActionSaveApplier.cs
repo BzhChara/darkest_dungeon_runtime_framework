@@ -103,12 +103,6 @@ internal static partial class ManagedActionSaveApplier
                 case "inventory.disableItemSale":
                     ApplyInventoryDisableItemSale(context, artifactPath, artifact);
                     break;
-                case "roster.enforceAvailabilityFilter":
-                    ApplyRosterEnforceAvailabilityFilter(context, artifactPath, artifact);
-                    break;
-                case "equipment.enforceAvailabilityFilter":
-                    ApplyEquipmentEnforceAvailabilityFilter(context, artifactPath, artifact);
-                    break;
                 case "campaign.resetPlotProgress":
                     ApplyCampaignResetPlotProgress(context, artifactPath, artifact);
                     break;
