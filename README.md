@@ -84,7 +84,10 @@ The event probe is the lowest-risk starting point for the future event layer. It
 "eventProbeIgnorePathFragments": [
   "Steam/logs/",
   "gameoverlay_renderer.txt"
-]
+],
+"availabilityProbeEnabled": true,
+"availabilityProbeCaptureStack": true,
+"availabilityProbeMaxLogEntries": 500
 ```
 
 Current event names:
@@ -100,8 +103,17 @@ Current event names:
 - `save.file_delete_attempted`
 - `save.file_replace_attempted`
 - `save.file_set_attributes_attempted`
+- `availability.candidate_file_opened`
+- `availability.candidate_file_write_attempted`
+- `availability.candidate_file_move_attempted`
+- `availability.candidate_file_copy_attempted`
+- `availability.candidate_file_delete_attempted`
+- `availability.candidate_file_replace_attempted`
+- `availability.candidate_file_set_attributes_attempted`
 
 Save events are sampled by default. Data-file and asset events are disabled by default so startup-time mod, localization, layout, texture, and Steam overlay logs do not consume the event budget. `eventProbeMaxLogEntries` controls the ordinary `data` / `asset` event budget. `eventProbeMaxSaveLogEntries` separately controls the `save` event budget, so save reads and writes are not pushed out by ordinary file noise. The `save` category is detected heuristically: files are classified as saves when they are under Steam userdata `262060/remote/profile_*`, under Documents Darkest `profile_*`, or have names like `persist.*`.
+
+The availability probe is narrower. It only becomes active when the launcher passes at least one managed availability policy from `logs/managed_action_overlay_manifest.json`. It watches candidate profile files such as `persist.roster.json`, `persist.estate.json`, `persist.raid.json`, `persist.quest.json`, and related campaign/town files, and can attach a short module-offset stack summary. This is observe-only evidence for choosing a later hard runtime/UI/save consumer; it does not block party selection or trinket equipment.
 
 ## Save Directory Sidecar Watcher
 

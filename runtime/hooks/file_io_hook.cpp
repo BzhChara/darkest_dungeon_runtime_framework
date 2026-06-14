@@ -149,6 +149,12 @@ std::vector<std::wstring> g_eventProbeIgnorePathFragments;
 std::mutex g_eventProbeMutex;
 std::mutex g_observedHandlesMutex;
 std::unordered_map<HANDLE, std::wstring> g_observedFileHandles;
+bool g_availabilityProbeEnabled = true;
+bool g_availabilityProbeCaptureStack = true;
+unsigned long g_availabilityProbeMaxEntries = 500;
+std::atomic<unsigned long> g_availabilityProbeLoggedCount{ 0 };
+bool g_availabilityProbeLimitLogged = false;
+std::mutex g_availabilityProbeMutex;
 
 struct ReplacementRule
 {
@@ -368,6 +374,13 @@ std::wstring ToHex(DWORD value)
     return buffer;
 }
 
+std::wstring ToHexAddress(std::uintptr_t value)
+{
+    wchar_t buffer[32] = {};
+    swprintf_s(buffer, L"0x%llX", static_cast<unsigned long long>(value));
+    return buffer;
+}
+
 std::vector<std::wstring> SplitExtensions(std::wstring value)
 {
     std::vector<std::wstring> extensions;
@@ -571,6 +584,229 @@ std::wstring LifecycleEventName(const std::wstring& category, const std::wstring
 {
     std::wstring prefix = category == L"other" ? L"file" : category;
     return prefix + L".file_" + operation + L"_attempted";
+}
+
+std::wstring DispositionName(DWORD disposition);
+
+bool AvailabilityProbeActive()
+{
+    return g_availabilityProbeEnabled && g_managedAvailabilityPolicyCount > 0;
+}
+
+std::wstring AvailabilityCandidateName(const std::wstring& path)
+{
+    if (!AvailabilityProbeActive() || path.empty() || IsIgnoredEventPath(path))
+    {
+        return L"";
+    }
+
+    std::wstring normalized = NormalizePath(path);
+    std::wstring fileName = FileNameOf(normalized);
+    if (fileName == L"persist.roster.json")
+    {
+        return L"roster";
+    }
+    if (fileName == L"persist.estate.json")
+    {
+        return L"estate";
+    }
+    if (fileName == L"persist.raid.json")
+    {
+        return L"raid";
+    }
+    if (fileName == L"persist.quest.json")
+    {
+        return L"quest_board";
+    }
+    if (fileName == L"persist.campaign_log.json")
+    {
+        return L"campaign_log";
+    }
+    if (fileName == L"persist.progression.json")
+    {
+        return L"progression";
+    }
+    if (fileName == L"persist.town.json")
+    {
+        return L"town";
+    }
+    if (fileName == L"persist.town_event.json")
+    {
+        return L"town_event";
+    }
+    return L"";
+}
+
+bool ReserveAvailabilityProbeLogEntry()
+{
+    std::lock_guard<std::mutex> lock(g_availabilityProbeMutex);
+    if (g_availabilityProbeMaxEntries > 0 &&
+        g_availabilityProbeLoggedCount.load() >= g_availabilityProbeMaxEntries)
+    {
+        if (!g_availabilityProbeLimitLogged)
+        {
+            g_availabilityProbeLimitLogged = true;
+            Logger::Warn(L"Availability probe log limit reached. Further availability probe entries are suppressed.");
+        }
+        return false;
+    }
+
+    g_availabilityProbeLoggedCount.fetch_add(1);
+    return true;
+}
+
+std::wstring StackTraceSummary()
+{
+    if (!g_availabilityProbeCaptureStack)
+    {
+        return L"";
+    }
+
+    void* frames[16] = {};
+    USHORT captured = RtlCaptureStackBackTrace(3, 12, frames, nullptr);
+    std::wstring summary;
+    for (USHORT index = 0; index < captured; index++)
+    {
+        auto address = reinterpret_cast<std::uintptr_t>(frames[index]);
+        HMODULE module = nullptr;
+        std::wstring frameText = ToHexAddress(address);
+        if (GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(frames[index]),
+            &module) && module != nullptr)
+        {
+            wchar_t modulePath[MAX_PATH] = {};
+            DWORD length = GetModuleFileNameW(module, modulePath, MAX_PATH);
+            std::wstring moduleName = length == 0 ? L"module" : FileNameOf(std::wstring(modulePath, length));
+            auto base = reinterpret_cast<std::uintptr_t>(module);
+            frameText = moduleName + L"+" + ToHexAddress(address - base);
+        }
+
+        if (!summary.empty())
+        {
+            summary += L";";
+        }
+        summary += frameText;
+    }
+
+    return summary;
+}
+
+void LogAvailabilityProbeFileOpen(const std::wstring& path, DWORD desiredAccess, DWORD creationDisposition)
+{
+    std::wstring candidate = AvailabilityCandidateName(path);
+    if (candidate.empty() || !ReserveAvailabilityProbeLogEntry())
+    {
+        return;
+    }
+
+    std::wstring stack = StackTraceSummary();
+    Logger::Info(
+        std::wstring(L"event name=availability.candidate_file_opened") +
+        L" category=availability" +
+        L" candidate=" + candidate +
+        L" policies=" + std::to_wstring(g_managedAvailabilityPolicyCount) +
+        L" disposition=" + DispositionName(creationDisposition) +
+        L" access=" + ToHex(desiredAccess) +
+        (stack.empty() ? L"" : L" stack=" + stack) +
+        L" path=" + path);
+}
+
+void LogAvailabilityProbeFileWrite(const std::wstring& path, DWORD bytesToWrite)
+{
+    std::wstring candidate = AvailabilityCandidateName(path);
+    if (candidate.empty() || !ReserveAvailabilityProbeLogEntry())
+    {
+        return;
+    }
+
+    std::wstring stack = StackTraceSummary();
+    Logger::Info(
+        std::wstring(L"event name=availability.candidate_file_write_attempted") +
+        L" category=availability" +
+        L" candidate=" + candidate +
+        L" policies=" + std::to_wstring(g_managedAvailabilityPolicyCount) +
+        L" bytes=" + std::to_wstring(bytesToWrite) +
+        (stack.empty() ? L"" : L" stack=" + stack) +
+        L" path=" + path);
+}
+
+void LogAvailabilityProbePathOperation(
+    const std::wstring& operation,
+    const std::wstring& path,
+    const std::wstring& details = L"")
+{
+    std::wstring candidate = AvailabilityCandidateName(path);
+    if (candidate.empty() || !ReserveAvailabilityProbeLogEntry())
+    {
+        return;
+    }
+
+    std::wstring stack = StackTraceSummary();
+    Logger::Info(
+        L"event name=availability.candidate_file_" + operation + L"_attempted" +
+        L" category=availability" +
+        L" candidate=" + candidate +
+        L" policies=" + std::to_wstring(g_managedAvailabilityPolicyCount) +
+        (details.empty() ? L"" : L" " + details) +
+        (stack.empty() ? L"" : L" stack=" + stack) +
+        L" path=" + path);
+}
+
+void LogAvailabilityProbeTwoPathOperation(
+    const std::wstring& operation,
+    const std::wstring& sourcePath,
+    const std::wstring& targetPath,
+    const std::wstring& details = L"")
+{
+    std::wstring sourceCandidate = AvailabilityCandidateName(sourcePath);
+    std::wstring targetCandidate = AvailabilityCandidateName(targetPath);
+    if ((sourceCandidate.empty() && targetCandidate.empty()) || !ReserveAvailabilityProbeLogEntry())
+    {
+        return;
+    }
+
+    std::wstring stack = StackTraceSummary();
+    Logger::Info(
+        L"event name=availability.candidate_file_" + operation + L"_attempted" +
+        L" category=availability" +
+        L" sourceCandidate=" + sourceCandidate +
+        L" targetCandidate=" + targetCandidate +
+        L" policies=" + std::to_wstring(g_managedAvailabilityPolicyCount) +
+        (details.empty() ? L"" : L" " + details) +
+        (stack.empty() ? L"" : L" stack=" + stack) +
+        L" source=" + sourcePath +
+        L" target=" + targetPath);
+}
+
+void LogAvailabilityProbeReplaceOperation(
+    const std::wstring& replacedPath,
+    const std::wstring& replacementPath,
+    const std::wstring& backupPath,
+    DWORD flags)
+{
+    std::wstring replacedCandidate = AvailabilityCandidateName(replacedPath);
+    std::wstring replacementCandidate = AvailabilityCandidateName(replacementPath);
+    std::wstring backupCandidate = AvailabilityCandidateName(backupPath);
+    if ((replacedCandidate.empty() && replacementCandidate.empty() && backupCandidate.empty()) ||
+        !ReserveAvailabilityProbeLogEntry())
+    {
+        return;
+    }
+
+    std::wstring stack = StackTraceSummary();
+    Logger::Info(
+        std::wstring(L"event name=availability.candidate_file_replace_attempted") +
+        L" category=availability" +
+        L" replacedCandidate=" + replacedCandidate +
+        L" replacementCandidate=" + replacementCandidate +
+        L" backupCandidate=" + backupCandidate +
+        L" policies=" + std::to_wstring(g_managedAvailabilityPolicyCount) +
+        L" flags=" + ToHex(flags) +
+        (stack.empty() ? L"" : L" stack=" + stack) +
+        L" replaced=" + replacedPath +
+        L" replacement=" + replacementPath +
+        L" backup=" + backupPath);
 }
 
 std::wstring ChooseLifecycleCategory(const std::vector<std::wstring>& paths)
@@ -862,6 +1098,9 @@ void LoadSettings()
     g_eventProbeMaxEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_EVENT_PROBE_MAX_ENTRIES", 5000);
     g_eventProbeMaxSaveEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_EVENT_PROBE_MAX_SAVE_ENTRIES", 20000);
     g_eventProbeIgnorePathFragments = SplitPathFragments(GetEnvironmentString(L"DD_RUNTIME_EVENT_PROBE_IGNORE_PATH_FRAGMENTS"));
+    g_availabilityProbeEnabled = GetEnvironmentBool(L"DD_RUNTIME_AVAILABILITY_PROBE_ENABLED", true);
+    g_availabilityProbeCaptureStack = GetEnvironmentBool(L"DD_RUNTIME_AVAILABILITY_PROBE_CAPTURE_STACK", true);
+    g_availabilityProbeMaxEntries = GetEnvironmentUnsignedLong(L"DD_RUNTIME_AVAILABILITY_PROBE_MAX_ENTRIES", 500);
 
     g_virtualFileEnabled = GetEnvironmentBool(L"DD_RUNTIME_VIRTUAL_FILE_ENABLED", false);
     g_virtualRules.clear();
@@ -1509,6 +1748,7 @@ HANDLE CallOriginalCreateFileW(
     if (result != INVALID_HANDLE_VALUE && result != nullptr)
     {
         LogEventProbeFileOpen(path, desiredAccess, creationDisposition);
+        LogAvailabilityProbeFileOpen(path, desiredAccess, creationDisposition);
     }
     if (virtualHandle == INVALID_HANDLE_VALUE)
     {
@@ -1549,6 +1789,7 @@ HANDLE CallOriginalCreateFileA(
     if (result != INVALID_HANDLE_VALUE && result != nullptr)
     {
         LogEventProbeFileOpen(path, desiredAccess, creationDisposition);
+        LogAvailabilityProbeFileOpen(path, desiredAccess, creationDisposition);
     }
     if (virtualHandle == INVALID_HANDLE_VALUE)
     {
@@ -1595,6 +1836,7 @@ int CallOriginalCrtOpen(CrtOpenFn original, const char* fileName, int openFlags,
     if (result != -1)
     {
         LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+        LogAvailabilityProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
     }
 
     g_insideHook = false;
@@ -1629,6 +1871,7 @@ FILE* CallOriginalCrtFOpen(CrtFOpenFn original, const char* fileName, const char
     if (result != nullptr)
     {
         LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+        LogAvailabilityProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
     }
 
     g_insideHook = false;
@@ -1675,6 +1918,7 @@ errno_t CallOriginalCrtFOpenS(CrtFOpenSFn original, FILE** stream, const char* f
     if (result == 0 && stream != nullptr && *stream != nullptr)
     {
         LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+        LogAvailabilityProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
     }
 
     g_insideHook = false;
@@ -1722,6 +1966,7 @@ errno_t CallOriginalCrtWFOpenS(CrtWFOpenSFn original, FILE** stream, const wchar
     if (result == 0 && stream != nullptr && *stream != nullptr)
     {
         LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+        LogAvailabilityProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
     }
 
     g_insideHook = false;
@@ -1756,6 +2001,7 @@ FILE* CallOriginalStdFiOpen(StdFiOpenFn original, const char* fileName, int mode
     if (result != nullptr)
     {
         LogEventProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
+        LogAvailabilityProbeFileOpen(path, GENERIC_READ, OPEN_EXISTING);
     }
 
     g_insideHook = false;
@@ -1815,7 +2061,9 @@ BOOL CallOriginalWriteFile(WriteFileFn original, HANDLE handle, LPCVOID buffer, 
     }
 
     g_insideHook = true;
-    LogEventProbeFileWrite(GetObservedFileHandlePath(handle), bytesToWrite);
+    std::wstring observedPath = GetObservedFileHandlePath(handle);
+    LogEventProbeFileWrite(observedPath, bytesToWrite);
+    LogAvailabilityProbeFileWrite(observedPath, bytesToWrite);
     BOOL result = original(handle, buffer, bytesToWrite, bytesWritten, overlapped);
     g_insideHook = false;
     return result;
@@ -1836,6 +2084,7 @@ BOOL CallOriginalMoveFileW(MoveFileWFn original, LPCWSTR existingFileName, LPCWS
 
     g_insideHook = true;
     LogEventProbeTwoPathOperation(L"move", existingFileName == nullptr ? L"" : existingFileName, newFileName == nullptr ? L"" : newFileName);
+    LogAvailabilityProbeTwoPathOperation(L"move", existingFileName == nullptr ? L"" : existingFileName, newFileName == nullptr ? L"" : newFileName);
     BOOL result = original(existingFileName, newFileName);
     g_insideHook = false;
     return result;
@@ -1856,6 +2105,7 @@ BOOL CallOriginalMoveFileA(MoveFileAFn original, LPCSTR existingFileName, LPCSTR
 
     g_insideHook = true;
     LogEventProbeTwoPathOperation(L"move", AnsiToWide(existingFileName), AnsiToWide(newFileName));
+    LogAvailabilityProbeTwoPathOperation(L"move", AnsiToWide(existingFileName), AnsiToWide(newFileName));
     BOOL result = original(existingFileName, newFileName);
     g_insideHook = false;
     return result;
@@ -1880,6 +2130,11 @@ BOOL CallOriginalMoveFileExW(MoveFileExWFn original, LPCWSTR existingFileName, L
         existingFileName == nullptr ? L"" : existingFileName,
         newFileName == nullptr ? L"" : newFileName,
         L"flags=" + ToHex(flags));
+    LogAvailabilityProbeTwoPathOperation(
+        L"move",
+        existingFileName == nullptr ? L"" : existingFileName,
+        newFileName == nullptr ? L"" : newFileName,
+        L"flags=" + ToHex(flags));
     BOOL result = original(existingFileName, newFileName, flags);
     g_insideHook = false;
     return result;
@@ -1900,6 +2155,7 @@ BOOL CallOriginalMoveFileExA(MoveFileExAFn original, LPCSTR existingFileName, LP
 
     g_insideHook = true;
     LogEventProbeTwoPathOperation(L"move", AnsiToWide(existingFileName), AnsiToWide(newFileName), L"flags=" + ToHex(flags));
+    LogAvailabilityProbeTwoPathOperation(L"move", AnsiToWide(existingFileName), AnsiToWide(newFileName), L"flags=" + ToHex(flags));
     BOOL result = original(existingFileName, newFileName, flags);
     g_insideHook = false;
     return result;
@@ -1920,6 +2176,11 @@ BOOL CallOriginalCopyFileW(CopyFileWFn original, LPCWSTR existingFileName, LPCWS
 
     g_insideHook = true;
     LogEventProbeTwoPathOperation(
+        L"copy",
+        existingFileName == nullptr ? L"" : existingFileName,
+        newFileName == nullptr ? L"" : newFileName,
+        L"failIfExists=" + std::wstring(failIfExists ? L"true" : L"false"));
+    LogAvailabilityProbeTwoPathOperation(
         L"copy",
         existingFileName == nullptr ? L"" : existingFileName,
         newFileName == nullptr ? L"" : newFileName,
@@ -1948,6 +2209,11 @@ BOOL CallOriginalCopyFileA(CopyFileAFn original, LPCSTR existingFileName, LPCSTR
         AnsiToWide(existingFileName),
         AnsiToWide(newFileName),
         L"failIfExists=" + std::wstring(failIfExists ? L"true" : L"false"));
+    LogAvailabilityProbeTwoPathOperation(
+        L"copy",
+        AnsiToWide(existingFileName),
+        AnsiToWide(newFileName),
+        L"failIfExists=" + std::wstring(failIfExists ? L"true" : L"false"));
     BOOL result = original(existingFileName, newFileName, failIfExists);
     g_insideHook = false;
     return result;
@@ -1968,6 +2234,7 @@ BOOL CallOriginalDeleteFileW(DeleteFileWFn original, LPCWSTR fileName)
 
     g_insideHook = true;
     LogEventProbePathOperation(L"delete", fileName == nullptr ? L"" : fileName);
+    LogAvailabilityProbePathOperation(L"delete", fileName == nullptr ? L"" : fileName);
     BOOL result = original(fileName);
     g_insideHook = false;
     return result;
@@ -1988,6 +2255,7 @@ BOOL CallOriginalDeleteFileA(DeleteFileAFn original, LPCSTR fileName)
 
     g_insideHook = true;
     LogEventProbePathOperation(L"delete", AnsiToWide(fileName));
+    LogAvailabilityProbePathOperation(L"delete", AnsiToWide(fileName));
     BOOL result = original(fileName);
     g_insideHook = false;
     return result;
@@ -2019,6 +2287,11 @@ BOOL CallOriginalReplaceFileW(
         replacementFileName == nullptr ? L"" : replacementFileName,
         backupFileName == nullptr ? L"" : backupFileName,
         flags);
+    LogAvailabilityProbeReplaceOperation(
+        replacedFileName == nullptr ? L"" : replacedFileName,
+        replacementFileName == nullptr ? L"" : replacementFileName,
+        backupFileName == nullptr ? L"" : backupFileName,
+        flags);
     BOOL result = original(replacedFileName, replacementFileName, backupFileName, flags, exclude, reserved);
     g_insideHook = false;
     return result;
@@ -2046,6 +2319,7 @@ BOOL CallOriginalReplaceFileA(
 
     g_insideHook = true;
     LogEventProbeReplaceOperation(AnsiToWide(replacedFileName), AnsiToWide(replacementFileName), AnsiToWide(backupFileName), flags);
+    LogAvailabilityProbeReplaceOperation(AnsiToWide(replacedFileName), AnsiToWide(replacementFileName), AnsiToWide(backupFileName), flags);
     BOOL result = original(replacedFileName, replacementFileName, backupFileName, flags, exclude, reserved);
     g_insideHook = false;
     return result;
@@ -2069,6 +2343,10 @@ BOOL CallOriginalSetFileAttributesW(SetFileAttributesWFn original, LPCWSTR fileN
         L"set_attributes",
         fileName == nullptr ? L"" : fileName,
         L"attributes=" + ToHex(fileAttributes));
+    LogAvailabilityProbePathOperation(
+        L"set_attributes",
+        fileName == nullptr ? L"" : fileName,
+        L"attributes=" + ToHex(fileAttributes));
     BOOL result = original(fileName, fileAttributes);
     g_insideHook = false;
     return result;
@@ -2089,6 +2367,7 @@ BOOL CallOriginalSetFileAttributesA(SetFileAttributesAFn original, LPCSTR fileNa
 
     g_insideHook = true;
     LogEventProbePathOperation(L"set_attributes", AnsiToWide(fileName), L"attributes=" + ToHex(fileAttributes));
+    LogAvailabilityProbePathOperation(L"set_attributes", AnsiToWide(fileName), L"attributes=" + ToHex(fileAttributes));
     BOOL result = original(fileName, fileAttributes);
     g_insideHook = false;
     return result;
@@ -2783,6 +3062,10 @@ void FileIoHook::InitializeFromEnvironment()
         L" eventProbeMaxEntries=" + std::to_wstring(g_eventProbeMaxEntries) +
         L" eventProbeMaxSaveEntries=" + std::to_wstring(g_eventProbeMaxSaveEntries) +
         L" eventProbeIgnoredFragments=" + std::to_wstring(g_eventProbeIgnorePathFragments.size()) +
+        L" availabilityProbe=" + (AvailabilityProbeActive() ? L"enabled" : L"disabled") +
+        L" availabilityProbeConfigured=" + (g_availabilityProbeEnabled ? L"true" : L"false") +
+        L" availabilityProbeCaptureStack=" + (g_availabilityProbeCaptureStack ? L"true" : L"false") +
+        L" availabilityProbeMaxEntries=" + std::to_wstring(g_availabilityProbeMaxEntries) +
         L" virtualFile=" + (g_virtualFileEnabled ? L"enabled" : L"disabled") +
         L" virtualRules=" + std::to_wstring(g_virtualRules.size()) +
         L" managedOverlay=" + DescribeManagedOverlayManifest());

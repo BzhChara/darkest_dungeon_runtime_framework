@@ -43,7 +43,7 @@ C++ DLL。
 - 初始化日志。
 - 记录进程、模块路径和环境变量。
 - 初始化文件 IO Hook、虚拟文件通道和 observe-only 事件探针。
-- 记录 managed action overlay manifest 的路径、文件大小、overlay 数量、availability policy 数量和 issue 数量，并通过既有虚拟文件通道消费启动器追加的 overlay 规则；availability policy 当前只作为 manifest 输入暴露，尚未硬拦截原版选择 UI。
+- 记录 managed action overlay manifest 的路径、文件大小、overlay 数量、availability policy 数量和 issue 数量，并通过既有虚拟文件通道消费启动器追加的 overlay 规则；当 availability policy 存在时，启用 focused availability probe，对候选 profile 文件事件输出 `availability.*` 诊断和可选调用栈模块偏移。availability policy 当前只作为 manifest/probe 输入暴露，尚未硬拦截原版选择 UI。
 
 ### Hook Layer
 
@@ -53,7 +53,7 @@ C++ DLL。
 
 1. 观察文件读取路径，只记录不修改。当前阶段通过 MinHook 挂 `CreateFileW/CreateFileA`。
 2. 对 `.darkest` / localization 文件做虚拟内容返回。当前原型支持配置规则列表：每条规则匹配一个路径后缀，并按顺序执行多条字符串替换，通过虚拟句柄响应 `ReadFile` / `GetFileSize` / `SetFilePointer` / `CloseHandle`。规则也可以使用 `sourcePath` 从项目根下的生成文件提供整文件字节，用于 `.dm` 这类二进制覆盖；`sourcePath` 当前不和文本替换/operation 混用，并且 RuntimeHook 读取 `sourcePath` 时使用 Win32 extended path 形式，避免项目路径超过 260 字符时打不开生成文件。存档文件 `profile_*/persist.*.json` 默认不走运行时虚拟文件覆盖，因为游戏的 StorageManager 会在启动同步、备份和转移存档时依赖目录枚举得到的真实文件大小；这类修改应通过 managed save writer 写入真实 profile，并保留备份和报告。
-3. 观察文件写入和生命周期操作，只记录不修改。当前阶段通过 MinHook 挂 `WriteFile`、`MoveFile/MoveFileEx`、`CopyFile`、`DeleteFile`、`ReplaceFile` 和 `SetFileAttributes`，把已知真实文件活动分类成 `data` / `asset` / `save` 事件；`save` 事件有独立日志预算，外部噪声路径可通过配置过滤。
+3. 观察文件写入和生命周期操作，只记录不修改。当前阶段通过 MinHook 挂 `WriteFile`、`MoveFile/MoveFileEx`、`CopyFile`、`DeleteFile`、`ReplaceFile` 和 `SetFileAttributes`，把已知真实文件活动分类成 `data` / `asset` / `save` 事件；`save` 事件有独立日志预算，外部噪声路径可通过配置过滤。availability policy 存在时，focused probe 会额外标记 `persist.roster.json`、`persist.estate.json`、`persist.raid.json`、`persist.quest.json` 等候选文件，帮助定位选人/饰品/出征流程的真实调用点。
 4. 对 DLL 无法覆盖的外部存档落盘，先由启动器 sidecar watcher 做 observe-only 记录。
 5. 对数据加载函数做结构化 Hook。
 6. 最后才碰战斗、AI 和存档相关逻辑。
@@ -66,7 +66,7 @@ C++ DLL。
 - 每个插件目录读取一个 `patches.json`。
 - `enabled:false` 的清单只记录日志，不参与规则合并。
 - `enabled:true` 的清单可提供 `id`、`version`、`capabilities`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts` 和 `virtualFileRules`。
-- 清单现在也可以声明 `eventRules`、`stateSchema`，后续还应支持模块化 `contentRefs`。`eventRules` 可通过 `--explain-rules` 解释，并可通过 `--emit-event` 执行已实现的安全动作或物化 selected managed action artifact；`quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` artifact 会在启动前进入 overlay manifest，并生成相关 `quest.plot_quests.json` 的虚拟替换入口；固定任务板还可通过 `--refresh-quest-board-profile <profileId>` 受控写入 watched profile 的 `persist.quest.json`，或由 save watcher 在 live 任务板保存后受控重刷；`inventory.disableItemSale` trinket artifact 会生成 trinket entry price overlay；availability filter artifact 会进入 manifest-only policy 区域，等待更深的 consumer；`stateSchema` 可初始化/读取到框架 sidecar 状态目录。
+- 清单现在也可以声明 `eventRules`、`stateSchema`，后续还应支持模块化 `contentRefs`。`eventRules` 可通过 `--explain-rules` 解释，并可通过 `--emit-event` 执行已实现的安全动作或物化 selected managed action artifact；`quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` artifact 会在启动前进入 overlay manifest，并生成相关 `quest.plot_quests.json` 的虚拟替换入口；固定任务板还可通过 `--refresh-quest-board-profile <profileId>` 受控写入 watched profile 的 `persist.quest.json`，或由 save watcher 在 live 任务板保存后受控重刷；`inventory.disableItemSale` trinket artifact 会生成 trinket entry price overlay；availability filter artifact 会进入 manifest policy 区域并触发 focused availability probe，等待更深的 hard consumer；`stateSchema` 可初始化/读取到框架 sidecar 状态目录。
 - 静态内容创作和运行时编排分层处理。怪物、怪物技能、贴图、动画、音频、语言、普通 curio/loot 定义可以由原版、DLC、创意工坊或插件自带文件提供；框架优先做引用、校验、依赖报告、组合和运行时投影，只有规则生成或运行时强制确有必要时才实现 writer。
 - 重复 `id`、声明冲突和顺序循环默认只记录 warning；必需依赖缺失时跳过当前插件，不阻止其他插件。
 - `virtualFileRules` 可使用 `when.modsPresent` / `when.modsAbsent` / `when.capabilitiesPresent` / `when.capabilitiesAbsent` 做规则级条件；条件不满足的规则只进入 explain 诊断，不参与最终补丁链。

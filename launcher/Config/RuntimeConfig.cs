@@ -95,6 +95,15 @@ internal sealed partial class RuntimeConfig
         "gameoverlay_renderer.txt"
     ];
 
+    [JsonPropertyName("availabilityProbeEnabled")]
+    public bool AvailabilityProbeEnabled { get; set; } = true;
+
+    [JsonPropertyName("availabilityProbeCaptureStack")]
+    public bool AvailabilityProbeCaptureStack { get; set; } = true;
+
+    [JsonPropertyName("availabilityProbeMaxLogEntries")]
+    public int AvailabilityProbeMaxLogEntries { get; set; } = 500;
+
     [JsonPropertyName("saveWatchEnabled")]
     public bool SaveWatchEnabled { get; set; }
 
@@ -208,6 +217,9 @@ internal sealed partial class RuntimeConfig
             ["DD_RUNTIME_EVENT_PROBE_MAX_ENTRIES"] = EventProbeMaxLogEntries.ToString(),
             ["DD_RUNTIME_EVENT_PROBE_MAX_SAVE_ENTRIES"] = EventProbeMaxSaveLogEntries.ToString(),
             ["DD_RUNTIME_EVENT_PROBE_IGNORE_PATH_FRAGMENTS"] = string.Join(';', EventProbeIgnorePathFragments),
+            ["DD_RUNTIME_AVAILABILITY_PROBE_ENABLED"] = AvailabilityProbeEnabled ? "1" : "0",
+            ["DD_RUNTIME_AVAILABILITY_PROBE_CAPTURE_STACK"] = AvailabilityProbeCaptureStack ? "1" : "0",
+            ["DD_RUNTIME_AVAILABILITY_PROBE_MAX_ENTRIES"] = AvailabilityProbeMaxLogEntries.ToString(),
             ["DD_RUNTIME_VIRTUAL_FILE_ENABLED"] = VirtualFileEnabled ? "1" : "0"
         };
 
