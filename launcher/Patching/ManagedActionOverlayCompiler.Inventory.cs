@@ -7,6 +7,7 @@ internal static partial class ManagedActionOverlayCompiler
     private const string TrinketEntryFilePattern = "*.entries.trinkets.json";
     private const string InventorySalePolicyOverlayTarget = "profile.inventory.saleDisabled";
     private const string InventoryTrinketSaleValueOverlayTarget = "content.trinkets.price";
+    private const string TrinketShardStoreOverlayTarget = "content.trinkets.shardStore";
 
     private static JsonObject BuildInventoryDisableItemSaleOverlay(string artifactPath, JsonObject artifact)
     {
@@ -46,7 +47,32 @@ internal static partial class ManagedActionOverlayCompiler
         };
     }
 
-    private static IReadOnlyList<OverlayVirtualRule> BuildInventoryDisableItemSaleVirtualRules(
+    private static JsonObject BuildTrinketProjectShardStoreOverlay(string artifactPath, JsonObject artifact)
+    {
+        var plan = RequireObject(artifact, "plan");
+        var arguments = RequireObject(plan, "arguments");
+        var enabled = ReadOptionalBool(arguments, "enabled", true);
+        var items = BuildShardStoreProjectionItems(arguments);
+
+        return new JsonObject
+        {
+            ["kind"] = "trinket.projectShardStore",
+            ["effect"] = "projectShardStore",
+            ["target"] = TrinketShardStoreOverlayTarget,
+            ["artifactPath"] = artifactPath,
+            ["eventId"] = ReadString(artifact, "eventId"),
+            ["pluginId"] = ReadString(artifact, "pluginId"),
+            ["sourceName"] = ReadString(artifact, "sourceName"),
+            ["sourcePath"] = ReadString(artifact, "sourcePath"),
+            ["ruleIndex"] = ReadInt(artifact, "ruleIndex"),
+            ["ruleId"] = ReadString(artifact, "ruleId"),
+            ["actionIndex"] = ReadInt(artifact, "actionIndex"),
+            ["enabled"] = enabled,
+            ["items"] = items
+        };
+    }
+
+    private static IReadOnlyList<OverlayVirtualRule> BuildTrinketEntryVirtualRules(
         RuntimeConfig config,
         IReadOnlyList<JsonObject> overlays,
         JsonArray issues,
@@ -77,23 +103,38 @@ internal static partial class ManagedActionOverlayCompiler
                 ReadString(overlay, "itemKind").Equals("trinket", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
-        if (trinketSaleValueOverlays.Length == 0)
+        var shardStoreOverlays = overlays
+            .Where(overlay =>
+                ReadString(overlay, "kind").Equals("trinket.projectShardStore", StringComparison.OrdinalIgnoreCase) &&
+                ReadBool(overlay, "enabled"))
+            .ToArray();
+        var shardStoreItems = BuildShardStoreProjectionItemMap(shardStoreOverlays);
+
+        if (trinketSaleValueOverlays.Length == 0 &&
+            shardStoreItems.Count == 0)
         {
             return [];
         }
 
-        var outputDirectory = Path.Combine(config.ModStateDirectory, "_managed_action_overlays", "inventory_trinket_sale_value");
+        var outputDirectory = Path.Combine(config.ModStateDirectory, "_managed_action_overlays", "trinket_entry_projection");
         Directory.CreateDirectory(outputDirectory);
 
         var rules = new List<OverlayVirtualRule>();
+        var resolvedShardStoreItemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var sourcePath in EnumerateCampaignTrinketEntryFiles(config.GameWorkingDirectory))
         {
             try
             {
                 var target = ToVirtualTarget(config.GameWorkingDirectory, sourcePath);
                 var outputPath = Path.Combine(outputDirectory, SafeFileName(target));
-                var result = WriteTrinketSaleValueSuppressionOverlay(sourcePath, outputPath);
-                if (result.AffectedEntryCount == 0)
+                var result = WriteTrinketEntryProjectionOverlay(
+                    sourcePath,
+                    outputPath,
+                    trinketSaleValueOverlays.Length > 0,
+                    shardStoreItems,
+                    resolvedShardStoreItemIds);
+                if (result.SaleValueAffectedEntryCount == 0 &&
+                    result.ShardStoreAffectedEntryCount == 0)
                 {
                     continue;
                 }
@@ -101,20 +142,23 @@ internal static partial class ManagedActionOverlayCompiler
                 var summary = new JsonObject
                 {
                     ["target"] = target,
-                    ["effect"] = "suppressTrinketSaleValue",
+                    ["effect"] = result.SaleValueAffectedEntryCount > 0
+                        ? "suppressTrinketSaleValue"
+                        : "projectTrinketShardStore",
                     ["sourcePath"] = outputPath,
                     ["sourceContentPath"] = sourcePath,
                     ["policyOverlayCount"] = trinketSaleValueOverlays.Length,
+                    ["shardStoreOverlayCount"] = shardStoreOverlays.Length,
                     ["entryCount"] = result.EntryCount,
-                    ["affectedEntryCount"] = result.AffectedEntryCount,
-                    ["sourceArtifacts"] = new JsonArray(trinketSaleValueOverlays
-                        .Select(overlay => (JsonNode?)new JsonObject
-                        {
-                            ["pluginId"] = ReadString(overlay, "pluginId"),
-                            ["ruleId"] = ReadString(overlay, "ruleId"),
-                            ["artifactPath"] = ReadString(overlay, "artifactPath")
-                        })
-                        .ToArray())
+                    ["affectedEntryCount"] = result.SaleValueAffectedEntryCount,
+                    ["saleValueAffectedEntryCount"] = result.SaleValueAffectedEntryCount,
+                    ["shardStoreAffectedEntryCount"] = result.ShardStoreAffectedEntryCount,
+                    ["shardStoreItemIds"] = new JsonArray(result.AffectedShardStoreItemIds
+                        .Select(id => (JsonNode?)id)
+                        .ToArray()),
+                    ["sourceArtifacts"] = BuildTrinketEntryProjectionSourceArtifacts(
+                        trinketSaleValueOverlays,
+                        shardStoreOverlays)
                 };
 
                 rules.Add(new OverlayVirtualRule(
@@ -127,21 +171,36 @@ internal static partial class ManagedActionOverlayCompiler
 
                 log.Info(
                     $"managed-action-overlay virtual-rule itemKind=trinket target={Quote(target)} " +
-                    $"sourcePath={Quote(outputPath)} affectedEntries={result.AffectedEntryCount}");
+                    $"sourcePath={Quote(outputPath)} saleValueAffectedEntries={result.SaleValueAffectedEntryCount} " +
+                    $"shardStoreAffectedEntries={result.ShardStoreAffectedEntryCount}");
             }
             catch (Exception ex)
             {
                 AddIssue(
                     issues,
                     log,
-                    "warning",
-                    "managed-overlay-trinket-sale-value-overlay-failed",
-                    string.Join(';', trinketSaleValueOverlays.Select(overlay => ReadString(overlay, "artifactPath"))),
+                    "error",
+                    "managed-overlay-trinket-entry-projection-failed",
+                    string.Join(';', trinketSaleValueOverlays.Concat(shardStoreOverlays).Select(overlay => ReadString(overlay, "artifactPath"))),
                     $"{sourcePath}: {ex.Message}");
             }
         }
 
-        if (rules.Count == 0)
+        foreach (var missingId in shardStoreItems.Keys
+                     .Where(id => !resolvedShardStoreItemIds.Contains(id))
+                     .OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+        {
+            AddIssue(
+                issues,
+                log,
+                "warning",
+                "managed-overlay-trinket-shard-store-item-not-found",
+                shardStoreItems[missingId].ArtifactPath,
+                $"trinket.projectShardStore referenced trinket id '{missingId}', but no enabled trinket entry file defined it");
+        }
+
+        if (trinketSaleValueOverlays.Length > 0 &&
+            rules.All(rule => ReadInt(rule.Summary, "saleValueAffectedEntryCount") == 0))
         {
             AddIssue(
                 issues,
@@ -155,7 +214,12 @@ internal static partial class ManagedActionOverlayCompiler
         return rules;
     }
 
-    private static TrinketSaleValueSuppressionResult WriteTrinketSaleValueSuppressionOverlay(string sourcePath, string outputPath)
+    private static TrinketEntryProjectionResult WriteTrinketEntryProjectionOverlay(
+        string sourcePath,
+        string outputPath,
+        bool suppressSaleValue,
+        IReadOnlyDictionary<string, TrinketShardStoreProjectionItem> shardStoreItems,
+        HashSet<string> resolvedShardStoreItemIds)
     {
         var root = JsonNode.Parse(
                 File.ReadAllText(sourcePath, Encoding.UTF8),
@@ -172,26 +236,168 @@ internal static partial class ManagedActionOverlayCompiler
         }
 
         var entryCount = 0;
-        var affectedEntryCount = 0;
+        var saleValueAffectedEntryCount = 0;
+        var shardStoreAffectedEntryCount = 0;
+        var affectedShardStoreItemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in entries.OfType<JsonObject>())
         {
             entryCount++;
-            if (entry["price"] is JsonValue price &&
+            var id = ReadString(entry, "id");
+            if (suppressSaleValue &&
+                entry["price"] is JsonValue price &&
                 price.TryGetValue<int>(out var currentPrice) &&
                 currentPrice != 0)
             {
                 entry["price"] = 0;
-                affectedEntryCount++;
+                saleValueAffectedEntryCount++;
+            }
+
+            if (!string.IsNullOrWhiteSpace(id) &&
+                shardStoreItems.TryGetValue(id, out var shardStoreItem))
+            {
+                entry["rarity"] = shardStoreItem.Rarity;
+                entry["shard"] = shardStoreItem.Shard;
+                entry["limit"] = shardStoreItem.Limit;
+                entry["origin_dungeon"] = shardStoreItem.OriginDungeon;
+
+                if (shardStoreItem.RemovePrice)
+                {
+                    entry.Remove("price");
+                }
+
+                shardStoreAffectedEntryCount++;
+                affectedShardStoreItemIds.Add(id);
+                resolvedShardStoreItemIds.Add(id);
             }
         }
 
-        if (affectedEntryCount > 0)
+        if (saleValueAffectedEntryCount > 0 ||
+            shardStoreAffectedEntryCount > 0)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
             File.WriteAllText(outputPath, root.ToJsonString(JsonOptions), Utf8NoBom);
         }
 
-        return new TrinketSaleValueSuppressionResult(entryCount, affectedEntryCount);
+        return new TrinketEntryProjectionResult(
+            entryCount,
+            saleValueAffectedEntryCount,
+            shardStoreAffectedEntryCount,
+            affectedShardStoreItemIds
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToArray());
+    }
+
+    private static JsonArray BuildShardStoreProjectionItems(JsonObject arguments)
+    {
+        var result = new JsonArray();
+        if (arguments["items"] is JsonArray items)
+        {
+            foreach (var node in items)
+            {
+                if (node is not JsonObject item)
+                {
+                    throw new InvalidOperationException("plan.arguments.items entries must be objects.");
+                }
+
+                result.Add(BuildShardStoreProjectionItem(item));
+            }
+        }
+        else
+        {
+            result.Add(BuildShardStoreProjectionItem(arguments));
+        }
+
+        if (result.Count == 0)
+        {
+            throw new InvalidOperationException("trinket.projectShardStore requires at least one item.");
+        }
+
+        return result;
+    }
+
+    private static JsonObject BuildShardStoreProjectionItem(JsonObject item)
+    {
+        var id = ReadFirstString(item, "id", "trinketId", "itemId");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new InvalidOperationException("trinket.projectShardStore item requires id.");
+        }
+
+        var shard = RequireNonNegativeInt(item, "shard");
+        var limit = ReadOptionalNonNegativeInt(item, "limit", 1);
+        var rarity = ReadString(item, "rarity");
+        if (string.IsNullOrWhiteSpace(rarity))
+        {
+            rarity = "comet";
+        }
+
+        var originDungeon = ReadString(item, "originDungeon");
+        if (string.IsNullOrWhiteSpace(originDungeon))
+        {
+            originDungeon = ReadString(item, "origin_dungeon");
+        }
+
+        return new JsonObject
+        {
+            ["id"] = id,
+            ["shard"] = shard,
+            ["limit"] = limit,
+            ["rarity"] = rarity,
+            ["originDungeon"] = originDungeon,
+            ["removePrice"] = ReadOptionalBool(item, "removePrice", true)
+        };
+    }
+
+    private static Dictionary<string, TrinketShardStoreProjectionItem> BuildShardStoreProjectionItemMap(
+        IReadOnlyList<JsonObject> overlays)
+    {
+        var result = new Dictionary<string, TrinketShardStoreProjectionItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var overlay in overlays)
+        {
+            if (overlay["items"] is not JsonArray items)
+            {
+                continue;
+            }
+
+            foreach (var node in items)
+            {
+                if (node is not JsonObject item)
+                {
+                    continue;
+                }
+
+                var id = RequireString(item, "id");
+                result[id] = new TrinketShardStoreProjectionItem(
+                    id,
+                    ReadInt(item, "shard"),
+                    ReadInt(item, "limit"),
+                    RequireString(item, "rarity"),
+                    ReadString(item, "originDungeon"),
+                    ReadOptionalBool(item, "removePrice", true),
+                    ReadString(overlay, "artifactPath"));
+            }
+        }
+
+        return result;
+    }
+
+    private static JsonArray BuildTrinketEntryProjectionSourceArtifacts(
+        IReadOnlyList<JsonObject> saleValueOverlays,
+        IReadOnlyList<JsonObject> shardStoreOverlays)
+    {
+        var result = new JsonArray();
+        foreach (var overlay in saleValueOverlays.Concat(shardStoreOverlays))
+        {
+            result.Add(new JsonObject
+            {
+                ["kind"] = ReadString(overlay, "kind"),
+                ["pluginId"] = ReadString(overlay, "pluginId"),
+                ["ruleId"] = ReadString(overlay, "ruleId"),
+                ["artifactPath"] = ReadString(overlay, "artifactPath")
+            });
+        }
+
+        return result;
     }
 
     private static bool IsContentPriceZeroMethod(string method)
@@ -202,6 +408,76 @@ internal static partial class ManagedActionOverlayCompiler
             method.Equals("priceZero", StringComparison.OrdinalIgnoreCase) ||
             method.Equals("suppress_sale_value", StringComparison.OrdinalIgnoreCase) ||
             method.Equals("suppressSaleValue", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ReadFirstString(JsonObject root, params string[] paths)
+    {
+        foreach (var path in paths)
+        {
+            var value = ReadString(root, path);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static int RequireNonNegativeInt(JsonObject root, string path)
+    {
+        if (!TryGetPath(root, path, out var node) ||
+            node is not JsonValue value ||
+            !value.TryGetValue<int>(out var result))
+        {
+            throw new InvalidOperationException($"Expected integer at '{path}'.");
+        }
+
+        if (result < 0)
+        {
+            throw new InvalidOperationException($"Expected non-negative integer at '{path}'.");
+        }
+
+        return result;
+    }
+
+    private static int ReadOptionalNonNegativeInt(JsonObject root, string path, int defaultValue)
+    {
+        if (!TryGetPath(root, path, out var node) ||
+            node is null)
+        {
+            return defaultValue;
+        }
+
+        if (node is not JsonValue value ||
+            !value.TryGetValue<int>(out var result))
+        {
+            throw new InvalidOperationException($"Expected integer at '{path}'.");
+        }
+
+        if (result < 0)
+        {
+            throw new InvalidOperationException($"Expected non-negative integer at '{path}'.");
+        }
+
+        return result;
+    }
+
+    private static bool ReadOptionalBool(JsonObject root, string path, bool defaultValue)
+    {
+        if (!TryGetPath(root, path, out var node) ||
+            node is null)
+        {
+            return defaultValue;
+        }
+
+        if (node is not JsonValue value ||
+            !value.TryGetValue<bool>(out var result))
+        {
+            throw new InvalidOperationException($"Expected boolean at '{path}'.");
+        }
+
+        return result;
     }
 
     private static bool RequireBool(JsonObject root, string path)
@@ -271,5 +547,18 @@ internal static partial class ManagedActionOverlayCompiler
         return builder.Length == 0 ? "overlay.json" : builder.ToString();
     }
 
-    private sealed record TrinketSaleValueSuppressionResult(int EntryCount, int AffectedEntryCount);
+    private sealed record TrinketEntryProjectionResult(
+        int EntryCount,
+        int SaleValueAffectedEntryCount,
+        int ShardStoreAffectedEntryCount,
+        IReadOnlyList<string> AffectedShardStoreItemIds);
+
+    private sealed record TrinketShardStoreProjectionItem(
+        string Id,
+        int Shard,
+        int Limit,
+        string Rarity,
+        string OriginDungeon,
+        bool RemovePrice,
+        string ArtifactPath);
 }

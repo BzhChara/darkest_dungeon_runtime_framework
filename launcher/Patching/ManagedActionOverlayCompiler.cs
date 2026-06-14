@@ -82,6 +82,18 @@ internal static partial class ManagedActionOverlayCompiler
                             ignoredArtifactCount++;
                         }
                     }
+                    else if (actionType.Equals("trinket.projectShardStore", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var overlay = BuildTrinketProjectShardStoreOverlay(artifactPath, artifact);
+                        if (ReadBool(overlay, "enabled"))
+                        {
+                            overlayCandidates.Add(overlay);
+                        }
+                        else
+                        {
+                            ignoredArtifactCount++;
+                        }
+                    }
                     else if (actionType.Equals("town.unlockAllBuildings", StringComparison.OrdinalIgnoreCase))
                     {
                         overlayCandidates.Add(BuildTownUnlockAllBuildingsOverlay(artifactPath, artifact));
@@ -341,7 +353,7 @@ internal static partial class ManagedActionOverlayCompiler
             }
         }
 
-        virtualRules.AddRange(BuildInventoryDisableItemSaleVirtualRules(config, overlays, issues, log));
+        virtualRules.AddRange(BuildTrinketEntryVirtualRules(config, overlays, issues, log));
         virtualRules.AddRange(BuildTownUnlockAllBuildingsVirtualRules(config, overlays, issues, log));
         return virtualRules;
     }

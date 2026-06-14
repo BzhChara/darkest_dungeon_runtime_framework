@@ -188,6 +188,38 @@ try {
     }
     $inventoryArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $inventoryArtifactPath -Encoding UTF8
 
+    $shardStoreArtifactPath = Join-Path $artifactRoot "manual_trinket.projectShardStore.json"
+    $shardStoreArtifact = [ordered]@{
+        version = 1
+        status = "materialized"
+        eventId = "manual.overlay-test"
+        pluginId = "validation.managed_action_overlay_test"
+        sourceName = "Validation - Managed Action Overlay Test"
+        sourcePath = "tools/TestManagedActionOverlay.ps1"
+        ruleIndex = 2
+        ruleId = "manual_trinket_shard_store"
+        actionIndex = 0
+        action = [ordered]@{
+            type = "trinket.projectShardStore"
+        }
+        plan = [ordered]@{
+            effect = "projectShardStore"
+            target = "content.trinkets.shardStore"
+            arguments = [ordered]@{
+                enabled = $true
+                items = @(
+                    [ordered]@{
+                        id = "focus_ring"
+                        shard = 1
+                        limit = 1
+                        rarity = "comet"
+                    }
+                )
+            }
+        }
+    }
+    $shardStoreArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $shardStoreArtifactPath -Encoding UTF8
+
     $questBoardArtifactPath = Join-Path $artifactRoot "manual_questBoard.replaceWithFixedSet.json"
     $questBoardArtifact = [ordered]@{
         version = 1
@@ -241,7 +273,7 @@ try {
     $townUnlockArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $townUnlockArtifactPath -Encoding UTF8
 
     $artifacts = @(Get-ChildItem -LiteralPath $artifactRoot -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
-    Assert-True ($artifacts.Count -eq 9) "Expected nine materialized managed action artifacts after adding inventory, fixed-board, and town unlock artifacts, found $($artifacts.Count)."
+    Assert-True ($artifacts.Count -eq 10) "Expected ten materialized managed action artifacts after adding inventory, shard-store, fixed-board, and town unlock artifacts, found $($artifacts.Count)."
 
     $dryRunArgs = @(
         "--config", (Resolve-ProjectPath $ConfigPath),
@@ -255,8 +287,8 @@ try {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Managed action overlay manifest was not written: $manifestPath"
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 
-    Assert-True ([int]$manifest.artifactCount -eq 9) "Overlay manifest should count all nine artifacts."
-    Assert-True ([int]$manifest.overlayCount -eq 4) "Overlay compiler should expose the latest quest.injectFixedStage overlay, the inventory policy overlay, the fixed-board overlay, and the town unlock overlay."
+    Assert-True ([int]$manifest.artifactCount -eq 10) "Overlay manifest should count all ten artifacts."
+    Assert-True ([int]$manifest.overlayCount -eq 5) "Overlay compiler should expose the latest quest.injectFixedStage overlay, the inventory policy overlay, the shard-store overlay, the fixed-board overlay, and the town unlock overlay."
     Assert-True ([int]$manifest.ignoredArtifactCount -eq 4) "Overlay manifest should still ignore hero/trinket preview filter artifacts for now."
     Assert-True ([int]$manifest.supersededOverlayCount -eq 1) "Overlay manifest should supersede the older quest injection artifact."
     Assert-True ([int]$manifest.virtualFileRuleCount -eq (1 + $lockedTownBuildingFiles.Count + $trinketEntryFilesWithPositivePrices.Count)) "Overlay manifest should compile one quest plot virtual file rule plus town building and trinket sourcePath rules."
@@ -264,7 +296,7 @@ try {
     Assert-True ((@($manifest.issues)).Count -eq 0) "Overlay manifest should not contain issues."
 
     $overlays = @($manifest.overlays)
-    Assert-True ($overlays.Count -eq 4) "Expected exactly four overlay entries."
+    Assert-True ($overlays.Count -eq 5) "Expected exactly five overlay entries."
     $overlay = @($overlays | Where-Object { $_.kind -eq "quest.injectFixedStage" })[0]
     Assert-True ($overlay.kind -eq "quest.injectFixedStage") "Overlay kind should be quest.injectFixedStage."
     Assert-True ($overlay.stageId -eq "stage_1_necromancer") "Overlay should target the first challenge stage."
@@ -276,6 +308,11 @@ try {
     Assert-True ($inventoryOverlay.itemKind -eq "trinket") "Inventory overlay should target trinkets."
     Assert-True ($inventoryOverlay.method -eq "content_price_zero") "Inventory overlay should preserve the explicit content price-zero method."
     Assert-True ([bool]$inventoryOverlay.disabled) "Inventory overlay should be enabled."
+    $shardStoreOverlay = @($overlays | Where-Object { $_.kind -eq "trinket.projectShardStore" })[0]
+    Assert-True ($shardStoreOverlay.effect -eq "projectShardStore") "Shard-store overlay should record trinket shard-store projection intent."
+    Assert-True ($shardStoreOverlay.target -eq "content.trinkets.shardStore") "Shard-store overlay should target trinket shard-store content."
+    Assert-True ([bool]$shardStoreOverlay.enabled) "Shard-store overlay should be enabled."
+    Assert-True (@($shardStoreOverlay.items).Count -eq 1) "Shard-store overlay should keep the declared item list."
     $questBoardOverlay = @($overlays | Where-Object { $_.kind -eq "questBoard.replaceWithFixedSet" })[0]
     Assert-True ($questBoardOverlay.effect -eq "replaceWithFixedSet") "Fixed-board overlay should record board replacement intent."
     Assert-True ($questBoardOverlay.target -eq "profile.quest_board") "Fixed-board overlay should target the profile quest board."
@@ -308,6 +345,8 @@ try {
     $baseTrinketRule = @($trinketRules | Where-Object { $_.target -eq "trinkets/base.entries.trinkets.json" })[0]
     Assert-True ($null -ne $baseTrinketRule) "Expected a generated sourcePath overlay for base trinket entries."
     Assert-True ([int]$baseTrinketRule.affectedEntryCount -gt 0) "Base trinket overlay should affect at least one entry."
+    Assert-True ([int]$baseTrinketRule.shardStoreAffectedEntryCount -eq 1) "Base trinket overlay should also project the declared single trinket into shard-store form."
+    Assert-True (@($baseTrinketRule.shardStoreItemIds | Where-Object { $_ -eq "focus_ring" }).Count -eq 1) "Base trinket overlay should report the projected trinket id."
     $townBuildingRules = @($virtualRules | Where-Object { $_.effect -eq "suppressTownBuildingRequirements" })
     Assert-True ($townBuildingRules.Count -eq $lockedTownBuildingFiles.Count) "Expected one town building requirement sourcePath rule per locked building file."
     $campingTrainerRule = @($townBuildingRules | Where-Object { $_.target -eq "campaign/town/buildings/camping_trainer/camping_trainer.building.json" })[0]
@@ -344,8 +383,14 @@ try {
         $null -ne $_.price -and [int]$_.price -ne 0
     })
     Assert-True ($pricedPreviewEntries.Count -eq 0) "Base trinket overlay preview should suppress all nonzero prices to zero."
+    $focusRingPreviewEntries = @($baseTrinketPreview.entries | Where-Object { $_.id -eq "focus_ring" })
+    Assert-True ($focusRingPreviewEntries.Count -eq 1) "Base trinket overlay preview should keep exactly one focus_ring entry."
+    Assert-True ($focusRingPreviewEntries[0].rarity -eq "comet") "Shard-store projection should set the requested rarity."
+    Assert-True ([int]$focusRingPreviewEntries[0].shard -eq 1) "Shard-store projection should set the requested shard cost."
+    Assert-True ([int]$focusRingPreviewEntries[0].limit -eq 1) "Shard-store projection should set the requested ownership limit."
+    Assert-True ($null -eq $focusRingPreviewEntries[0].price) "Shard-store projection should remove ordinary price by default."
 
-    Write-Host "PASS: managed action artifacts compiled into quest, trinket sale-value, and town building unlock overlay manifest."
+    Write-Host "PASS: managed action artifacts compiled into quest, trinket entry, and town building unlock overlay manifest."
 }
 finally {
     Pop-Location
