@@ -70,6 +70,7 @@ internal static class QuestBoardPolicyMaterializer
             }
             else
             {
+                artifactPath = WriteEmptyArtifact(config, resolve, slotLimit, seed, profileScope, issues);
                 status = "empty";
                 issues.Add(new QuestBoardPolicyMaterializeIssue(
                     "info",
@@ -77,7 +78,7 @@ internal static class QuestBoardPolicyMaterializer
                     string.Empty,
                     string.Empty,
                     string.Empty,
-                    "no resolved policy candidates were selected, so no questBoard.replaceWithFixedSet artifact was written"));
+                    "no resolved policy candidates were selected, so an empty marker was written to supersede stale questBoardPolicies artifacts"));
             }
         }
 
@@ -430,6 +431,29 @@ internal static class QuestBoardPolicyMaterializer
         return artifactPath;
     }
 
+    private static string WriteEmptyArtifact(
+        RuntimeConfig config,
+        QuestBoardPolicyResolveReport resolve,
+        int? slotLimit,
+        int seed,
+        ManagedActionProfileScope profileScope,
+        IReadOnlyList<QuestBoardPolicyMaterializeIssue> issues)
+    {
+        var generatedAt = DateTimeOffset.UtcNow;
+        var sequence = Interlocked.Increment(ref _sequence);
+        var directory = Path.Combine(config.ModStateDirectory, "_managed_actions");
+        Directory.CreateDirectory(directory);
+        var artifactPath = Path.Combine(
+            directory,
+            $"{generatedAt:yyyyMMdd_HHmmss_fff}_{Environment.ProcessId}_{sequence:D4}_questBoardPolicies_questBoard.replaceWithFixedSet.empty.json");
+
+        File.WriteAllText(
+            artifactPath,
+            BuildEmptyArtifact(resolve, slotLimit, seed, profileScope, generatedAt, issues).ToJsonString(JsonOptions),
+            Encoding.UTF8);
+        return artifactPath;
+    }
+
     private static JsonObject BuildArtifact(
         QuestBoardPolicyResolveReport resolve,
         QuestBoardPolicyMaterializeSelection selection,
@@ -487,6 +511,70 @@ internal static class QuestBoardPolicyMaterializer
                 ["policyCount"] = resolve.PolicyCount,
                 ["resolvedQuestCount"] = resolve.ResolvedQuestCount,
                 ["selectedQuestCount"] = selection.SelectedQuestIds.Count
+            },
+            ["issues"] = BuildIssueRows(issues),
+            ["plan"] = new JsonObject
+            {
+                ["kind"] = "questBoard.replaceWithFixedSet",
+                ["effect"] = "replaceWithFixedSet",
+                ["target"] = "profile.quest_board",
+                ["source"] = "questBoardPolicies",
+                ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(profileScope),
+                ["arguments"] = arguments
+            }
+        };
+    }
+
+    private static JsonObject BuildEmptyArtifact(
+        QuestBoardPolicyResolveReport resolve,
+        int? slotLimit,
+        int seed,
+        ManagedActionProfileScope profileScope,
+        DateTimeOffset generatedAt,
+        IReadOnlyList<QuestBoardPolicyMaterializeIssue> issues)
+    {
+        var arguments = new JsonObject
+        {
+            ["target"] = "profile.quest_board",
+            ["questIds"] = new JsonArray(),
+            ["removeCompleted"] = false,
+            ["source"] = "questBoardPolicies",
+            ["selectionMode"] = SelectionMode,
+            ["seed"] = seed,
+            ["slotLimit"] = slotLimit,
+            ["policies"] = new JsonArray()
+        };
+
+        return new JsonObject
+        {
+            ["version"] = 1,
+            ["generatedAtUtc"] = generatedAt.ToString("O", CultureInfo.InvariantCulture),
+            ["status"] = "empty",
+            ["eventId"] = "quest.board.policies.empty",
+            ["pluginId"] = "framework.quest_board_policy_materializer",
+            ["sourceName"] = "Quest Board Policy Materializer",
+            ["sourcePath"] = resolve.ReportPath,
+            ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(profileScope),
+            ["loadOrder"] = int.MaxValue,
+            ["ruleIndex"] = 0,
+            ["ruleId"] = "questBoardPolicies.materialized",
+            ["actionIndex"] = 0,
+            ["action"] = new JsonObject
+            {
+                ["type"] = "questBoard.replaceWithFixedSet",
+                ["capability"] = "quest_board.replace_with_fixed_set",
+                ["risk"] = "managed",
+                ["required"] = false
+            },
+            ["payload"] = new JsonObject
+            {
+                ["source"] = "questBoardPolicies",
+                ["resolveReportPath"] = resolve.ReportPath,
+                ["saveStateReportPath"] = resolve.SaveStateReportPath,
+                ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(profileScope),
+                ["policyCount"] = resolve.PolicyCount,
+                ["resolvedQuestCount"] = resolve.ResolvedQuestCount,
+                ["selectedQuestCount"] = 0
             },
             ["issues"] = BuildIssueRows(issues),
             ["plan"] = new JsonObject

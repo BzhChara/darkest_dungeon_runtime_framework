@@ -25,6 +25,10 @@ internal static partial class ManagedActionOverlayCompiler
         var issues = new JsonArray();
         var artifactCount = 0;
         var ignoredArtifactCount = 0;
+        var supersededQuestBoardArtifacts = ManagedQuestBoardArtifactSupersession.FindSupersededArtifacts(
+            artifactDirectory,
+            null,
+            log);
 
         if (Directory.Exists(artifactDirectory))
         {
@@ -52,6 +56,12 @@ internal static partial class ManagedActionOverlayCompiler
                     }
                     else if (actionType.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
                     {
+                        if (supersededQuestBoardArtifacts.Contains(artifactPath))
+                        {
+                            ignoredArtifactCount++;
+                            continue;
+                        }
+
                         var profileScope = ManagedActionProfileScopeResolver.FromArtifact(artifact);
                         if (!profileScope.IsGlobal)
                         {

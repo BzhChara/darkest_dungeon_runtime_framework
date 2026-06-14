@@ -23,6 +23,10 @@ internal static class QuestBoardPreviewReporter
             ManagedActionProfileScopeResolver.NormalizeTargetProfileId(targetProfileId));
         var artifactReports = new List<QuestBoardPreviewArtifactReport>();
         IReadOnlyList<QuestBoardPreviewQuestReport> finalActiveQuests = [];
+        var supersededArtifacts = ManagedQuestBoardArtifactSupersession.FindSupersededArtifacts(
+            artifactDirectory,
+            targetProfileId,
+            log);
 
         if (Directory.Exists(artifactDirectory))
         {
@@ -31,7 +35,11 @@ internal static class QuestBoardPreviewReporter
                          .ThenBy(path => path, StringComparer.OrdinalIgnoreCase))
             {
                 context.ArtifactCount++;
-                var artifactReport = BuildArtifactReport(context, artifactPath, log);
+                var artifactReport = BuildArtifactReport(
+                    context,
+                    artifactPath,
+                    supersededArtifacts.Contains(artifactPath),
+                    log);
                 artifactReports.Add(artifactReport);
                 if (artifactReport.Status == "wouldApply")
                 {
@@ -69,6 +77,7 @@ internal static class QuestBoardPreviewReporter
     private static QuestBoardPreviewArtifactReport BuildArtifactReport(
         PreviewContext context,
         string artifactPath,
+        bool superseded,
         LauncherLog log)
     {
         try
@@ -97,6 +106,27 @@ internal static class QuestBoardPreviewReporter
                     [],
                     [],
                     ["artifact action is not questBoard.replaceWithFixedSet"]);
+            }
+
+            if (superseded)
+            {
+                return new QuestBoardPreviewArtifactReport(
+                    artifactPath,
+                    actionType,
+                    status,
+                    "ignored",
+                    ReadOptionalString(artifact, "pluginId"),
+                    ReadOptionalString(artifact, "ruleId"),
+                    profileScope.Kind,
+                    profileScope.ProfileId,
+                    profileScope.ProfileRoot,
+                    false,
+                    0,
+                    0,
+                    0,
+                    [],
+                    [],
+                    ["artifact was superseded by a newer questBoard.replaceWithFixedSet artifact in the same source group"]);
             }
 
             if (!status.Equals("materialized", StringComparison.OrdinalIgnoreCase))

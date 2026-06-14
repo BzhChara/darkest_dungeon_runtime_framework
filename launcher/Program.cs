@@ -27,6 +27,8 @@ internal static class Program
             log.Info($"Save event bridge debounce milliseconds: {config.SaveEventBridgeDebounceMilliseconds}");
             log.Info($"Quest board auto refresh enabled: {config.QuestBoardAutoRefreshEnabled}");
             log.Info($"Quest board auto refresh allow running game save write: {config.QuestBoardAutoRefreshAllowRunningGameSaveWrite}");
+            log.Info($"Continuous profile action auto apply enabled: {config.ContinuousProfileActionAutoApplyEnabled}");
+            log.Info($"Continuous profile action auto apply allow running game save write: {config.ContinuousProfileActionAutoApplyAllowRunningGameSaveWrite}");
             log.Info($"Quest board policy auto materialize enabled: {config.QuestBoardPolicyAutoMaterializeEnabled}");
             log.Info($"Quest board policy auto materialize slots: {FormatNullableInt(config.QuestBoardPolicyAutoMaterializeSlots)}");
             log.Info($"Quest board policy auto materialize seed: {FormatNullableInt(config.QuestBoardPolicyAutoMaterializeSeed)}");
@@ -590,6 +592,9 @@ internal static class Program
 
         if (config.QuestBoardPolicyAutoMaterializeEnabled && !config.SaveEventBridgeEnabled && !options.InferSaveEvents)
             log.Warn("questBoardPolicyAutoMaterializeEnabled is true, but saveEventBridgeEnabled is false; automatic materialization will only run during explicit --infer-save-events calls.");
+
+        if (config.ContinuousProfileActionAutoApplyEnabled && !config.SaveEventBridgeEnabled)
+            log.Warn("continuousProfileActionAutoApplyEnabled is true, but saveEventBridgeEnabled is false; automatic continuous profile action application requires the realtime save event bridge.");
     }
 
     private static string FormatNullableInt(int? value)

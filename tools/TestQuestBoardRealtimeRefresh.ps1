@@ -101,6 +101,76 @@ function Write-OriginalQuestFixture {
 '@ | Set-Content -LiteralPath $sourceQuestPath -Encoding UTF8
 }
 
+function Write-TownFixture {
+    @'
+{
+  "base_root": {
+    "buildings": {
+      "stage_coach": {
+        "store": {
+          "0": {
+            "generated": {
+              "0": {
+                "hero_id": 101
+              }
+            }
+          }
+        }
+      },
+      "nomad_wagon": {
+        "store": {
+          "0": {
+            "generated": {
+              "0": {
+                "id": "stale_trinket"
+              }
+            },
+            "inventory": {
+              "items": {
+                "0": {
+                  "id": "stale_trinket",
+                  "type": "trinket",
+                  "amount": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "districts": {
+      "buildings": {}
+    }
+  }
+}
+'@ | Set-Content -LiteralPath $sourceTownPath -Encoding UTF8
+}
+
+function Write-TownEventFixture {
+    @'
+{
+  "base_root": {
+    "current_result_event_id": 123,
+    "has_unclaimed_interaction": true,
+    "event_cost": {
+      "gold": 1000
+    },
+    "bonus_hero_entries": {
+      "0": {
+        "hero_id": 101
+      }
+    },
+    "dead_hero_entries": [
+      201
+    ],
+    "free_upgrade_tags": {
+      "0": "stale"
+    }
+  }
+}
+'@ | Set-Content -LiteralPath (Join-Path $profileRoot "persist.town_event.json") -Encoding UTF8
+}
+
 function Write-TestConfig {
     $config = [ordered]@{
         gameExecutablePath = "E:/Steam/steamapps/common/DarkestDungeon/_windows/win64/Darkest.exe"
@@ -132,7 +202,10 @@ function Write-TestConfig {
         saveEventBridgeDebounceMilliseconds = 200
         questBoardAutoRefreshEnabled = $true
         questBoardAutoRefreshAllowRunningGameSaveWrite = $false
-        pluginDirectories = @("./plugins/_validation")
+        continuousProfileActionAutoApplyEnabled = $true
+        continuousProfileActionAutoApplyAllowRunningGameSaveWrite = $false
+        questBoardPolicyAutoMaterializeEnabled = $true
+        pluginDirectories = @("./plugins/_validation/boss_gauntlet_campaign_contract")
         pluginPatchManifestName = "patches.json"
         virtualFileEnabled = $true
         virtualFileTarget = ""
@@ -150,6 +223,76 @@ function Read-QuestIds {
         ForEach-Object { [string]$_.Value.id })
 }
 
+function Set-CompletedBossState {
+    $statePath = Join-Path $stateRoot "$pluginId.json"
+    Assert-True (Test-Path -LiteralPath $statePath -PathType Leaf) "Boss gauntlet state file was not created: $statePath"
+    $stateDocument = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+    $stateDocument.state.bossGauntlet.phase = "boss_gauntlet"
+    $stateDocument.state.bossGauntlet.completedQuestIds = [object[]]@("plot_kill_necromancer_3")
+    $stateDocument | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $statePath -Encoding UTF8
+}
+
+function Write-StaleDd4PolicyArtifact {
+    $artifactRoot = Join-Path $stateRoot "_managed_actions"
+    New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
+    $resolveReportPath = Join-Path $projectRoot "logs\quest_board_policy_resolve_report.json"
+    $artifact = [ordered]@{
+        version = 1
+        generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+        status = "materialized"
+        eventId = "quest.board.policies.materialized"
+        pluginId = "framework.quest_board_policy_materializer"
+        sourceName = "Quest Board Policy Materializer"
+        sourcePath = $resolveReportPath
+        profileScope = [ordered]@{
+            kind = "profile"
+            profileId = $profileId
+            profileRoot = $profileRoot
+            source = "test.staleArtifact"
+        }
+        loadOrder = 2147483647
+        ruleIndex = 0
+        ruleId = "questBoardPolicies.materialized"
+        actionIndex = 0
+        action = [ordered]@{
+            type = "questBoard.replaceWithFixedSet"
+            capability = "quest_board.replace_with_fixed_set"
+            risk = "managed"
+            required = $false
+        }
+        payload = [ordered]@{
+            source = "questBoardPolicies"
+            selectedQuestCount = 1
+        }
+        issues = @()
+        plan = [ordered]@{
+            kind = "questBoard.replaceWithFixedSet"
+            effect = "replaceWithFixedSet"
+            target = "profile.quest_board"
+            source = "questBoardPolicies"
+            profileScope = [ordered]@{
+                kind = "profile"
+                profileId = $profileId
+                profileRoot = $profileRoot
+                source = "test.staleArtifact"
+            }
+            arguments = [ordered]@{
+                target = "profile.quest_board"
+                questIds = @("plot_darkest_dungeon_4")
+                removeCompleted = $false
+                source = "questBoardPolicies"
+                selectionMode = "policyModeAwareWeightedPools"
+                seed = 0
+                slotLimit = $null
+                policies = @()
+            }
+        }
+    }
+
+    $artifactPath = Join-Path $artifactRoot "manual_stale_dd4_questBoard.replaceWithFixedSet.json"
+    $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $artifactPath -Encoding UTF8
+}
+
 Push-Location $projectRoot
 try {
     if (-not $NoBuild) {
@@ -165,6 +308,8 @@ try {
     New-Item -ItemType Directory -Force -Path $testRoot, $remoteRoot | Out-Null
     Copy-Item -LiteralPath $sampleProfilePath -Destination $profileRoot -Recurse -Force
     Write-OriginalQuestFixture
+    Write-TownFixture
+    Write-TownEventFixture
     Write-TestConfig
 
     $baseArgs = @(
@@ -177,6 +322,8 @@ try {
 
     Invoke-Loader -LoaderArgs ($baseArgs + @("--init-mod-state"))
     Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "profile.initialization_requested"))
+    Set-CompletedBossState
+    Write-StaleDd4PolicyArtifact
 
     $startedAt = Get-Date
     $arguments = @(
@@ -186,7 +333,7 @@ try {
         "--no-build",
         "--",
         "--config", $configPath,
-        "--watch-saves-for-ms", "8000",
+        "--watch-saves-for-ms", "12000",
         "--no-inject"
     )
     $process = Start-Process `
@@ -225,12 +372,23 @@ try {
     }
 
     $questIds = @(Read-QuestIds)
-    Assert-True ($questIds.Count -eq 8) "Realtime quest board refresh should write eight fixed boss quests."
-    Assert-True ($questIds[0] -eq "plot_kill_necromancer_3") "Realtime quest board refresh should keep the first fixed quest."
-    Assert-True ($questIds[1] -eq "plot_kill_prophet_3") "Realtime quest board refresh should keep the second fixed quest."
+    Assert-True ($questIds.Count -eq 7) "Realtime quest board refresh should write seven remaining fixed boss quests after one completed boss."
+    Assert-True (-not ($questIds -contains "plot_kill_necromancer_3")) "Realtime quest board refresh should remove the completed necromancer quest."
+    Assert-True ($questIds[0] -eq "plot_kill_prophet_3") "Realtime quest board refresh should keep the next uncompleted fixed quest first."
+    Assert-True (-not ($questIds -contains "plot_darkest_dungeon_4")) "Stale DD4 quest-board policy artifact must not override the current pre-finale fixed board."
+
+    $town = Get-Content -Raw -LiteralPath $sourceTownPath | ConvertFrom-Json
+    $stageCoachGenerated = @($town.base_root.buildings.stage_coach.store.'0'.generated.PSObject.Properties).Count
+    $nomadGenerated = @($town.base_root.buildings.nomad_wagon.store.'0'.generated.PSObject.Properties).Count
+    $nomadInventory = @($town.base_root.buildings.nomad_wagon.store.'0'.inventory.items.PSObject.Properties).Count
+    Assert-True ($stageCoachGenerated -eq 0) "Continuous profile apply should clear regenerated stagecoach recruits."
+    Assert-True ($nomadGenerated -eq 0) "Continuous profile apply should clear generated nomad wagon stock."
+    Assert-True ($nomadInventory -eq 0) "Continuous profile apply should clear nomad wagon inventory items."
 
     $backupFiles = @(Get-ChildItem -LiteralPath (Join-Path $stateRoot "_live_save_backups\quest_board_refresh") -Filter "persist.quest.json" -Recurse -ErrorAction SilentlyContinue)
     Assert-True ($backupFiles.Count -ge 1) "Realtime quest board refresh should create a backup before writing."
+    $continuousBackupFiles = @(Get-ChildItem -LiteralPath (Join-Path $stateRoot "_live_save_backups\continuous_profile_apply") -Filter "persist.town.json" -Recurse -ErrorAction SilentlyContinue)
+    Assert-True ($continuousBackupFiles.Count -ge 1) "Continuous profile auto apply should create a backup before writing town state."
 
     $sessionRoot = Join-Path $projectRoot "logs\save_sessions"
     $sessionReports = @(Get-ChildItem -LiteralPath $sessionRoot -Filter "*.json" -ErrorAction SilentlyContinue |
@@ -242,8 +400,10 @@ try {
     $eventCounts = $sessionReport.eventCounts
     Assert-True ([int]$eventCounts.'save.quest_board_auto_refresh_requested' -ge 1) "Realtime watcher should request quest board auto refresh."
     Assert-True ([int]$eventCounts.'save.quest_board_auto_refresh_completed' -ge 1) "Realtime watcher should complete quest board auto refresh."
+    Assert-True ([int]$eventCounts.'save.continuous_profile_auto_apply_requested' -ge 1) "Realtime watcher should request continuous profile action auto apply."
+    Assert-True ([int]$eventCounts.'save.continuous_profile_auto_apply_completed' -ge 1) "Realtime watcher should complete continuous profile action auto apply."
 
-    Write-Host "PASS: realtime campaign save change auto-refreshed the fixed boss board."
+    Write-Host "PASS: realtime campaign save change auto-refreshed the fixed boss board and continuous profile actions."
 }
 finally {
     if (Test-Path -LiteralPath $configPath) {

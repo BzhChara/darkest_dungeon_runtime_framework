@@ -125,6 +125,12 @@ internal sealed partial class RuntimeConfig
     [JsonPropertyName("questBoardAutoRefreshAllowRunningGameSaveWrite")]
     public bool QuestBoardAutoRefreshAllowRunningGameSaveWrite { get; set; }
 
+    [JsonPropertyName("continuousProfileActionAutoApplyEnabled")]
+    public bool ContinuousProfileActionAutoApplyEnabled { get; set; }
+
+    [JsonPropertyName("continuousProfileActionAutoApplyAllowRunningGameSaveWrite")]
+    public bool ContinuousProfileActionAutoApplyAllowRunningGameSaveWrite { get; set; }
+
     [JsonPropertyName("questBoardRuntimeSaveOverlayEnabled")]
     public bool QuestBoardRuntimeSaveOverlayEnabled { get; set; }
 

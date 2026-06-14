@@ -39,6 +39,8 @@
   "saveEventBridgeDebounceMilliseconds": 1000,
   "questBoardAutoRefreshEnabled": true,
   "questBoardAutoRefreshAllowRunningGameSaveWrite": true,
+  "continuousProfileActionAutoApplyEnabled": true,
+  "continuousProfileActionAutoApplyAllowRunningGameSaveWrite": true,
   "questBoardPolicyAutoMaterializeEnabled": true,
   "questBoardPolicyAutoMaterializeSlots": null,
   "questBoardPolicyAutoMaterializeSeed": null,

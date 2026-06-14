@@ -540,6 +540,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
         var bridgeReport = SaveEventBridge.Execute(_config, _patchPlan, _log, stateReportPath, _projectRoot, null);
         CountEvent(bridgeReport.Succeeded ? "save.event_bridge_realtime_completed" : "save.event_bridge_realtime_failed");
         TryRefreshQuestBoardAfterRealtimeBridge(profile, bridgeReport);
+        TryApplyContinuousProfileActionsAfterRealtimeBridge(profile, bridgeReport);
     }
 
     private void TryRefreshQuestBoardAfterRealtimeBridge(PendingBridgeProfile profile, SaveEventBridgeReport bridgeReport)
@@ -588,6 +589,52 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
             CountEvent("save.quest_board_auto_refresh_failed");
             _log.Error(
                 $"event name=save.quest_board_auto_refresh_failed profile={profile.Profile} " +
+                $"root={Quote(profile.Root)} message={Quote(ex.Message)}");
+        }
+    }
+
+    private void TryApplyContinuousProfileActionsAfterRealtimeBridge(PendingBridgeProfile profile, SaveEventBridgeReport bridgeReport)
+    {
+        if (!_config.ContinuousProfileActionAutoApplyEnabled)
+        {
+            return;
+        }
+
+        if (!bridgeReport.Succeeded)
+        {
+            CountEvent("save.continuous_profile_auto_apply_skipped");
+            _log.Warn(
+                $"event name=save.continuous_profile_auto_apply_skipped profile={profile.Profile} " +
+                $"root={Quote(profile.Root)} reason={Quote("save event bridge failed")}");
+            return;
+        }
+
+        try
+        {
+            CountEvent("save.continuous_profile_auto_apply_requested");
+            _log.Info(
+                $"event name=save.continuous_profile_auto_apply_requested profile={profile.Profile} " +
+                $"root={Quote(profile.Root)} reason={Quote("stable save batch bridged")} " +
+                $"changes={profile.ChangeCount} lastPath={Quote(profile.LastRelativePath)}");
+
+            var report = ContinuousProfileActionRefreshWriter.Write(
+                _config,
+                _log,
+                _projectRoot,
+                profile.Profile,
+                profile.Root,
+                dryRun: false,
+                allowRunningGameSaveWrite: _config.ContinuousProfileActionAutoApplyAllowRunningGameSaveWrite);
+
+            CountEvent(report.Succeeded
+                ? "save.continuous_profile_auto_apply_completed"
+                : "save.continuous_profile_auto_apply_failed");
+        }
+        catch (Exception ex)
+        {
+            CountEvent("save.continuous_profile_auto_apply_failed");
+            _log.Error(
+                $"event name=save.continuous_profile_auto_apply_failed profile={profile.Profile} " +
                 $"root={Quote(profile.Root)} message={Quote(ex.Message)}");
         }
     }
