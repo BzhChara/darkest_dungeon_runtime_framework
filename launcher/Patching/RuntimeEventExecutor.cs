@@ -406,6 +406,8 @@ internal static class RuntimeEventExecutor
             "quest.injectFixedStage" => BuildQuestInjectFixedStagePlan(action, document, payload),
             "roster.filterAvailableHeroes" => BuildAvailabilityFilterPlan(action, document, payload, "roster.heroes", "hero"),
             "equipment.filterAvailableTrinkets" => BuildAvailabilityFilterPlan(action, document, payload, "equipment.trinkets", "trinket"),
+            "roster.enforceAvailabilityFilter" => BuildGenericManagedActionPlan(action, document, payload, "enforceAvailabilityFilter", "profile.roster.availability"),
+            "equipment.enforceAvailabilityFilter" => BuildGenericManagedActionPlan(action, document, payload, "enforceAvailabilityFilter", "profile.equipment.availability"),
             "roster.ensureClassInstances" => BuildGenericManagedActionPlan(action, document, payload, "ensureClassInstances", "profile.roster"),
             "roster.setProgression" => BuildGenericManagedActionPlan(action, document, payload, "setProgression", "profile.roster"),
             "roster.setSkillUnlocks" => BuildGenericManagedActionPlan(action, document, payload, "setSkillUnlocks", "profile.roster"),
@@ -1291,6 +1293,8 @@ internal static class RuntimeEventExecutor
             "quest.injectFixedStage" or
             "roster.filterAvailableHeroes" or
             "equipment.filterAvailableTrinkets" or
+            "roster.enforceAvailabilityFilter" or
+            "equipment.enforceAvailabilityFilter" or
             "roster.ensureClassInstances" or
             "roster.setProgression" or
             "roster.setSkillUnlocks" or

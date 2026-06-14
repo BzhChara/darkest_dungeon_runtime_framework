@@ -136,6 +136,45 @@ function Read-DecodedProfilePolicy {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Write-ManagedActionArtifact {
+    param(
+        [string]$Name,
+        [string]$ActionType,
+        [string]$Capability,
+        [string]$Effect,
+        [string]$Target,
+        [hashtable]$Arguments
+    )
+
+    $artifactDirectory = Join-Path $stateRoot "_managed_actions"
+    New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
+    $path = Join-Path $artifactDirectory $Name
+    $artifact = [ordered]@{
+        status = "materialized"
+        generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+        source = [ordered]@{
+            pluginId = $pluginId
+            ruleId = "test_availability_policy"
+            actionIndex = 0
+        }
+        action = [ordered]@{
+            type = $ActionType
+            capability = $Capability
+            risk = "managed"
+            required = $true
+        }
+        plan = [ordered]@{
+            kind = $ActionType
+            effect = $Effect
+            target = $Target
+            arguments = $Arguments
+        }
+    }
+
+    $artifact | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath $path -Encoding UTF8
+    return $path
+}
+
 function Write-DecodedRosterFixture {
     $path = Join-Path $saveRoot "persist.roster.json"
     @'
@@ -1006,6 +1045,64 @@ Assert-True ((Convert-ToArray $townEvent.base_root.dead_hero_entries).Count -eq 
 $profilePolicy = Read-DecodedProfilePolicy
 Assert-True ([bool]$profilePolicy.profilePolicies.inventory.saleDisabled.trinket) "Write pass should record trinket sale disable policy."
 Assert-True ([string]$profilePolicy.profilePolicies.townEvent.message -eq "Enjoy the inferno") "Write pass should record the requested town event message policy."
+
+Write-ManagedActionArtifact `
+    -Name "availability_roster_prefinale.json" `
+    -ActionType "roster.enforceAvailabilityFilter" `
+    -Capability "roster.enforce_availability_filter" `
+    -Effect "enforceAvailabilityFilter" `
+    -Target "profile.roster.availability" `
+    -Arguments @{
+        filterId = "test.prefinale"
+        unavailableHeroIds = @("1", "2")
+    } | Out-Null
+Write-ManagedActionArtifact `
+    -Name "availability_equipment_prefinale.json" `
+    -ActionType "equipment.enforceAvailabilityFilter" `
+    -Capability "equipment.enforce_availability_filter" `
+    -Effect "enforceAvailabilityFilter" `
+    -Target "profile.equipment.availability" `
+    -Arguments @{
+        filterId = "test.prefinale"
+        unavailableTrinketIds = @("focus_ring", "berserk_mask")
+    } | Out-Null
+Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
+$availabilityReport = Read-ApplyReport
+Assert-True (@(Convert-ToArray $availabilityReport.actions | Where-Object { $_.actionType -eq "roster.enforceAvailabilityFilter" -and $_.status -eq "applied" }).Count -eq 1) "Availability apply should support roster.enforceAvailabilityFilter."
+Assert-True (@(Convert-ToArray $availabilityReport.actions | Where-Object { $_.actionType -eq "equipment.enforceAvailabilityFilter" -and $_.status -eq "applied" }).Count -eq 1) "Availability apply should support equipment.enforceAvailabilityFilter."
+$profilePolicy = Read-DecodedProfilePolicy
+Assert-True ((Convert-ToArray $profilePolicy.profilePolicies.roster.unavailableHeroIds).Count -eq 2) "Roster availability policy should record two unavailable heroes."
+Assert-True ((Convert-ToArray $profilePolicy.profilePolicies.roster.unavailableHeroIds) -contains "1") "Roster availability policy should include hero 1."
+Assert-True ([string]$profilePolicy.profilePolicies.roster.availabilityFilters.'test.prefinale'.itemKind -eq "hero") "Roster availability filter should record hero item kind."
+Assert-True ((Convert-ToArray $profilePolicy.profilePolicies.equipment.unavailableTrinketIds).Count -eq 2) "Equipment availability policy should record two unavailable trinkets."
+Assert-True ((Convert-ToArray $profilePolicy.profilePolicies.equipment.unavailableTrinketIds) -contains "focus_ring") "Equipment availability policy should include focus_ring."
+Assert-True ([string]$profilePolicy.profilePolicies.equipment.availabilityFilters.'test.prefinale'.itemKind -eq "trinket") "Equipment availability filter should record trinket item kind."
+
+Write-ManagedActionArtifact `
+    -Name "availability_roster_prefinale.json" `
+    -ActionType "roster.enforceAvailabilityFilter" `
+    -Capability "roster.enforce_availability_filter" `
+    -Effect "enforceAvailabilityFilter" `
+    -Target "profile.roster.availability" `
+    -Arguments @{
+        filterId = "test.prefinale"
+        unavailableHeroIds = @()
+    } | Out-Null
+Write-ManagedActionArtifact `
+    -Name "availability_equipment_prefinale.json" `
+    -ActionType "equipment.enforceAvailabilityFilter" `
+    -Capability "equipment.enforce_availability_filter" `
+    -Effect "enforceAvailabilityFilter" `
+    -Target "profile.equipment.availability" `
+    -Arguments @{
+        filterId = "test.prefinale"
+        unavailableTrinketIds = @()
+    } | Out-Null
+Invoke-Loader -LoaderArgs ($baseArgs + @("--apply-managed-actions", "--write-managed-actions", "--managed-action-save-dir", $saveRoot))
+$profilePolicy = Read-DecodedProfilePolicy
+Assert-True ((Convert-ToArray $profilePolicy.profilePolicies.roster.unavailableHeroIds).Count -eq 0) "Roster availability policy should clear when the source list is empty."
+Assert-True ((Convert-ToArray $profilePolicy.profilePolicies.equipment.unavailableTrinketIds).Count -eq 0) "Equipment availability policy should clear when the source list is empty."
+
 $necroQuest = Get-QuestById -Quest $quest -Id "plot_kill_necromancer_3"
 Assert-True ([string]$necroQuest.dungeon -eq "crypts") "Fixed quest should preserve content-defined dungeon."
 Assert-True ([int]$necroQuest.difficulty -eq 5) "Fixed quest should preserve content-defined difficulty."

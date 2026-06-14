@@ -102,6 +102,12 @@ internal static partial class ManagedActionSaveApplier
                 case "inventory.disableItemSale":
                     ApplyInventoryDisableItemSale(context, artifactPath, artifact);
                     break;
+                case "roster.enforceAvailabilityFilter":
+                    ApplyRosterEnforceAvailabilityFilter(context, artifactPath, artifact);
+                    break;
+                case "equipment.enforceAvailabilityFilter":
+                    ApplyEquipmentEnforceAvailabilityFilter(context, artifactPath, artifact);
+                    break;
                 case "campaign.resetPlotProgress":
                     ApplyCampaignResetPlotProgress(context, artifactPath, artifact);
                     break;
@@ -639,9 +645,7 @@ internal static partial class ManagedActionSaveApplier
 
     private static JsonNode? CloneJsonNode(JsonNode? node)
     {
-        return node is null
-            ? null
-            : JsonNode.Parse(node.ToJsonString(JsonOptions));
+        return node?.DeepClone();
     }
 
     private static JsonObject RequireObject(JsonObject root, string path)
