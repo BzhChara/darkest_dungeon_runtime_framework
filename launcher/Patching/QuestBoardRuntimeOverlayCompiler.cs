@@ -81,15 +81,26 @@ internal static class QuestBoardRuntimeOverlayCompiler
                         "ready",
                         []);
                     profileReports.Add(summary);
-                    virtualRules.Add(new VirtualFileRule
+                    if (config.QuestBoardRuntimeSaveOverlayEnabled)
                     {
-                        Target = source.Target,
-                        SourcePath = result.RuntimeSourcePath
-                    });
-                    log.Info(
-                        $"quest-board-runtime-overlay virtual-rule profile={source.ProfileId} " +
-                        $"target={Quote(source.Target)} sourcePath={Quote(result.RuntimeSourcePath)} " +
-                        $"sourceFormat={result.SourceFormat} runtimeFormat={result.RuntimeSourceFormat} quests={activeQuestIds.Length}");
+                        virtualRules.Add(new VirtualFileRule
+                        {
+                            Target = source.Target,
+                            SourcePath = result.RuntimeSourcePath
+                        });
+                        log.Info(
+                            $"quest-board-runtime-overlay virtual-rule profile={source.ProfileId} " +
+                            $"target={Quote(source.Target)} sourcePath={Quote(result.RuntimeSourcePath)} " +
+                            $"sourceFormat={result.SourceFormat} runtimeFormat={result.RuntimeSourceFormat} quests={activeQuestIds.Length}");
+                    }
+                    else
+                    {
+                        log.Info(
+                            $"quest-board-runtime-overlay profile-refresh-source profile={source.ProfileId} " +
+                            $"target={Quote(source.Target)} sourcePath={Quote(result.RuntimeSourcePath)} " +
+                            $"sourceFormat={result.SourceFormat} runtimeFormat={result.RuntimeSourceFormat} quests={activeQuestIds.Length} " +
+                            $"saveVirtualization=disabled");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -117,7 +128,7 @@ internal static class QuestBoardRuntimeOverlayCompiler
             }
         }
 
-        var status = BuildStatus(preview, virtualRules.Count, issues);
+        var status = BuildStatus(preview, virtualRules.Count, profileReports, issues);
         var report = new QuestBoardRuntimeOverlayReport(
             ReportVersion,
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
@@ -353,6 +364,7 @@ internal static class QuestBoardRuntimeOverlayCompiler
     private static string BuildStatus(
         QuestBoardPreviewReport preview,
         int virtualRuleCount,
+        IReadOnlyList<QuestBoardRuntimeOverlayProfileReport> profileReports,
         IReadOnlyList<QuestBoardRuntimeOverlayIssue> issues)
     {
         if (preview.ErrorCount > 0)
@@ -367,7 +379,9 @@ internal static class QuestBoardRuntimeOverlayCompiler
 
         if (virtualRuleCount == 0)
         {
-            return "unavailable";
+            return profileReports.Any(profile => profile.Status.Equals("ready", StringComparison.OrdinalIgnoreCase))
+                ? "profileRefreshReady"
+                : "unavailable";
         }
 
         return issues.Any(issue => issue.Severity == "warning") ? "partial" : "ready";

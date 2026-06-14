@@ -233,6 +233,31 @@ bool IsFullyQualifiedPath(const std::wstring& path)
     return !path.empty() && path[0] == L'\\';
 }
 
+std::wstring ToExtendedWin32Path(std::wstring path)
+{
+    std::replace(path.begin(), path.end(), L'/', L'\\');
+    if (path.empty() ||
+        path.rfind(L"\\\\?\\", 0) == 0 ||
+        path.rfind(L"\\\\.\\", 0) == 0)
+    {
+        return path;
+    }
+
+    if (path.size() >= 3 &&
+        path[1] == L':' &&
+        (path[2] == L'\\' || path[2] == L'/'))
+    {
+        return L"\\\\?\\" + path;
+    }
+
+    if (path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\')
+    {
+        return L"\\\\?\\UNC\\" + path.substr(2);
+    }
+
+    return path;
+}
+
 void SplitFileSize(std::uint64_t size, DWORD& high, DWORD& low)
 {
     high = static_cast<DWORD>((size >> 32) & 0xffffffffu);
@@ -1020,8 +1045,9 @@ bool ReadOriginalFileBytes(const std::wstring& path, std::vector<std::uint8_t>& 
         return false;
     }
 
+    std::wstring fileSystemPath = ToExtendedWin32Path(path);
     HANDLE file = createFile(
-        path.c_str(),
+        fileSystemPath.c_str(),
         GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr,

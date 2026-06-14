@@ -35,6 +35,8 @@ internal static class QuestBoardLaunchPreflightReporter
         var hasCandidate = preview.FinalActiveQuestCount > 0;
         var runtimeQuestBoardConsumerStatus = runtimeOverlay.Status;
         var willRuntimeReplaceQuestBoard = runtimeOverlay.VirtualFileRuleCount > 0;
+        var canRefreshProfileQuestBoard = runtimeOverlay.Profiles.Any(profile =>
+            profile.Status.Equals("ready", StringComparison.OrdinalIgnoreCase));
         var willRuntimeForceQuestContentAvailable = runtimeContentOverlays.Any(overlay =>
             overlay.Target.Equals("campaign/quest/quest.plot_quests.json", StringComparison.OrdinalIgnoreCase) &&
             overlay.Replacements.Any(replacement =>
@@ -45,10 +47,12 @@ internal static class QuestBoardLaunchPreflightReporter
             : hasCandidate
                 ? willRuntimeReplaceQuestBoard
                     ? "runtimeOverlayReady"
-                    : "previewOnly"
+                    : canRefreshProfileQuestBoard
+                        ? "profileRefreshReady"
+                        : "previewOnly"
                 : "none";
 
-        if (hasCandidate && !willRuntimeReplaceQuestBoard)
+        if (hasCandidate && !willRuntimeReplaceQuestBoard && !canRefreshProfileQuestBoard)
         {
             issues.Add(new QuestBoardLaunchPreflightIssue(
                 "warning",

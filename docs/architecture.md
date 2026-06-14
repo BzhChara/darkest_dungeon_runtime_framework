@@ -52,7 +52,7 @@ C++ DLL。
 建议顺序：
 
 1. 观察文件读取路径，只记录不修改。当前阶段通过 MinHook 挂 `CreateFileW/CreateFileA`。
-2. 对 `.darkest` / localization 文件做虚拟内容返回。当前原型支持配置规则列表：每条规则匹配一个路径后缀，并按顺序执行多条字符串替换，通过虚拟句柄响应 `ReadFile` / `GetFileSize` / `SetFilePointer` / `CloseHandle`。规则也可以使用 `sourcePath` 从项目根下的生成文件提供整文件字节，用于 `.dm` 这类二进制覆盖；`sourcePath` 当前不和文本替换/operation 混用。
+2. 对 `.darkest` / localization 文件做虚拟内容返回。当前原型支持配置规则列表：每条规则匹配一个路径后缀，并按顺序执行多条字符串替换，通过虚拟句柄响应 `ReadFile` / `GetFileSize` / `SetFilePointer` / `CloseHandle`。规则也可以使用 `sourcePath` 从项目根下的生成文件提供整文件字节，用于 `.dm` 这类二进制覆盖；`sourcePath` 当前不和文本替换/operation 混用，并且 RuntimeHook 读取 `sourcePath` 时使用 Win32 extended path 形式，避免项目路径超过 260 字符时打不开生成文件。存档文件 `profile_*/persist.*.json` 默认不走运行时虚拟文件覆盖，因为游戏的 StorageManager 会在启动同步、备份和转移存档时依赖目录枚举得到的真实文件大小；这类修改应通过 managed save writer 写入真实 profile，并保留备份和报告。
 3. 观察文件写入和生命周期操作，只记录不修改。当前阶段通过 MinHook 挂 `WriteFile`、`MoveFile/MoveFileEx`、`CopyFile`、`DeleteFile`、`ReplaceFile` 和 `SetFileAttributes`，把已知真实文件活动分类成 `data` / `asset` / `save` 事件；`save` 事件有独立日志预算，外部噪声路径可通过配置过滤。
 4. 对 DLL 无法覆盖的外部存档落盘，先由启动器 sidecar watcher 做 observe-only 记录。
 5. 对数据加载函数做结构化 Hook。

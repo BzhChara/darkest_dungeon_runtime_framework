@@ -26,6 +26,12 @@ function Assert-True {
     }
 }
 
+function Read-Utf8Text {
+    param([string]$Path)
+
+    return Get-Content -Raw -Encoding UTF8 -LiteralPath $Path
+}
+
 function Invoke-Loader {
     param([string[]]$LoaderArgs)
 
@@ -38,38 +44,38 @@ function Invoke-Loader {
 function Read-ApplyReport {
     $path = Join-Path $projectRoot.Path "logs\managed_action_apply_report.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Managed action apply report was not created: $path"
-    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    return Read-Utf8Text -Path $path | ConvertFrom-Json
 }
 
 function Read-QuestBoardPreviewReport {
     $path = Join-Path $projectRoot.Path "logs\quest_board_preview_report.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Quest board preview report was not created: $path"
-    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    return Read-Utf8Text -Path $path | ConvertFrom-Json
 }
 
 function Read-QuestBoardLaunchPreflightReport {
     $path = Join-Path $projectRoot.Path "logs\quest_board_launch_preflight_report.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Quest board launch preflight report was not created: $path"
-    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    return Read-Utf8Text -Path $path | ConvertFrom-Json
 }
 
 function Read-QuestBoardRuntimeOverlayReport {
     $path = Join-Path $projectRoot.Path "logs\quest_board_runtime_overlay_report.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Quest board runtime overlay report was not created: $path"
-    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    return Read-Utf8Text -Path $path | ConvertFrom-Json
 }
 
 function Read-DecodedQuest {
     $path = Join-Path $saveRoot "persist.quest.json"
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded quest file was not created: $path"
-    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    return Read-Utf8Text -Path $path | ConvertFrom-Json
 }
 
 function Read-QuestFile {
     param([string]$Path)
 
     Assert-True (Test-Path -LiteralPath $Path -PathType Leaf) "Quest file was not created: $Path"
-    return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    return Read-Utf8Text -Path $Path | ConvertFrom-Json
 }
 
 function Get-QuestIds {
@@ -259,7 +265,7 @@ try {
     $artifactCount = @(Get-ChildItem -LiteralPath (Join-Path $stateRoot "_managed_actions") -Filter "*.json").Count
     Assert-True ($artifactCount -eq 1) "Quest chain materialization should produce exactly one deterministic managed artifact."
 
-    $managedArtifact = Get-Content -Raw -LiteralPath $questChainManagedArtifactPath | ConvertFrom-Json
+    $managedArtifact = Read-Utf8Text -Path $questChainManagedArtifactPath | ConvertFrom-Json
     Assert-True ($managedArtifact.status -eq "materialized") "Quest chain artifact should be materialized."
     Assert-True ($managedArtifact.action.type -eq "questBoard.replaceWithFixedSet") "Quest chain artifact action type mismatch."
     Assert-True ($managedArtifact.plan.arguments.questIds[0] -eq "plot_kill_necromancer_3") "First materialized quest id mismatch."
@@ -286,20 +292,20 @@ try {
     Assert-True ($preflightReport.mode -eq "dry-run") "Quest board launch preflight should record dry-run mode."
     Assert-True ([bool]$preflightReport.questBoardPreviewSucceeded) "Quest board launch preflight should include a successful preview."
     Assert-True ([bool]$preflightReport.hasQuestBoardCandidate) "Quest board launch preflight should detect a quest board candidate."
-    Assert-True ($preflightReport.candidateQuestBoardStatus -eq "runtimeOverlayReady") "Quest board launch preflight should mark quest board as runtime overlay ready."
+    Assert-True ($preflightReport.candidateQuestBoardStatus -eq "profileRefreshReady") "Quest board launch preflight should mark quest board as profile-refresh ready."
     Assert-True ([int]$preflightReport.candidateQuestCount -eq 2) "Quest board launch preflight should report two candidate quests."
-    Assert-True ($preflightReport.runtimeQuestBoardConsumerStatus -eq "ready") "Quest board launch preflight should claim the live quest-board consumer is ready."
-    Assert-True ([bool]$preflightReport.willRuntimeReplaceQuestBoard) "Quest board launch preflight should claim runtime quest board replacement."
-    Assert-True ([int]$preflightReport.runtimeQuestBoardOverlayRuleCount -eq 2) "Quest board launch preflight should report one runtime overlay rule per profile fixture."
-    Assert-True (-not [bool]$preflightReport.willRuntimeForceQuestContentAvailable) "This test has no fixed-stage quest content overlay."
+    Assert-True ($preflightReport.runtimeQuestBoardConsumerStatus -eq "profileRefreshReady") "Quest board launch preflight should claim the profile refresh consumer is ready."
+    Assert-True (-not [bool]$preflightReport.willRuntimeReplaceQuestBoard) "Quest board launch preflight should not virtualize profile save files by default."
+    Assert-True ([int]$preflightReport.runtimeQuestBoardOverlayRuleCount -eq 0) "Quest board launch preflight should not publish profile save virtual rules by default."
+    Assert-True ([bool]$preflightReport.willRuntimeForceQuestContentAvailable) "Quest chain board artifacts should keep source quest content available through content overlays."
     Assert-True ([int]$preflightReport.warningCount -eq 0) "Quest board launch preflight should not warn when runtime overlays are ready."
     Assert-True ([int]$preflightReport.errorCount -eq 0) "Quest board launch preflight should not report errors."
     Assert-True ($preflightReport.candidateQuests[0].questId -eq "plot_kill_necromancer_3") "Quest board launch preflight first candidate quest id mismatch."
 
     $runtimeOverlayReport = Read-QuestBoardRuntimeOverlayReport
-    Assert-True ($runtimeOverlayReport.status -eq "ready") "Runtime quest-board overlay should be ready."
+    Assert-True ($runtimeOverlayReport.status -eq "profileRefreshReady") "Runtime quest-board overlay should expose profile refresh artifacts by default."
     Assert-True ([int]$runtimeOverlayReport.profileCount -eq 2) "Runtime quest-board overlay should inspect both profile fixtures."
-    Assert-True ([int]$runtimeOverlayReport.virtualFileRuleCount -eq 2) "Runtime quest-board overlay should produce one sourcePath rule per profile fixture."
+    Assert-True ([int]$runtimeOverlayReport.virtualFileRuleCount -eq 0) "Runtime quest-board overlay should avoid profile save virtual rules by default."
     $jsonProfileOverlay = @($runtimeOverlayReport.profiles | Where-Object { $_.profileId -eq "profile_0" })[0]
     Assert-True ($jsonProfileOverlay.status -eq "ready") "JSON profile runtime overlay should be ready."
     Assert-True ($jsonProfileOverlay.sourceFormat -eq "json") "JSON profile source format mismatch."
