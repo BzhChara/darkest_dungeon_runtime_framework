@@ -4,8 +4,7 @@ namespace DDRuntimeLoader;
 
 internal static partial class ManagedActionOverlayCompiler
 {
-    private const string TrinketEntryFilePattern = "*.entries.trinkets.json";
-    private const string InventoryDisableItemSaleOverlayTarget = "content.trinkets.price";
+    private const string InventoryDisableItemSaleOverlayTarget = "profile.inventory.saleDisabled";
 
     private static JsonObject BuildInventoryDisableItemSaleOverlay(string artifactPath, JsonObject artifact)
     {
@@ -18,10 +17,8 @@ internal static partial class ManagedActionOverlayCompiler
         return new JsonObject
         {
             ["kind"] = "inventory.disableItemSale",
-            ["effect"] = "suppressSaleValue",
-            ["target"] = itemKind.Equals("trinket", StringComparison.OrdinalIgnoreCase)
-                ? InventoryDisableItemSaleOverlayTarget
-                : $"content.{itemKind}.price",
+            ["effect"] = "recordSalePolicy",
+            ["target"] = InventoryDisableItemSaleOverlayTarget,
             ["artifactPath"] = artifactPath,
             ["eventId"] = ReadString(artifact, "eventId"),
             ["pluginId"] = ReadString(artifact, "pluginId"),
@@ -41,146 +38,16 @@ internal static partial class ManagedActionOverlayCompiler
         JsonArray issues,
         LauncherLog log)
     {
-        var enabledOverlays = overlays
-            .Where(overlay =>
-                ReadString(overlay, "kind").Equals("inventory.disableItemSale", StringComparison.OrdinalIgnoreCase) &&
-                ReadBool(overlay, "disabled"))
-            .ToArray();
-
-        if (enabledOverlays.Length == 0)
+        foreach (var overlay in overlays.Where(overlay =>
+                     ReadString(overlay, "kind").Equals("inventory.disableItemSale", StringComparison.OrdinalIgnoreCase) &&
+                     ReadBool(overlay, "disabled")))
         {
-            return [];
+            log.Info(
+                $"managed-action-overlay policy-only itemKind={Quote(ReadString(overlay, "itemKind"))} " +
+                $"target={Quote(ReadString(overlay, "target"))} artifact={Quote(ReadString(overlay, "artifactPath"))}");
         }
 
-        var trinketOverlays = enabledOverlays
-            .Where(overlay => ReadString(overlay, "itemKind").Equals("trinket", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        foreach (var overlay in enabledOverlays.Except(trinketOverlays))
-        {
-            AddIssue(
-                issues,
-                log,
-                "warning",
-                "managed-overlay-inventory-item-kind-unsupported",
-                ReadString(overlay, "artifactPath"),
-                $"inventory.disableItemSale content overlay does not support itemKind={ReadString(overlay, "itemKind")} yet");
-        }
-
-        if (trinketOverlays.Length == 0)
-        {
-            return [];
-        }
-
-        var outputDirectory = Path.Combine(config.ModStateDirectory, "_managed_action_overlays", "inventory_disable_item_sale");
-        Directory.CreateDirectory(outputDirectory);
-
-        var rules = new List<OverlayVirtualRule>();
-        foreach (var sourcePath in EnumerateCampaignTrinketEntryFiles(config.GameWorkingDirectory))
-        {
-            try
-            {
-                var target = ToVirtualTarget(config.GameWorkingDirectory, sourcePath);
-                var outputPath = Path.Combine(outputDirectory, SafeFileName(target));
-                var result = WriteTrinketSaleValueSuppressionOverlay(sourcePath, outputPath);
-                if (result.AffectedEntryCount == 0)
-                {
-                    continue;
-                }
-
-                var summary = new JsonObject
-                {
-                    ["target"] = target,
-                    ["effect"] = "suppressTrinketSaleValue",
-                    ["sourcePath"] = outputPath,
-                    ["sourceContentPath"] = sourcePath,
-                    ["policyOverlayCount"] = trinketOverlays.Length,
-                    ["entryCount"] = result.EntryCount,
-                    ["affectedEntryCount"] = result.AffectedEntryCount,
-                    ["sourceArtifacts"] = new JsonArray(trinketOverlays
-                        .Select(overlay => (JsonNode?)new JsonObject
-                        {
-                            ["pluginId"] = ReadString(overlay, "pluginId"),
-                            ["ruleId"] = ReadString(overlay, "ruleId"),
-                            ["artifactPath"] = ReadString(overlay, "artifactPath")
-                        })
-                        .ToArray())
-                };
-
-                rules.Add(new OverlayVirtualRule(
-                    new VirtualFileRule
-                    {
-                        Target = target,
-                        SourcePath = outputPath
-                    },
-                    summary));
-
-                log.Info(
-                    $"managed-action-overlay virtual-rule itemKind=trinket target={Quote(target)} " +
-                    $"sourcePath={Quote(outputPath)} affectedEntries={result.AffectedEntryCount}");
-            }
-            catch (Exception ex)
-            {
-                AddIssue(
-                    issues,
-                    log,
-                    "warning",
-                    "managed-overlay-trinket-sale-value-overlay-failed",
-                    string.Join(';', trinketOverlays.Select(overlay => ReadString(overlay, "artifactPath"))),
-                    $"{sourcePath}: {ex.Message}");
-            }
-        }
-
-        if (rules.Count == 0)
-        {
-            AddIssue(
-                issues,
-                log,
-                "warning",
-                "managed-overlay-trinket-entry-files-unmodified",
-                string.Join(';', trinketOverlays.Select(overlay => ReadString(overlay, "artifactPath"))),
-                "inventory.disableItemSale requested trinket sale suppression, but no trinket entry prices were modified");
-        }
-
-        return rules;
-    }
-
-    private static TrinketSaleValueSuppressionResult WriteTrinketSaleValueSuppressionOverlay(string sourcePath, string outputPath)
-    {
-        var root = JsonNode.Parse(
-                File.ReadAllText(sourcePath, Encoding.UTF8),
-                documentOptions: new JsonDocumentOptions
-                {
-                    AllowTrailingCommas = true,
-                    CommentHandling = JsonCommentHandling.Skip
-                }) as JsonObject
-            ?? throw new InvalidDataException("trinket entry file root must be an object");
-
-        if (root["entries"] is not JsonArray entries)
-        {
-            throw new InvalidDataException("trinket entry file must contain an entries array");
-        }
-
-        var entryCount = 0;
-        var affectedEntryCount = 0;
-        foreach (var entry in entries.OfType<JsonObject>())
-        {
-            entryCount++;
-            if (entry["price"] is JsonValue price &&
-                price.TryGetValue<int>(out var currentPrice) &&
-                currentPrice != 0)
-            {
-                entry["price"] = 0;
-                affectedEntryCount++;
-            }
-        }
-
-        if (affectedEntryCount > 0)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
-            File.WriteAllText(outputPath, root.ToJsonString(JsonOptions), Utf8NoBom);
-        }
-
-        return new TrinketSaleValueSuppressionResult(entryCount, affectedEntryCount);
+        return [];
     }
 
     private static bool RequireBool(JsonObject root, string path)
@@ -193,43 +60,6 @@ internal static partial class ManagedActionOverlayCompiler
         }
 
         return result;
-    }
-
-    private static IEnumerable<string> EnumerateCampaignTrinketEntryFiles(string gameWorkingDirectory)
-    {
-        var baseTrinketDirectory = Path.Combine(gameWorkingDirectory, "trinkets");
-        if (Directory.Exists(baseTrinketDirectory))
-        {
-            foreach (var path in Directory.EnumerateFiles(baseTrinketDirectory, TrinketEntryFilePattern, SearchOption.TopDirectoryOnly)
-                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-            {
-                yield return path;
-            }
-        }
-
-        var dlcDirectory = Path.Combine(gameWorkingDirectory, "dlc");
-        if (!Directory.Exists(dlcDirectory))
-        {
-            yield break;
-        }
-
-        foreach (var directory in Directory.EnumerateDirectories(dlcDirectory)
-                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-        {
-            var name = Path.GetFileName(directory);
-            if (string.IsNullOrWhiteSpace(name) ||
-                !char.IsDigit(name[0]) ||
-                name.Contains("arena", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            foreach (var path in Directory.EnumerateFiles(directory, TrinketEntryFilePattern, SearchOption.AllDirectories)
-                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-            {
-                yield return path;
-            }
-        }
     }
 
     private static string ToVirtualTarget(string gameWorkingDirectory, string path)
@@ -249,6 +79,4 @@ internal static partial class ManagedActionOverlayCompiler
 
         return builder.Length == 0 ? "overlay.json" : builder.ToString();
     }
-
-    private sealed record TrinketSaleValueSuppressionResult(int EntryCount, int AffectedEntryCount);
 }

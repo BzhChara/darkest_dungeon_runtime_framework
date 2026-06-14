@@ -71,7 +71,7 @@ These tests should continue to be concrete enough to catch real gaps, but their 
 | Area | Current generic form | Next likely gap |
 | --- | --- | --- |
 | Wallet/resources | `wallet.setCurrencyAmounts`, `wallet.modifyCurrency` | live original-save write policy and reward identity coverage |
-| Estate inventory | `estate.ensureInventoryCounts` with content-source rarity exclusions, `inventory.disableItemSale` policy plus trinket price `sourcePath` overlay | live hard sell/use restrictions and item identity tracking |
+| Estate inventory | `estate.ensureInventoryCounts` with content-source rarity exclusions, `inventory.disableItemSale` manifest/profile policy | live hard sell/use restrictions, sale UI interception, and item identity tracking |
 | Roster generation | `roster.ensureClassInstances` clean hero blueprint plus `roster.setProgression` decoded-save normalization for existing/generated heroes; random quirk generation respects content `singleton` tags across the generated roster | richer hero blueprint arguments, exact-count policies, and class-specific defaults |
 | Roster skills | `roster.setSkillUnlocks` equips content-derived selected combat/camping slots while full unlock/max state comes from `upgrade.ensurePurchases` | live enforcement and richer skill selection policies |
 | Upgrade purchases | `upgrade.ensurePurchases` for content-defined building, hero skill, weapon, and armour requirements | original-save write policy and narrower per-tree/per-level selection modes |
