@@ -20,6 +20,7 @@
     "campaign.reset_plot_progress",
     "town.unlock_all_buildings",
     "town.set_building_levels",
+    "town.suppress_store_items",
     "town_event.override_current",
     "quest_board.replace_with_fixed_set",
     "quest_board.filter_completed_fixed_quests",
@@ -496,6 +497,18 @@
           "args": {
             "target": "profile.town",
             "level": "max"
+          }
+        },
+        {
+          "type": "town.suppressStoreItems",
+          "capability": "town.suppress_store_items",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.town.stores",
+            "mode": "state.bossGauntlet.townStoreItems.mode",
+            "buildingIds": "state.bossGauntlet.townStoreItems.buildingIds",
+            "sections": "state.bossGauntlet.townStoreItems.sections"
           }
         },
         {

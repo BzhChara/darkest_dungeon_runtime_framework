@@ -393,6 +393,44 @@ function Write-DecodedTownFixture {
   "base_root": {
     "version": 513,
     "buildings": {
+      "nomad_wagon": {
+        "store": {
+          "trinket_supply": {
+            "inventory": {
+              "items": {
+                "0": {
+                  "id": "dazzling_charm",
+                  "type": "trinket",
+                  "amount": 1
+                },
+                "1": {
+                  "id": "speed_stone",
+                  "type": "trinket",
+                  "amount": 1
+                }
+              }
+            }
+          },
+          "shard_trinket_supply": {
+            "inventory": {
+              "items": {
+                "0": {
+                  "id": "com_lens_of_comet",
+                  "type": "trinket",
+                  "amount": 1
+                }
+              }
+            },
+            "generated": {
+              "0": {
+                "id": "com_lens_of_comet",
+                "type": "trinket",
+                "amount": 1
+              }
+            }
+          }
+        }
+      },
       "stage_coach": {
         "activities": {},
         "store": {
@@ -795,6 +833,40 @@ function Get-StagecoachGeneratedRecruitCount {
     return $count
 }
 
+function Get-TownStoreInventoryItemCount {
+    param(
+        [hashtable]$Town,
+        [string]$BuildingId
+    )
+
+    $building = $Town["base_root"]["buildings"][$BuildingId]
+    $count = 0
+    foreach ($store in $building["store"].Values) {
+        if ($store.ContainsKey("inventory") -and $store["inventory"].ContainsKey("items")) {
+            $count += $store["inventory"]["items"].Count
+        }
+    }
+
+    return $count
+}
+
+function Get-TownStoreGeneratedItemCount {
+    param(
+        [hashtable]$Town,
+        [string]$BuildingId
+    )
+
+    $building = $Town["base_root"]["buildings"][$BuildingId]
+    $count = 0
+    foreach ($store in $building["store"].Values) {
+        if ($store.ContainsKey("generated")) {
+            $count += $store["generated"].Count
+        }
+    }
+
+    return $count
+}
+
 function Get-DistrictBuilt {
     param(
         [hashtable]$Town,
@@ -874,6 +946,8 @@ $upgrades = Read-DecodedUpgrades
 Assert-True (-not (Test-UpgradePurchase -Upgrades $upgrades -TreeName "blacksmith.weapon" -RequirementCode "d" -InstanceNumber 0)) "Fixture should start without max blacksmith weapon upgrade."
 $town = Read-DecodedTown
 Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 2) "Fixture should start with two generated stagecoach recruits."
+Assert-True ((Get-TownStoreInventoryItemCount -Town $town -BuildingId "nomad_wagon") -eq 3) "Fixture should start with three nomad wagon store inventory items."
+Assert-True ((Get-TownStoreGeneratedItemCount -Town $town -BuildingId "nomad_wagon") -eq 1) "Fixture should start with one generated nomad wagon store item."
 Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "bank")) "Fixture should start with bank district unbuilt."
 Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "granary")) "Fixture should start with granary district unbuilt."
 $quest = Read-DecodedQuest
@@ -898,20 +972,20 @@ Assert-True ([bool]$dryRunInitializationReport.succeeded) "Decoded profile dry-r
 Assert-True ([bool]$dryRunInitializationReport.dryRun) "Decoded profile dry-run initialization should record dryRun=true."
 Assert-True ([bool]$dryRunInitializationReport.stateSucceeded) "Decoded profile dry-run initialization should initialize sidecar state."
 Assert-True ([bool]$dryRunInitializationReport.eventSucceeded) "Decoded profile dry-run initialization should run the initialization event."
-Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 13) "Decoded profile dry-run initialization should materialize thirteen actions."
+Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 14) "Decoded profile dry-run initialization should materialize fourteen actions."
 Assert-True ([bool]$dryRunInitializationReport.questBoardPreviewSucceeded) "Decoded profile dry-run initialization should preview the quest board."
 Assert-True ([int]$dryRunInitializationReport.questBoardCandidateCount -eq 8) "Decoded profile dry-run initialization should preview eight fixed boss quests."
 Assert-True (-not [bool]$dryRunInitializationReport.applySkipped) "Decoded profile dry-run initialization should run managed action apply."
 Assert-True ([bool]$dryRunInitializationReport.applySucceeded) "Decoded profile dry-run initialization apply should succeed."
-Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 12) "Decoded profile dry-run initialization should recognize twelve supported decoded-save/policy actions."
-Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 12) "Decoded profile dry-run initialization should dry-run twelve supported actions."
+Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 13) "Decoded profile dry-run initialization should recognize thirteen supported decoded-save/policy actions."
+Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 13) "Decoded profile dry-run initialization should dry-run thirteen supported actions."
 Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 8) "Decoded profile dry-run initialization should report eight would-change decoded save or policy files."
 Assert-True (@(Convert-ToArray $dryRunInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "dry-run" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression dry-run action details."
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
-Assert-True ([int]$dryRunReport.artifactCount -eq 13) "Dry-run should inspect thirteen boss gauntlet initialization artifacts."
-Assert-True ([int]$dryRunReport.supportedActionCount -eq 12) "Dry-run should recognize twelve currently supported decoded-save/policy actions."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 12) "Dry-run should report twelve dry-run actions."
+Assert-True ([int]$dryRunReport.artifactCount -eq 14) "Dry-run should inspect fourteen boss gauntlet initialization artifacts."
+Assert-True ([int]$dryRunReport.supportedActionCount -eq 13) "Dry-run should recognize thirteen currently supported decoded-save/policy actions."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 13) "Dry-run should report thirteen dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
 Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 1) "Dry-run should report the remaining profile-normalization action as unsupported."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
@@ -932,6 +1006,8 @@ $upgrades = Read-DecodedUpgrades
 Assert-True (-not (Test-UpgradePurchase -Upgrades $upgrades -TreeName "blacksmith.weapon" -RequirementCode "d" -InstanceNumber 0)) "Dry-run must not add upgrade purchases."
 $town = Read-DecodedTown
 Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 2) "Dry-run must not remove generated stagecoach recruits."
+Assert-True ((Get-TownStoreInventoryItemCount -Town $town -BuildingId "nomad_wagon") -eq 3) "Dry-run must not remove nomad wagon inventory items."
+Assert-True ((Get-TownStoreGeneratedItemCount -Town $town -BuildingId "nomad_wagon") -eq 1) "Dry-run must not remove generated nomad wagon store items."
 Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "bank")) "Dry-run must not mark bank district built."
 Assert-True (-not (Get-DistrictBuilt -Town $town -DistrictId "granary")) "Dry-run must not mark granary district built."
 $quest = Read-DecodedQuest
@@ -955,14 +1031,14 @@ Assert-True ([bool]$writeInitializationReport.stateSucceeded) "Decoded profile w
 Assert-True ([bool]$writeInitializationReport.eventSucceeded) "Decoded profile write initialization event should succeed even after initialized=true."
 Assert-True (-not [bool]$writeInitializationReport.applySkipped) "Decoded profile write initialization should run managed action apply."
 Assert-True ([bool]$writeInitializationReport.applySucceeded) "Decoded profile write initialization apply should succeed."
-Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 12) "Decoded profile write initialization should apply twelve supported decoded-save/policy actions."
+Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 13) "Decoded profile write initialization should apply thirteen supported decoded-save/policy actions."
 Assert-True ([int]$writeInitializationReport.applyChangedFileCount -eq 8) "Decoded profile write initialization should write eight decoded save or policy files."
 Assert-True (@(Convert-ToArray $writeInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "applied" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression applied action details."
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
-Assert-True ([int]$writeReport.supportedActionCount -eq 12) "Write pass should recognize twelve currently supported decoded-save/policy actions."
+Assert-True ([int]$writeReport.supportedActionCount -eq 13) "Write pass should recognize thirteen currently supported decoded-save/policy actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 12) "Write pass should apply twelve currently supported decoded-save/policy actions."
+Assert-True ([int]$writeReport.appliedActionCount -eq 13) "Write pass should apply thirteen currently supported decoded-save/policy actions."
 Assert-True ([int]$writeReport.unsupportedActionCount -eq 1) "Write pass should leave only one future profile-normalization action unsupported."
 Assert-True ([int]$writeReport.changedFileCount -eq 8) "Write pass should change eight decoded save or policy files."
 Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 8) "Write pass should mark eight files as written."
@@ -1003,10 +1079,10 @@ Assert-True (-not ([string]$highwayman.actor.name -like "DDRF *")) "Roster name 
 Assert-True ($heroNamePool -contains [string]$highwayman.actor.name) "Renamed old placeholder hero name should come from the configured Schinese hero name pool."
 Assert-True (@($arbalest.quirks.PSObject.Properties).Count -eq 6) "Generated heroes should have five positive quirks and one negative quirk."
 Assert-True ((Get-QuirkHolderCount -Roster $roster -QuirkId "twilight_dreamer") -le 1) "Generated roster should not assign singleton quirks to multiple heroes."
-Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_skills) -gt 4) "Skill unlock action should fill all known crusader combat skills."
-Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_camping_skills) -gt 4) "Skill unlock action should fill all known crusader camping skills."
-Assert-True ((Get-ObjectPropertyCount -Value $arbalest.skills.selected_combat_skills) -gt 4) "Generated heroes should receive all known combat skills from content definitions."
-Assert-True ((Get-ObjectPropertyCount -Value $arbalest.skills.selected_camping_skills) -gt 4) "Generated heroes should receive all known camping skills from content definitions."
+Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_combat_skills) -eq 4) "Skill unlock action should equip only the normal four crusader combat skill slots."
+Assert-True ((Get-ObjectPropertyCount -Value $crusader.skills.selected_camping_skills) -eq 4) "Skill unlock action should equip only four crusader camping skill slots."
+Assert-True ((Get-ObjectPropertyCount -Value $arbalest.skills.selected_combat_skills) -eq 4) "Generated heroes should equip only the normal four combat skill slots."
+Assert-True ((Get-ObjectPropertyCount -Value $arbalest.skills.selected_camping_skills) -eq 4) "Generated heroes should equip only four camping skill slots."
 $rosterText = Get-Content -Raw -LiteralPath (Join-Path $saveRoot "persist.roster.json")
 Assert-True ($rosterText -match '"current_hp": 47\.0') "Generated DSON-decoded roster should preserve float token shape for current_hp."
 Assert-True ($rosterText -match '"m_Stress": 0\.0') "Generated DSON-decoded roster should preserve float token shape for m_Stress."
@@ -1019,6 +1095,8 @@ Assert-True (Test-UpgradePurchase -Upgrades $upgrades -TreeName "crusader.smite"
 Assert-True (Test-UpgradePurchase -Upgrades $upgrades -TreeName "arbalest.sniper_shot" -RequirementCode "4" -InstanceNumber $arbalestId) "Write pass should max a generated hero combat skill upgrade."
 $town = Read-DecodedTown
 Assert-True ((Get-StagecoachGeneratedRecruitCount -Town $town) -eq 0) "Write pass should remove generated stagecoach recruits."
+Assert-True ((Get-TownStoreInventoryItemCount -Town $town -BuildingId "nomad_wagon") -eq 0) "Write pass should remove nomad wagon inventory items."
+Assert-True ((Get-TownStoreGeneratedItemCount -Town $town -BuildingId "nomad_wagon") -eq 0) "Write pass should remove generated nomad wagon store items."
 Assert-True (Get-DistrictBuilt -Town $town -DistrictId "bank") "Write pass should mark bank district built."
 Assert-True (Get-DistrictBuilt -Town $town -DistrictId "granary") "Write pass should mark granary district built."
 Assert-True (Get-DistrictBuilt -Town $town -DistrictId "library") "Write pass should keep already-built district built."

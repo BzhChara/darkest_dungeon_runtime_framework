@@ -125,4 +125,110 @@ internal static partial class ManagedActionSaveApplier
                 "ordinary building upgrade levels are represented by upgrade.ensurePurchases; persist.town has no verified direct level scalar"
             ]);
     }
+
+    private static void ApplyTownSuppressStoreItems(ApplyContext context, string artifactPath, JsonObject artifact)
+    {
+        var mode = ReadString(artifact, "plan.arguments.mode");
+        if (!mode.Equals("empty", StringComparison.OrdinalIgnoreCase) &&
+            !mode.Equals("suppressed", StringComparison.OrdinalIgnoreCase) &&
+            !mode.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"Unsupported town store suppression mode: {mode}");
+        }
+
+        var requestedBuildingIds = ReadOptionalStringArrayPath(artifact, "plan.arguments.buildingIds")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var requestedStoreIds = ReadOptionalStringArrayPath(artifact, "plan.arguments.storeIds")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var requestedSections = ReadOptionalStringArrayPath(artifact, "plan.arguments.sections");
+        var clearGenerated = requestedSections.Count == 0 ||
+            requestedSections.Contains("generated", StringComparer.OrdinalIgnoreCase);
+        var clearInventoryItems = requestedSections.Count == 0 ||
+            requestedSections.Contains("inventory.items", StringComparer.OrdinalIgnoreCase);
+        if (!clearGenerated && !clearInventoryItems)
+        {
+            throw new InvalidDataException("town.suppressStoreItems requires sections to include generated and/or inventory.items.");
+        }
+
+        var file = context.LoadDecodedJsonFile("persist.town.json");
+        var buildings = RequireObject(file.Root, "base_root.buildings");
+        var scannedStores = 0;
+        var clearedStores = 0;
+        var removedGeneratedCount = 0;
+        var removedInventoryItemCount = 0;
+
+        foreach (var buildingPair in buildings.ToArray())
+        {
+            if (requestedBuildingIds.Count > 0 && !requestedBuildingIds.Contains(buildingPair.Key))
+            {
+                continue;
+            }
+
+            if (buildingPair.Value is not JsonObject building ||
+                building["store"] is not JsonObject stores)
+            {
+                continue;
+            }
+
+            foreach (var storePair in stores.ToArray())
+            {
+                if (requestedStoreIds.Count > 0 && !requestedStoreIds.Contains(storePair.Key))
+                {
+                    continue;
+                }
+
+                if (storePair.Value is not JsonObject store)
+                {
+                    continue;
+                }
+
+                scannedStores++;
+                var storeChanged = false;
+                if (clearGenerated && store["generated"] is JsonObject generated && generated.Count > 0)
+                {
+                    removedGeneratedCount += generated.Count;
+                    storeChanged = true;
+                    if (context.WriteChanges)
+                    {
+                        store["generated"] = new JsonObject();
+                    }
+                }
+
+                if (clearInventoryItems &&
+                    TryGetObject(store, "inventory.items") is JsonObject inventoryItems &&
+                    inventoryItems.Count > 0)
+                {
+                    removedInventoryItemCount += inventoryItems.Count;
+                    storeChanged = true;
+                    if (context.WriteChanges)
+                    {
+                        EnsureObject(store, "inventory")["items"] = new JsonObject();
+                    }
+                }
+
+                if (storeChanged)
+                {
+                    clearedStores++;
+                }
+            }
+        }
+
+        var removedCount = removedGeneratedCount + removedInventoryItemCount;
+        if (removedCount > 0)
+        {
+            file.MarkChanged(removedCount);
+        }
+
+        AddSuccessfulAction(
+            context,
+            artifactPath,
+            artifact,
+            file.Path,
+            [
+                $"suppress town store items mode={mode} stores={scannedStores} clearedStores={clearedStores}",
+                $"removedGenerated={removedGeneratedCount} removedInventoryItems={removedInventoryItemCount}",
+                $"buildingFilter={(requestedBuildingIds.Count == 0 ? "<all>" : string.Join(',', requestedBuildingIds.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)))}",
+                $"storeFilter={(requestedStoreIds.Count == 0 ? "<all>" : string.Join(',', requestedStoreIds.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)))}"
+            ]);
+    }
 }

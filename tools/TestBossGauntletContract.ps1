@@ -169,7 +169,7 @@ Assert-True (@($dd2PolicyEntry.availableWhen.completedQuests) -contains "plot_da
 Assert-True (@($dd2PolicyEntry.availableWhen.notCompletedQuests) -contains "plot_darkest_dungeon_2") "DD2 should disappear after completion."
 
 $initializationReport = Read-RuntimeEventReport
-Assert-True ([int]$initializationReport.materializedActionCount -eq 13) "Initialization should materialize thirteen managed profile-normalization actions."
+Assert-True ([int]$initializationReport.materializedActionCount -eq 14) "Initialization should materialize fourteen managed profile-normalization actions."
 
 $rosterAction = Get-ActionReport -Report $initializationReport -Type "roster.ensureClassInstances"
 $rosterArtifact = Read-ManagedActionArtifact -Action $rosterAction -ExpectedType "roster.ensureClassInstances"
@@ -220,6 +220,12 @@ Assert-True ([bool]$questBoardArtifact.plan.arguments.removeCompleted) "Quest bo
 $townEventAction = Get-ActionReport -Report $initializationReport -Type "townEvent.overrideCurrent"
 $townEventArtifact = Read-ManagedActionArtifact -Action $townEventAction -ExpectedType "townEvent.overrideCurrent"
 Assert-True ($townEventArtifact.plan.arguments.event.message -eq "Enjoy the inferno") "Town event normalization should request the fixed event message."
+
+$townStoreAction = Get-ActionReport -Report $initializationReport -Type "town.suppressStoreItems"
+$townStoreArtifact = Read-ManagedActionArtifact -Action $townStoreAction -ExpectedType "town.suppressStoreItems"
+Assert-True ($townStoreArtifact.plan.arguments.mode -eq "empty") "Town store normalization should request empty store inventories."
+Assert-True ((Convert-ToArray $townStoreArtifact.plan.arguments.buildingIds) -contains "nomad_wagon") "Town store normalization should target the nomad wagon."
+Assert-True ((Convert-ToArray $townStoreArtifact.plan.arguments.sections) -contains "inventory.items") "Town store normalization should clear inventory items."
 
 $deadHeroPayloadPath = Write-JsonPayload "dead_hero_observed.json" ([pscustomobject]@{
     heroIds = @("dead_hero_1")

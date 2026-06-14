@@ -420,6 +420,7 @@ internal static class RuntimeEventExecutor
             "campaign.resetPlotProgress" => BuildGenericManagedActionPlan(action, document, payload, "resetPlotProgress", "profile.campaignProgress"),
             "town.unlockAllBuildings" => BuildGenericManagedActionPlan(action, document, payload, "unlockAllBuildings", "profile.town"),
             "town.setBuildingLevels" => BuildGenericManagedActionPlan(action, document, payload, "setBuildingLevels", "profile.town"),
+            "town.suppressStoreItems" => BuildGenericManagedActionPlan(action, document, payload, "suppressStoreItems", "profile.town.stores"),
             "townEvent.overrideCurrent" => BuildGenericManagedActionPlan(action, document, payload, "overrideCurrent", "profile.townEvent"),
             "questBoard.replaceWithFixedSet" => BuildGenericManagedActionPlan(action, document, payload, "replaceWithFixedSet", "profile.questBoard"),
             _ => throw new InvalidOperationException($"managed action type is not plannable: {type}")
@@ -1307,6 +1308,7 @@ internal static class RuntimeEventExecutor
             "campaign.resetPlotProgress" or
             "town.unlockAllBuildings" or
             "town.setBuildingLevels" or
+            "town.suppressStoreItems" or
             "townEvent.overrideCurrent" or
             "questBoard.replaceWithFixedSet";
     }

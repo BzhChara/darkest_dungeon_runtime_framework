@@ -45,6 +45,16 @@
   "trinketSaleDisabled": true,
   "stageCoachRecruits": "suppressed",
   "townBuildings": "all_unlocked_and_maxed",
+  "townStoreItems": {
+    "mode": "empty",
+    "buildingIds": [
+      "nomad_wagon"
+    ],
+    "sections": [
+      "inventory.items",
+      "generated"
+    ]
+  },
   "townEvent": {
     "mode": "override",
     "message": "Enjoy the inferno"

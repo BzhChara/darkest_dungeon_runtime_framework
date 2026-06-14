@@ -129,6 +129,9 @@ internal static partial class ManagedActionSaveApplier
                 case "town.unlockAllBuildings":
                     ApplyTownUnlockAllBuildings(context, artifactPath, artifact);
                     break;
+                case "town.suppressStoreItems":
+                    ApplyTownSuppressStoreItems(context, artifactPath, artifact);
+                    break;
                 case "townEvent.overrideCurrent":
                     ApplyTownEventOverrideCurrent(context, artifactPath, artifact);
                     break;
@@ -560,7 +563,7 @@ internal static partial class ManagedActionSaveApplier
         {
             "roster.ensureClassInstances" or "roster.setSkillUnlocks" => "persist.roster.json",
             "upgrade.ensurePurchases" => "persist.upgrades.json",
-            "stagecoach.suppressRecruits" or "town.unlockAllBuildings" or "town.setBuildingLevels" => "persist.town.json",
+            "stagecoach.suppressRecruits" or "town.unlockAllBuildings" or "town.setBuildingLevels" or "town.suppressStoreItems" => "persist.town.json",
             "estate.ensureInventoryCounts" or "inventory.disableItemSale" => "persist.estate.json",
             "campaign.resetPlotProgress" => "persist.progression.json",
             "townEvent.overrideCurrent" => "persist.town_event.json",

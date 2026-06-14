@@ -73,6 +73,10 @@ internal static partial class ManagedActionOverlayCompiler
                             ignoredArtifactCount++;
                         }
                     }
+                    else if (actionType.Equals("town.unlockAllBuildings", StringComparison.OrdinalIgnoreCase))
+                    {
+                        overlayCandidates.Add(BuildTownUnlockAllBuildingsOverlay(artifactPath, artifact));
+                    }
                     else if (actionType.Equals("roster.enforceAvailabilityFilter", StringComparison.OrdinalIgnoreCase))
                     {
                         availabilityPolicyCandidates.Add(BuildAvailabilityPolicy(artifactPath, artifact, "hero", "unavailableHeroIds"));
@@ -353,6 +357,7 @@ internal static partial class ManagedActionOverlayCompiler
         }
 
         virtualRules.AddRange(BuildInventoryDisableItemSaleVirtualRules(config, overlays, issues, log));
+        virtualRules.AddRange(BuildTownUnlockAllBuildingsVirtualRules(config, overlays, issues, log));
         return virtualRules;
     }
 

@@ -169,11 +169,15 @@ internal static partial class ManagedActionSaveApplier
 
             var combatSkillIds = classDefinition.CombatSkillIds;
             var campingSkillIds = classDefinition.CampingSkillIds;
+            var selectedCombatSkillLimit = Math.Max(1, classDefinition.SelectedCombatSkillMax ?? DefaultSelectedCombatSkillCount);
+            var selectedCampingSkillLimit = DefaultSelectedCampingSkillCount;
+            var selectedCombatSkillIds = combatSkillIds.Take(selectedCombatSkillLimit).ToArray();
+            var selectedCampingSkillIds = campingSkillIds.Take(selectedCampingSkillLimit).ToArray();
             var skills = EnsureObject(hero.HeroRoot, "skills");
             var currentCombatSkills = skills["selected_combat_skills"] as JsonObject;
             var currentCampingSkills = skills["selected_camping_skills"] as JsonObject;
-            var combatChanged = !SkillSelectionMatches(currentCombatSkills, combatSkillIds);
-            var campingChanged = !SkillSelectionMatches(currentCampingSkills, campingSkillIds);
+            var combatChanged = !SkillSelectionMatches(currentCombatSkills, selectedCombatSkillIds);
+            var campingChanged = !SkillSelectionMatches(currentCampingSkills, selectedCampingSkillIds);
             if (!combatChanged && !campingChanged)
             {
                 unchanged++;
@@ -182,13 +186,13 @@ internal static partial class ManagedActionSaveApplier
 
             if (context.WriteChanges)
             {
-                skills["selected_combat_skills"] = BuildAllSkillSelectionObject(combatSkillIds);
-                skills["selected_camping_skills"] = BuildAllSkillSelectionObject(campingSkillIds);
+                skills["selected_combat_skills"] = BuildSkillSelectionObject(combatSkillIds, selectedCombatSkillLimit);
+                skills["selected_camping_skills"] = BuildSkillSelectionObject(campingSkillIds, selectedCampingSkillLimit);
             }
 
             updated++;
-            updatedCombatSkillCount += combatSkillIds.Count;
-            updatedCampingSkillCount += campingSkillIds.Count;
+            updatedCombatSkillCount += selectedCombatSkillIds.Length;
+            updatedCampingSkillCount += selectedCampingSkillIds.Length;
         }
 
         if (updated > 0)
@@ -204,7 +208,8 @@ internal static partial class ManagedActionSaveApplier
             [
                 $"set roster skills mode={skillsMode} heroes={rosterHeroes.Length}",
                 $"updated={updated} unchanged={unchanged} skippedUnknownClass={skippedUnknownClass}",
-                $"updatedSkillSlots combat={updatedCombatSkillCount} camping={updatedCampingSkillCount}"
+                $"updatedSelectedSkillSlots combat={updatedCombatSkillCount} camping={updatedCampingSkillCount}",
+                "all skill upgrade purchases remain represented by upgrade.ensurePurchases; selected_* fields only equip active skill slots"
             ]);
     }
 
@@ -1003,17 +1008,6 @@ internal static partial class ManagedActionSaveApplier
     {
         var result = new JsonObject();
         foreach (var skillId in skillIds.Take(maxCount))
-        {
-            result[skillId] = 0;
-        }
-
-        return result;
-    }
-
-    private static JsonObject BuildAllSkillSelectionObject(IReadOnlyList<string> skillIds)
-    {
-        var result = new JsonObject();
-        foreach (var skillId in skillIds)
         {
             result[skillId] = 0;
         }
