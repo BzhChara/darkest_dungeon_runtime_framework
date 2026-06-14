@@ -43,32 +43,43 @@ At launch or dry-run, materialized artifacts with `method: content_price_zero` g
 
 This projection is intentionally explicit because trinket `price` can affect more than selling. If a campaign still allows trinkets to appear in the Nomad Wagon or another shop, setting prices to `0` may also affect purchase display or purchase cost. A plugin that wants "cannot sell but still buy normally" needs a verified runtime/UI/economy hook later.
 
-`trinket.projectShardStore` is a convenience projection for one or more existing trinket ids. It keeps the original trinket id and entry, then overlays Color of Madness style store fields:
+`trinket.patchEntry` patches one or more existing trinket entries by id. It keeps the original trinket definition file as the source, then applies explicit `set` and `remove` operations chosen by the plugin author:
 
 ```json
 {
-  "type": "trinket.projectShardStore",
-  "capability": "trinket.project_shard_store",
+  "type": "trinket.patchEntry",
+  "capability": "trinket.patch_entry",
   "risk": "managed",
   "required": true,
   "args": {
-    "target": "content.trinkets.shardStore",
+    "target": "content.trinkets.entries",
     "enabled": true,
     "items": [
       {
         "id": "focus_ring",
-        "shard": 50,
-        "limit": 1,
-        "rarity": "comet"
+        "set": {
+          "price": 7500,
+          "limit": 1,
+          "rarity": "very_rare"
+        }
+      },
+      {
+        "id": "my_shard_trinket",
+        "set": {
+          "rarity": "comet",
+          "shard": 50,
+          "limit": 1
+        },
+        "remove": ["price"]
       }
     ]
   }
 }
 ```
 
-Single-item shorthand is also valid by placing `id`, `shard`, `limit`, and `rarity` directly under `args`. The compiler requires the trinket id to already exist in an enabled trinket entry file. It does not create buffs, icons, localization, or a new trinket from nothing. By default it removes ordinary `price`, sets `origin_dungeon` to an empty string, and defaults `rarity` to `comet` and `limit` to `1`.
+Single-item shorthand is also valid by placing `id`, `set`, and `remove` directly under `args`. The compiler requires the trinket id to already exist in an enabled trinket entry file. It does not create buffs, icons, localization, or a new trinket from nothing. It does not infer ordinary-vs-shard semantics: `price`, `shard`, `limit`, `rarity`, `origin_dungeon`, or other entry fields change only when the plugin explicitly sets or removes them.
 
-`inventory.disableItemSale` and `trinket.projectShardStore` both modify trinket entry files. The overlay compiler merges them into one generated `sourcePath` file per target, so a plugin can suppress sale values and project selected items into shard-store form without one overlay undoing the other.
+`inventory.disableItemSale` and `trinket.patchEntry` both modify trinket entry files. The overlay compiler merges them into one generated `sourcePath` file per target, so a plugin can suppress sale values and patch selected trinket entries without one overlay undoing the other.
 
 ## Drop-Only Recipe
 
@@ -80,7 +91,7 @@ To make a trinket available only from a specific source:
 4. Do not include that rarity in ordinary shared loot tables.
 5. Add it to exactly the desired quest reward or boss loot path.
 6. If it should not be sellable, set `price: 0` directly in the authored trinket or use `inventory.disableItemSale` with `method: content_price_zero`.
-7. If it should be bought with shards instead of gold, use original Color of Madness style fields directly or use `trinket.projectShardStore` for the selected existing id.
+7. If it should be bought with shards instead of gold, use original Color of Madness style fields directly or use `trinket.patchEntry` to explicitly set `shard`/`rarity`/`limit` and remove `price` if that is the intended content shape.
 
 The framework should eventually expose this as a higher-level `lootPolicy` or trinket availability declaration, then compile it into the original content files. Static trinket definitions, icons, effects, buffs, and localization remain authored by normal DD mod content.
 
@@ -110,4 +121,4 @@ This is more fragile than quest completion rewards because it touches monster in
 - There is no instance-level trinket identity projection for "this exact copy is consumed".
 - There is no implemented high-level generator yet for "only quest A drops trinket X" or "boss Y kill loot includes trinket Z"; that belongs under future `lootPolicies`.
 - Workshop/plugin trinket entry overlays need provider-aware expansion beyond the current original and official non-arena DLC scan.
-- `trinket.projectShardStore` is file-structure validated, but a custom non-CoM trinket id appearing in the live shard store still needs live game validation.
+- `trinket.patchEntry` is file-structure validated, but whether a particular field combination has the intended live economy behavior still needs game validation.

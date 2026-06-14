@@ -177,7 +177,7 @@ Pre-finale hero and trinket consumption remains sidecar state only until a verif
 
 `inventory.disableItemSale` defaults to manifest/profile policy only. Trinket artifacts can opt into `method: content_price_zero`, which generates trinket entry `sourcePath` overlays that set `price` to `0`. This follows original content behavior for sale value suppression, but hard UI sell-button semantics still need live validation or a runtime/UI consumer.
 
-`trinket.projectShardStore` can project selected existing trinket ids into Color of Madness style shard-store entries by overlaying `rarity`, `shard`, `limit`, `origin_dungeon`, and, by default, removing ordinary `price`. This is a content overlay helper, not a new trinket authoring system: buffs, icons, localization, and the base trinket entry still come from normal DD content. The trinket entry overlay compiler merges this projection with `inventory.disableItemSale` so a single target file receives one generated `sourcePath` replacement.
+`trinket.patchEntry` can patch selected existing trinket ids by applying explicit `set` and `remove` operations to their original trinket entry objects. This is a content overlay helper, not a new trinket authoring system: buffs, icons, localization, and the base trinket entry still come from normal DD content. The trinket entry overlay compiler merges this projection with `inventory.disableItemSale` so a single target file receives one generated `sourcePath` replacement.
 
 `--apply-managed-actions --managed-action-save-dir <dir>` can read these artifacts and generate `logs/managed_action_apply_report.json`. It is dry-run by default. Writes require `--write-managed-actions`, and the first version only writes project-local decoded JSON save copies.
 
@@ -196,7 +196,7 @@ Currently implemented decoded-save writers:
 - `wallet.setCurrencyAmounts` / `wallet.setCurrencyAmount` write wallet resources into `persist.estate.json`.
 - `estate.ensureInventoryCounts` writes specified trinket inventory counts and can exclude initial sources by content rarity.
 - `inventory.disableItemSale` writes sale-disable policy into project-local `_ddrt_profile_policy.json`; with `method: content_price_zero` it can also compile trinket entry price overlays for runtime launch.
-- `trinket.projectShardStore` compiles selected existing trinket ids into shard-store content overlays for runtime launch.
+- `trinket.patchEntry` compiles explicit `set`/`remove` edits for selected existing trinket ids into trinket entry content overlays for runtime launch.
 - `roster.ensureClassInstances` adds hero instances for enabled classes into `persist.roster.json`.
 - `roster.setProgression` normalizes existing and generated heroes' resolve XP, weapon/armor level, and current HP under max equipment.
 - `roster.setSkillUnlocks` writes normal selected combat/camping skill slots from class content definitions. Full skill unlock/max purchase state is represented by `upgrade.ensurePurchases` in `persist.upgrades.json`.

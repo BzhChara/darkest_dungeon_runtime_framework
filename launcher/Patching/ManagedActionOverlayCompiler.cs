@@ -82,9 +82,9 @@ internal static partial class ManagedActionOverlayCompiler
                             ignoredArtifactCount++;
                         }
                     }
-                    else if (actionType.Equals("trinket.projectShardStore", StringComparison.OrdinalIgnoreCase))
+                    else if (actionType.Equals("trinket.patchEntry", StringComparison.OrdinalIgnoreCase))
                     {
-                        var overlay = BuildTrinketProjectShardStoreOverlay(artifactPath, artifact);
+                        var overlay = BuildTrinketPatchEntryOverlay(artifactPath, artifact);
                         if (ReadBool(overlay, "enabled"))
                         {
                             overlayCandidates.Add(overlay);
