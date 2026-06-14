@@ -297,7 +297,7 @@ Acceptance ladder:
 6. Save/content facts can report enough data for roster, wallet, trinket inventory, trinket sale UI/actions, town building availability, town state, quest board, campaign log, and Darkest Dungeon participation decisions.
 7. Managed action artifacts can describe the normalized roster, wallet, trinket inventory, town maxing, per-building town availability, fixed quest board, trinket-sale lockout, phase-scoped hero/trinket availability policy, and town-event override without mutating original saves.
 8. Decoded-save managed action application can dry-run and apply supported profile-normalization actions against a project-local decoded save copy before any original-save writer exists.
-9. Runtime consumers enforce the fixed quest board, disabled trinket selling, wallet reward, and pre-finale hero/trinket availability.
+9. Original-first consumers enforce the fixed quest board, disabled trinket selling, wallet reward, and pre-finale hero/trinket availability. Use original content/save mechanisms where they exist, and reserve runtime/UI hooks for gaps that cannot be represented safely.
 10. Managed original-save initialization, if introduced, is schema-verified, logged, idempotent, and does not restore later campaign failures.
 11. The finale phase can rely on original Darkest Dungeon entry restrictions where possible, does not revive dead heroes, and starts from a phase-gated `plot_darkest_dungeon_1` quest board.
 

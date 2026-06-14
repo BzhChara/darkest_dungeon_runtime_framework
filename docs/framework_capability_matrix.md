@@ -8,6 +8,14 @@ Concrete ideas are still useful. A concrete mod design is a pressure test. The f
 
 Do not add a new C# or native branch whose only meaningful caller is one named mod idea.
 
+Prefer the original game mechanism first. Before classifying something as a runtime hook or custom UI need, check whether Darkest Dungeon already exposes an equivalent through content files, localization, plot quest data, town event data, roster/save fields, or existing gameplay restrictions. A framework primitive should usually reference, validate, or project into those original concepts before inventing a parallel system.
+
+Examples:
+
+- Custom announcements should first be treated as original town-event content plus current-event save projection, not a default render-overlay feature.
+- Temporary hero unavailability should first be tested against original roster status fields such as missing/activity/DD participation state, not only against a custom party-selection blocker.
+- Locked buildings should first use original building availability and requirement data where possible, not a one-off disabled-button overlay.
+
 When an idea cannot be expressed by existing rules, classify the missing primitive:
 
 | Missing capability | Add this kind of primitive | Avoid this |
@@ -38,8 +46,9 @@ Before implementing a new gameplay feature, answer these questions:
 4. Can the new primitive be tested without the original game running?
 5. Does the implementation keep concrete quest ids, hero ids, item ids, and stage ids inside plugin data, fixtures, or docs instead of framework runtime code?
 6. Is the missing piece truly runtime behavior, or should it be an external content reference checked by the framework?
-7. What is the lowest-risk status this primitive can start with: planned, materialized, observed, passive, intercepted, or stable?
-8. What diagnostics will tell a mod author why it did or did not run?
+7. Is there an original content/save/gameplay mechanism that should be used before a hook?
+8. What is the lowest-risk status this primitive can start with: planned, materialized, observed, passive, intercepted, or stable?
+9. What diagnostics will tell a mod author why it did or did not run?
 
 If the answer to question 3 is weak, keep the behavior in a validation plugin or sample until the generic shape is clearer.
 

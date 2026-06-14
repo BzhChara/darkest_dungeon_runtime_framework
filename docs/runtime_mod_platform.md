@@ -205,7 +205,7 @@ Currently implemented decoded-save writers:
 - `town.unlockAllBuildings` sets existing district `built` flags to true.
 - `townEvent.overrideCurrent` suppresses the current event in `persist.town_event.json` and records requested message policy into `_ddrt_profile_policy.json`.
 
-Ordinary town building levels are still expressed by `upgrade.ensurePurchases`; there is no verified direct `persist.town.json` building-level scalar. Custom town-event text still needs a runtime/UI/content consumer before it appears in game; the writer does not invent unknown save fields.
+Ordinary town building levels are still expressed by `upgrade.ensurePurchases`; there is no verified direct `persist.town.json` building-level scalar. Custom town-event text should be implemented through original town-event content, localization, rotation/current-event data, and schema-verified save projection before any runtime/UI hook is considered. The current writer records those policies without inventing unknown save fields.
 
 `roster.ensureClassInstances` generates new heroes from a clean hero blueprint instead of deep-copying existing save heroes, which avoids carrying unrelated old hero or test sample state into new objects. Random quirk selection reads content tags and keeps `singleton` quirks unique across the generated roster pass.
 
@@ -215,7 +215,7 @@ Content readers:
 - `content.hero_classes.enabled` currently reads base heroes and official non-arena numeric DLC hero definitions.
 - `content.upgrades.enabled` currently reads base upgrades, base camping skills, and official non-arena DLC definitions.
 
-If the install directory itself has been modified by other mods, a clean content source is required for pure-base results. Other profile-normalization behavior and hard hero/trinket restrictions still need future runtime consumers or schema-verified save writers. Known live gaps include stagecoach/store regeneration after week settlement and consumed sidecar heroes/trinkets still being selectable in the original UI.
+If the install directory itself has been modified by other mods, a clean content source is required for pure-base results. Other profile-normalization behavior and hard hero/trinket restrictions still need future original-first consumers: schema-verified save writers where the base game already has an equivalent state, and runtime/UI hooks only for the remaining gaps. Known live gaps include stagecoach/store regeneration after week settlement and consumed sidecar heroes/trinkets still being selectable in the original UI.
 
 First action candidates:
 
