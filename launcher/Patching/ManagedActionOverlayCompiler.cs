@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace DDRuntimeLoader;
 
@@ -11,7 +12,8 @@ internal static partial class ManagedActionOverlayCompiler
     {
         WriteIndented = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
     };
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
@@ -19,6 +21,7 @@ internal static partial class ManagedActionOverlayCompiler
     {
         var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
         var overlayCandidates = new List<JsonObject>();
+        var availabilityPolicyCandidates = new List<JsonObject>();
         var issues = new JsonArray();
         var artifactCount = 0;
         var ignoredArtifactCount = 0;
@@ -70,6 +73,14 @@ internal static partial class ManagedActionOverlayCompiler
                             ignoredArtifactCount++;
                         }
                     }
+                    else if (actionType.Equals("roster.enforceAvailabilityFilter", StringComparison.OrdinalIgnoreCase))
+                    {
+                        availabilityPolicyCandidates.Add(BuildAvailabilityPolicy(artifactPath, artifact, "hero", "unavailableHeroIds"));
+                    }
+                    else if (actionType.Equals("equipment.enforceAvailabilityFilter", StringComparison.OrdinalIgnoreCase))
+                    {
+                        availabilityPolicyCandidates.Add(BuildAvailabilityPolicy(artifactPath, artifact, "trinket", "unavailableTrinketIds"));
+                    }
                     else
                     {
                         ignoredArtifactCount++;
@@ -100,6 +111,17 @@ internal static partial class ManagedActionOverlayCompiler
             overlays.Add(overlay);
         }
 
+        var selectedAvailabilityPolicies = availabilityPolicyCandidates
+            .GroupBy(BuildAvailabilityPolicySupersedeKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())
+            .ToArray();
+        var supersededAvailabilityPolicyCount = availabilityPolicyCandidates.Count - selectedAvailabilityPolicies.Length;
+        var availabilityPolicies = new JsonArray();
+        foreach (var policy in selectedAvailabilityPolicies)
+        {
+            availabilityPolicies.Add(policy);
+        }
+
         var virtualRules = BuildOverlayVirtualRules(config, selectedOverlays, issues, log);
         var virtualRuleSummaries = new JsonArray();
         foreach (var virtualRule in virtualRules)
@@ -125,11 +147,14 @@ internal static partial class ManagedActionOverlayCompiler
             ["artifactDirectory"] = artifactDirectory,
             ["artifactCount"] = artifactCount,
             ["overlayCount"] = overlays.Count,
+            ["availabilityPolicyCount"] = availabilityPolicies.Count,
             ["ignoredArtifactCount"] = ignoredArtifactCount,
             ["supersededOverlayCount"] = supersededOverlayCount,
+            ["supersededAvailabilityPolicyCount"] = supersededAvailabilityPolicyCount,
             ["virtualFileRuleCount"] = virtualRules.Count,
             ["virtualFileReplacementCount"] = virtualRules.Sum(rule => rule.Rule.Replacements.Length),
             ["overlays"] = overlays,
+            ["availabilityPolicies"] = availabilityPolicies,
             ["virtualFileRules"] = virtualRuleSummaries,
             ["issues"] = issues
         };
@@ -137,13 +162,15 @@ internal static partial class ManagedActionOverlayCompiler
         File.WriteAllText(reportPath, report.ToJsonString(JsonOptions), Utf8NoBom);
         log.Info(
             $"managed-action-overlay manifest path={Quote(reportPath)} artifacts={artifactCount} " +
-            $"overlays={overlays.Count} virtualRules={virtualRules.Count} " +
-            $"ignored={ignoredArtifactCount} superseded={supersededOverlayCount} issues={issues.Count}");
+            $"overlays={overlays.Count} availabilityPolicies={availabilityPolicies.Count} " +
+            $"virtualRules={virtualRules.Count} ignored={ignoredArtifactCount} " +
+            $"superseded={supersededOverlayCount} policySuperseded={supersededAvailabilityPolicyCount} issues={issues.Count}");
 
         return new ManagedActionOverlayReport(
             reportPath,
             artifactCount,
             overlays.Count,
+            availabilityPolicies.Count,
             issues.Count,
             virtualRules.Select(rule => rule.Rule).ToArray());
     }
@@ -152,6 +179,7 @@ internal static partial class ManagedActionOverlayCompiler
     {
         values["DD_RUNTIME_MANAGED_OVERLAY_MANIFEST"] = report.ManifestPath;
         values["DD_RUNTIME_MANAGED_OVERLAY_COUNT"] = report.OverlayCount.ToString(CultureInfo.InvariantCulture);
+        values["DD_RUNTIME_MANAGED_AVAILABILITY_POLICY_COUNT"] = report.AvailabilityPolicyCount.ToString(CultureInfo.InvariantCulture);
         values["DD_RUNTIME_MANAGED_OVERLAY_ISSUE_COUNT"] = report.IssueCount.ToString(CultureInfo.InvariantCulture);
         AppendVirtualRules(values, report.VirtualFileRules);
     }
@@ -662,6 +690,7 @@ internal sealed record ManagedActionOverlayReport(
     string ManifestPath,
     int ArtifactCount,
     int OverlayCount,
+    int AvailabilityPolicyCount,
     int IssueCount,
     IReadOnlyList<VirtualFileRule> VirtualFileRules);
 

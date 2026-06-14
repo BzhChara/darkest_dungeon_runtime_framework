@@ -136,6 +136,56 @@ try {
     }
     $inventoryArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $inventoryArtifactPath -Encoding UTF8
 
+    $heroAvailabilityArtifactPath = Join-Path $artifactRoot "manual_roster.enforceAvailabilityFilter.json"
+    $heroAvailabilityArtifact = [ordered]@{
+        version = 1
+        status = "materialized"
+        eventId = "manual.overlay-test"
+        pluginId = "validation.managed_action_overlay_test"
+        sourceName = "Validation - Managed Action Overlay Test"
+        sourcePath = "tools/TestManagedActionOverlay.ps1"
+        ruleIndex = 2
+        ruleId = "manual_hero_availability"
+        actionIndex = 0
+        action = [ordered]@{
+            type = "roster.enforceAvailabilityFilter"
+        }
+        plan = [ordered]@{
+            effect = "enforceAvailabilityFilter"
+            target = "profile.roster.availability"
+            arguments = [ordered]@{
+                filterId = "validation.prefinale"
+                unavailableHeroIds = @("hero_1", "hero_2")
+            }
+        }
+    }
+    $heroAvailabilityArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $heroAvailabilityArtifactPath -Encoding UTF8
+
+    $trinketAvailabilityArtifactPath = Join-Path $artifactRoot "manual_equipment.enforceAvailabilityFilter.json"
+    $trinketAvailabilityArtifact = [ordered]@{
+        version = 1
+        status = "materialized"
+        eventId = "manual.overlay-test"
+        pluginId = "validation.managed_action_overlay_test"
+        sourceName = "Validation - Managed Action Overlay Test"
+        sourcePath = "tools/TestManagedActionOverlay.ps1"
+        ruleIndex = 3
+        ruleId = "manual_trinket_availability"
+        actionIndex = 0
+        action = [ordered]@{
+            type = "equipment.enforceAvailabilityFilter"
+        }
+        plan = [ordered]@{
+            effect = "enforceAvailabilityFilter"
+            target = "profile.equipment.availability"
+            arguments = [ordered]@{
+                filterId = "validation.prefinale"
+                unavailableTrinketIds = @("dazzling_charm", "speed_stone")
+            }
+        }
+    }
+    $trinketAvailabilityArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $trinketAvailabilityArtifactPath -Encoding UTF8
+
     $questBoardArtifactPath = Join-Path $artifactRoot "manual_questBoard.replaceWithFixedSet.json"
     $questBoardArtifact = [ordered]@{
         version = 1
@@ -144,7 +194,7 @@ try {
         pluginId = "validation.managed_action_overlay_test"
         sourceName = "Validation - Managed Action Overlay Test"
         sourcePath = "tools/TestManagedActionOverlay.ps1"
-        ruleIndex = 2
+        ruleIndex = 4
         ruleId = "manual_fixed_board"
         actionIndex = 0
         action = [ordered]@{
@@ -164,7 +214,7 @@ try {
     $questBoardArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $questBoardArtifactPath -Encoding UTF8
 
     $artifacts = @(Get-ChildItem -LiteralPath $artifactRoot -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
-    Assert-True ($artifacts.Count -eq 8) "Expected eight materialized managed action artifacts after adding inventory and fixed-board artifacts, found $($artifacts.Count)."
+    Assert-True ($artifacts.Count -eq 10) "Expected ten materialized managed action artifacts after adding inventory, availability, and fixed-board artifacts, found $($artifacts.Count)."
 
     $dryRunArgs = @(
         "--config", (Resolve-ProjectPath $ConfigPath),
@@ -178,10 +228,12 @@ try {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Managed action overlay manifest was not written: $manifestPath"
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 
-    Assert-True ([int]$manifest.artifactCount -eq 8) "Overlay manifest should count all eight artifacts."
+    Assert-True ([int]$manifest.artifactCount -eq 10) "Overlay manifest should count all ten artifacts."
     Assert-True ([int]$manifest.overlayCount -eq 3) "Overlay compiler should expose the latest quest.injectFixedStage overlay, the inventory policy overlay, and the fixed-board overlay."
-    Assert-True ([int]$manifest.ignoredArtifactCount -eq 4) "Overlay manifest should ignore hero/trinket filter artifacts for now."
+    Assert-True ([int]$manifest.availabilityPolicyCount -eq 2) "Overlay compiler should expose hero and trinket availability policies as manifest-only consumers."
+    Assert-True ([int]$manifest.ignoredArtifactCount -eq 4) "Overlay manifest should still ignore hero/trinket preview filter artifacts for now."
     Assert-True ([int]$manifest.supersededOverlayCount -eq 1) "Overlay manifest should supersede the older quest injection artifact."
+    Assert-True ([int]$manifest.supersededAvailabilityPolicyCount -eq 0) "Overlay manifest should not supersede unique availability policies."
     Assert-True ([int]$manifest.virtualFileRuleCount -eq (1 + $positiveTrinketEntryFiles.Count)) "Overlay manifest should compile one quest plot virtual file rule plus one trinket sourcePath rule per positive-price trinket file."
     Assert-True ([int]$manifest.virtualFileReplacementCount -eq 2) "Overlay manifest should compile quest plot replacements for the selected stage and fixed board; trinket price suppression uses sourcePath overlays."
     Assert-True ((@($manifest.issues)).Count -eq 0) "Overlay manifest should not contain issues."
@@ -201,6 +253,19 @@ try {
     Assert-True ($questBoardOverlay.effect -eq "replaceWithFixedSet") "Fixed-board overlay should record board replacement intent."
     Assert-True ($questBoardOverlay.target -eq "profile.quest_board") "Fixed-board overlay should target the profile quest board."
     Assert-True (@($questBoardOverlay.questIds).Count -eq 1) "Fixed-board overlay should keep the declared quest id list."
+
+    $availabilityPolicies = @($manifest.availabilityPolicies)
+    Assert-True ($availabilityPolicies.Count -eq 2) "Expected exactly two availability policy entries."
+    $heroAvailability = @($availabilityPolicies | Where-Object { $_.kind -eq "roster.enforceAvailabilityFilter" })[0]
+    Assert-True ($heroAvailability.itemKind -eq "hero") "Hero availability policy should record itemKind=hero."
+    Assert-True ($heroAvailability.filterId -eq "validation.prefinale") "Hero availability policy should preserve filter id."
+    Assert-True ([int]$heroAvailability.unavailableCount -eq 2) "Hero availability policy should count unavailable heroes."
+    Assert-True (-not [bool]$heroAvailability.liveEnforced) "Hero availability policy should not claim live hard enforcement."
+    Assert-True ($heroAvailability.consumerStatus -eq "manifestOnly") "Hero availability policy should be marked as manifest-only."
+    $trinketAvailability = @($availabilityPolicies | Where-Object { $_.kind -eq "equipment.enforceAvailabilityFilter" })[0]
+    Assert-True ($trinketAvailability.itemKind -eq "trinket") "Trinket availability policy should record itemKind=trinket."
+    Assert-True ([int]$trinketAvailability.unavailableCount -eq 2) "Trinket availability policy should count unavailable trinkets."
+    Assert-True (-not [bool]$trinketAvailability.liveEnforced) "Trinket availability policy should not claim live hard enforcement."
 
     $virtualRules = @($manifest.virtualFileRules)
     Assert-True ($virtualRules.Count -eq (1 + $positiveTrinketEntryFiles.Count)) "Expected quest overlay plus trinket content sourcePath overlays."

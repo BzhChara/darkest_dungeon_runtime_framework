@@ -31,7 +31,7 @@ C# 控制台启动器。
 - 在启动前验证补丁规则：目标文件存在性、当前虚拟文件大小限制、按最终替换顺序统计字符串命中次数和同目标多规则提示。
 - 在不启动游戏的情况下解释和预览补丁结果，输出加载顺序、排序边、跳过原因、虚拟文件文本、简短 diff 和同一目标行冲突提示。
 - 在不启动游戏的情况下用 `--emit-event` 模拟事件，执行已实现的安全 `eventRules` 动作并写入 sidecar state；部分 managed 动作先物化为 sidecar artifact，不执行真实游戏修改。
-- 在启动游戏或 `--dry-run` 前，把 `_managed_actions/` 中可消费的 sidecar artifact 编译成 `logs/managed_action_overlay_manifest.json`，并通过 `DD_RUNTIME_MANAGED_OVERLAY_*` 环境变量暴露给 RuntimeHook 诊断；当前 `quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` 会追加到既有虚拟文件规则环境变量，`questBoard.replaceWithFixedSet` 也可以通过 `--refresh-quest-board-profile` 显式刷新 watched profile 的当前任务板，或在 `questBoardAutoRefreshEnabled` 下由 save watcher 在 live `persist.quest.json` 改变后自动重刷，`inventory.disableItemSale` 的 trinket artifact 会生成官方 campaign trinket entry 的 `sourcePath` 覆盖，把 `price` 压成 0。
+- 在启动游戏或 `--dry-run` 前，把 `_managed_actions/` 中可消费的 sidecar artifact 编译成 `logs/managed_action_overlay_manifest.json`，并通过 `DD_RUNTIME_MANAGED_OVERLAY_*` 环境变量暴露给 RuntimeHook 诊断；当前 `quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` 会追加到既有虚拟文件规则环境变量，`questBoard.replaceWithFixedSet` 也可以通过 `--refresh-quest-board-profile` 显式刷新 watched profile 的当前任务板，或在 `questBoardAutoRefreshEnabled` 下由 save watcher 在 live `persist.quest.json` 改变后自动重刷，`inventory.disableItemSale` 的 trinket artifact 会生成官方 campaign trinket entry 的 `sourcePath` 覆盖，把 `price` 压成 0；`roster.enforceAvailabilityFilter` 和 `equipment.enforceAvailabilityFilter` 会进入 manifest 的 `availabilityPolicies`，作为后续 runtime/UI/save consumer 的统一输入，但当前标记为 manifest-only，不宣称已经硬拦截原版选择 UI。
 
 ### RuntimeHook.dll
 
@@ -43,7 +43,7 @@ C++ DLL。
 - 初始化日志。
 - 记录进程、模块路径和环境变量。
 - 初始化文件 IO Hook、虚拟文件通道和 observe-only 事件探针。
-- 记录 managed action overlay manifest 的路径、文件大小、overlay 数量和 issue 数量，并通过既有虚拟文件通道消费启动器追加的 overlay 规则；当前第一版只覆盖 fixed-stage plot quest 内容入口。
+- 记录 managed action overlay manifest 的路径、文件大小、overlay 数量、availability policy 数量和 issue 数量，并通过既有虚拟文件通道消费启动器追加的 overlay 规则；availability policy 当前只作为 manifest 输入暴露，尚未硬拦截原版选择 UI。
 
 ### Hook Layer
 
@@ -66,7 +66,7 @@ C++ DLL。
 - 每个插件目录读取一个 `patches.json`。
 - `enabled:false` 的清单只记录日志，不参与规则合并。
 - `enabled:true` 的清单可提供 `id`、`version`、`capabilities`、`phase`、`priority`、`depends`、`optionalDepends`、`loadAfter`、`loadBefore`、`conflicts` 和 `virtualFileRules`。
-- 清单现在也可以声明 `eventRules`、`stateSchema`，后续还应支持模块化 `contentRefs`。`eventRules` 可通过 `--explain-rules` 解释，并可通过 `--emit-event` 执行已实现的安全动作或物化 selected managed action artifact；`quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` artifact 会在启动前进入 overlay manifest，并生成相关 `quest.plot_quests.json` 的虚拟替换入口；固定任务板还可通过 `--refresh-quest-board-profile <profileId>` 受控写入 watched profile 的 `persist.quest.json`，或由 save watcher 在 live 任务板保存后受控重刷；`inventory.disableItemSale` trinket artifact 会生成 trinket entry price overlay；`stateSchema` 可初始化/读取到框架 sidecar 状态目录。
+- 清单现在也可以声明 `eventRules`、`stateSchema`，后续还应支持模块化 `contentRefs`。`eventRules` 可通过 `--explain-rules` 解释，并可通过 `--emit-event` 执行已实现的安全动作或物化 selected managed action artifact；`quest.injectFixedStage` 和 `questBoard.replaceWithFixedSet` artifact 会在启动前进入 overlay manifest，并生成相关 `quest.plot_quests.json` 的虚拟替换入口；固定任务板还可通过 `--refresh-quest-board-profile <profileId>` 受控写入 watched profile 的 `persist.quest.json`，或由 save watcher 在 live 任务板保存后受控重刷；`inventory.disableItemSale` trinket artifact 会生成 trinket entry price overlay；availability filter artifact 会进入 manifest-only policy 区域，等待更深的 consumer；`stateSchema` 可初始化/读取到框架 sidecar 状态目录。
 - 静态内容创作和运行时编排分层处理。怪物、怪物技能、贴图、动画、音频、语言、普通 curio/loot 定义可以由原版、DLC、创意工坊或插件自带文件提供；框架优先做引用、校验、依赖报告、组合和运行时投影，只有规则生成或运行时强制确有必要时才实现 writer。
 - 重复 `id`、声明冲突和顺序循环默认只记录 warning；必需依赖缺失时跳过当前插件，不阻止其他插件。
 - `virtualFileRules` 可使用 `when.modsPresent` / `when.modsAbsent` / `when.capabilitiesPresent` / `when.capabilitiesAbsent` 做规则级条件；条件不满足的规则只进入 explain 诊断，不参与最终补丁链。

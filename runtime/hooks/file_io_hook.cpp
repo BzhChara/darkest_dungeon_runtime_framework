@@ -167,6 +167,7 @@ bool g_virtualFileEnabled = false;
 std::vector<VirtualRule> g_virtualRules;
 std::wstring g_managedOverlayManifestPath;
 unsigned long g_managedOverlayCount = 0;
+unsigned long g_managedAvailabilityPolicyCount = 0;
 unsigned long g_managedOverlayIssueCount = 0;
 
 struct VirtualFile
@@ -825,7 +826,10 @@ std::wstring DescribeManagedOverlayManifest()
     WIN32_FILE_ATTRIBUTE_DATA data = {};
     if (!GetFileAttributesExW(g_managedOverlayManifestPath.c_str(), GetFileExInfoStandard, &data))
     {
-        return L"path=\"" + g_managedOverlayManifestPath + L"\" exists=0 overlays=" + std::to_wstring(g_managedOverlayCount);
+        return
+            L"path=\"" + g_managedOverlayManifestPath +
+            L"\" exists=0 overlays=" + std::to_wstring(g_managedOverlayCount) +
+            L" availabilityPolicies=" + std::to_wstring(g_managedAvailabilityPolicyCount);
     }
 
     ULARGE_INTEGER size = {};
@@ -835,6 +839,7 @@ std::wstring DescribeManagedOverlayManifest()
         L"path=\"" + g_managedOverlayManifestPath +
         L"\" exists=1 bytes=" + std::to_wstring(size.QuadPart) +
         L" overlays=" + std::to_wstring(g_managedOverlayCount) +
+        L" availabilityPolicies=" + std::to_wstring(g_managedAvailabilityPolicyCount) +
         L" issues=" + std::to_wstring(g_managedOverlayIssueCount);
 }
 
@@ -863,6 +868,7 @@ void LoadSettings()
 
     g_managedOverlayManifestPath = GetEnvironmentString(L"DD_RUNTIME_MANAGED_OVERLAY_MANIFEST");
     g_managedOverlayCount = GetEnvironmentUnsignedLong(L"DD_RUNTIME_MANAGED_OVERLAY_COUNT", 0);
+    g_managedAvailabilityPolicyCount = GetEnvironmentUnsignedLong(L"DD_RUNTIME_MANAGED_AVAILABILITY_POLICY_COUNT", 0);
     g_managedOverlayIssueCount = GetEnvironmentUnsignedLong(L"DD_RUNTIME_MANAGED_OVERLAY_ISSUE_COUNT", 0);
 
     unsigned long ruleCount = GetEnvironmentUnsignedLong(L"DD_RUNTIME_VIRTUAL_RULE_COUNT", 0);
