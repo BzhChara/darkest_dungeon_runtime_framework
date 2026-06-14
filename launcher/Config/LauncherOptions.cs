@@ -21,6 +21,7 @@ internal sealed class LauncherOptions
     public bool AllowNonAtomicStateWrites { get; private set; }
     public bool InferSaveEvents { get; private set; }
     public bool ApplyManagedActions { get; private set; }
+    public bool ApplyContinuousProfileActions { get; private set; }
     public bool WriteManagedActions { get; private set; }
     public bool InitializeDecodedProfile { get; private set; }
     public bool PreviewQuestBoard { get; private set; }
@@ -114,6 +115,9 @@ internal sealed class LauncherOptions
                     break;
                 case "--apply-managed-actions":
                     options.ApplyManagedActions = true;
+                    break;
+                case "--apply-continuous-profile-actions":
+                    options.ApplyContinuousProfileActions = true;
                     break;
                 case "--write-managed-actions":
                     options.WriteManagedActions = true;

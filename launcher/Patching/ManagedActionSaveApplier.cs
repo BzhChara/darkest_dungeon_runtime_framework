@@ -18,7 +18,8 @@ internal static partial class ManagedActionSaveApplier
         LauncherLog log,
         string projectRoot,
         string saveDirectory,
-        bool writeChanges)
+        bool writeChanges,
+        ManagedActionApplyMode applyMode = ManagedActionApplyMode.All)
     {
         var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
         var resolvedSaveDirectory = ResolveProjectLocalDirectory(projectRoot, saveDirectory, "--managed-action-save-dir");
@@ -30,9 +31,7 @@ internal static partial class ManagedActionSaveApplier
         var context = new ApplyContext(config.GameWorkingDirectory, config.ModStateDirectory, resolvedSaveDirectory, writeChanges);
         if (Directory.Exists(artifactDirectory))
         {
-            foreach (var artifactPath in Directory.EnumerateFiles(artifactDirectory, "*.json")
-                         .OrderBy(path => File.GetLastWriteTimeUtc(path))
-                         .ThenBy(path => path, StringComparer.OrdinalIgnoreCase))
+            foreach (var artifactPath in SelectArtifactPaths(artifactDirectory, applyMode, log))
             {
                 context.ArtifactCount++;
                 ApplyArtifact(context, artifactPath, log);
@@ -53,6 +52,7 @@ internal static partial class ManagedActionSaveApplier
             artifactDirectory,
             resolvedSaveDirectory,
             !writeChanges,
+            GetApplyModeReportName(applyMode),
             context.ArtifactCount,
             context.Actions.Count(action => action.Status is "applied" or "dry-run"),
             context.Actions.Count(action => action.Status == "dry-run"),
@@ -771,7 +771,7 @@ internal static partial class ManagedActionSaveApplier
         var reportPath = Path.Combine(config.LogDirectory, "managed_action_apply_report.json");
         File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions), Encoding.UTF8);
         log.Info(
-            $"managed-action-apply report path={Quote(reportPath)} artifacts={report.ArtifactCount} " +
+            $"managed-action-apply report path={Quote(reportPath)} mode={Quote(report.ApplyMode)} artifacts={report.ArtifactCount} " +
             $"dryRun={report.DryRun} supported={report.SupportedActionCount} dryRunActions={report.DryRunActionCount} " +
             $"applied={report.AppliedActionCount} unsupported={report.UnsupportedActionCount} " +
             $"failed={report.FailedActionCount} changedFiles={report.ChangedFileCount} issues={report.Issues.Count}");
@@ -859,6 +859,7 @@ internal sealed record ManagedActionApplyReport(
     string ArtifactDirectory,
     string SaveDirectory,
     bool DryRun,
+    string ApplyMode,
     int ArtifactCount,
     int SupportedActionCount,
     int DryRunActionCount,

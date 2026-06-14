@@ -53,6 +53,7 @@ internal static class Program
                     !options.DumpModState &&
                     !options.InferSaveEvents &&
                     !options.ApplyManagedActions &&
+                    !options.ApplyContinuousProfileActions &&
                     !options.InitializeDecodedProfile &&
                     !options.PreviewQuestBoard &&
                     !options.PreviewQuestBoardPolicies &&
@@ -198,6 +199,22 @@ internal static class Program
                     options.WriteManagedActions).Succeeded;
             }
 
+            if (options.ApplyContinuousProfileActions)
+            {
+                if (string.IsNullOrWhiteSpace(options.ManagedActionSaveDirectory))
+                {
+                    throw new ArgumentException("--apply-continuous-profile-actions requires --managed-action-save-dir <path>.");
+                }
+
+                modStateSucceeded &= ManagedActionSaveApplier.Apply(
+                    config,
+                    log,
+                    projectRoot,
+                    options.ManagedActionSaveDirectory,
+                    options.WriteManagedActions,
+                    ManagedActionApplyMode.ContinuousProfile).Succeeded;
+            }
+
             if (options.InitializeDecodedProfile)
             {
                 if (string.IsNullOrWhiteSpace(options.ManagedActionSaveDirectory))
@@ -300,6 +317,7 @@ internal static class Program
                 options.DumpModState ||
                 options.InferSaveEvents ||
                 options.ApplyManagedActions ||
+                options.ApplyContinuousProfileActions ||
                 options.InitializeDecodedProfile ||
                 options.PreviewQuestBoard ||
                 options.PreviewQuestBoardPolicies ||
@@ -503,14 +521,17 @@ internal static class Program
 
     private static void ValidateConfig(RuntimeConfig config, LauncherOptions options, LauncherLog log)
     {
-        if (options.WriteManagedActions && !options.ApplyManagedActions)
+        if (options.WriteManagedActions && !options.ApplyManagedActions && !options.ApplyContinuousProfileActions)
         {
             if (!options.InitializeDecodedProfile)
-                throw new InvalidOperationException("--write-managed-actions requires --apply-managed-actions or --initialize-decoded-profile.");
+                throw new InvalidOperationException("--write-managed-actions requires --apply-managed-actions, --apply-continuous-profile-actions, or --initialize-decoded-profile.");
         }
 
-        if (options.InitializeDecodedProfile && options.ApplyManagedActions)
-            throw new InvalidOperationException("--initialize-decoded-profile cannot be combined with --apply-managed-actions because it runs managed action application internally.");
+        if (options.InitializeDecodedProfile && (options.ApplyManagedActions || options.ApplyContinuousProfileActions))
+            throw new InvalidOperationException("--initialize-decoded-profile cannot be combined with --apply-managed-actions or --apply-continuous-profile-actions because it runs managed action application internally.");
+
+        if (options.ApplyManagedActions && options.ApplyContinuousProfileActions)
+            throw new InvalidOperationException("--apply-managed-actions cannot be combined with --apply-continuous-profile-actions.");
 
         if (options.PreviewManagedActionRetention && options.PruneManagedActions)
             throw new InvalidOperationException("--preview-managed-action-retention cannot be combined with --prune-managed-actions.");
@@ -531,6 +552,7 @@ internal static class Program
             !options.DumpModState &&
             !options.InferSaveEvents &&
             !options.ApplyManagedActions &&
+            !options.ApplyContinuousProfileActions &&
             !options.InitializeDecodedProfile &&
             !options.PreviewQuestBoard &&
             !options.PreviewQuestBoardPolicies &&

@@ -181,6 +181,8 @@ The launcher can compile `quest.injectFixedStage` and `questBoard.replaceWithFix
 
 `--apply-managed-actions --managed-action-save-dir <dir>` can read these artifacts and generate `logs/managed_action_apply_report.json`. It is dry-run by default. Writes require `--write-managed-actions`, and the first version only writes project-local decoded JSON save copies.
 
+`--apply-continuous-profile-actions --managed-action-save-dir <dir>` is the narrower reapply mode for rules that should remain true after original week settlement rewrites profile files. It selects the latest artifact per action/plugin/rule/profile-scope/source group, then applies only continuous profile actions: stagecoach recruit suppression, town store suppression, trinket sale policy, hero/trinket availability policy, and current town-event suppression. It intentionally does not replay one-time initialization actions such as wallet setup, initial trinket inventory, hero generation, upgrade purchases, campaign progress reset, or quest-board replacement.
+
 `--initialize-decoded-profile` inlines apply action/file details into its summary report so each artifact's dry-run, applied, or unsupported status can be inspected directly.
 
 `--preview-managed-action-retention` and `--prune-managed-actions` explicitly maintain `_managed_actions/`: they group by action, plugin, rule, target, profile scope, and source; keep the newest artifacts; and write `logs/managed_action_retention_report.json`. Invalid artifacts are retained with warnings. Delete failures are errors.
@@ -287,6 +289,7 @@ Current tools:
 --emit-event <event-id>
 --initialize-decoded-profile
 --apply-managed-actions
+--apply-continuous-profile-actions
 --managed-action-save-dir
 --write-managed-actions
 --preview-managed-action-retention
