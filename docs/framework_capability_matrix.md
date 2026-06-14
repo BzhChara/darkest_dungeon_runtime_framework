@@ -43,6 +43,18 @@ Before implementing a new gameplay feature, answer these questions:
 
 If the answer to question 3 is weak, keep the behavior in a validation plugin or sample until the generic shape is clearer.
 
+## Next-Step Classification
+
+When proposing follow-up work, classify it before calling it a framework gap:
+
+| Classification | Meaning | Example | Correct next step |
+| --- | --- | --- | --- |
+| Existing ability, configuration only | The facts, predicates, actions, state, and writer already exist. A plugin can express the behavior with current rule syntax. | `DD1 -> DD2 -> DD3 -> DD4` as a linear quest-board chain using completed quest state and newer `questBoard.replaceWithFixedSet` artifacts | Add or adjust plugin configuration and tests. Do not describe it as a missing runtime capability. |
+| Existing base, needs declarative wrapper | The behavior can be expressed today, but only with repetitive or error-prone low-level rules. | A `questChain` shorthand that expands ordered quest stages into the repeated completion predicates and board materialization actions | Add a schema/materializer helper if repeated by multiple scenarios; keep the low-level primitives unchanged. |
+| Missing framework primitive | The current rule system cannot observe, decide, persist, or mutate the needed thing without new reusable framework code. | Blocking consumed heroes in the original party UI after sidecar state marks them used | Add a generic fact extractor, predicate, action, save writer, or hook capability with diagnostics and tests. |
+
+This classification is part of the planning output. It prevents treating a missing plugin rule as if it required new C# or native hook work.
+
 ## Current Pressure Tests
 
 | Pressure test | Generic primitives it should prove | Not acceptable as framework core |

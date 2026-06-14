@@ -336,3 +336,5 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Apply queued upgrade | verified `upgrade.apply_completed` action |
 
 When these scenarios can run through the same rule engine without scenario-specific branches, the framework has a meaningful initial runtime capability.
+
+When listing follow-up work from these scenarios, use the three-way classification in `docs/framework_capability_matrix.md`: existing ability that only needs plugin configuration, existing base that needs a declarative wrapper, or a truly missing framework primitive. For example, a linear `A quest completed -> show B quest` chain is configuration with existing primitives unless the goal is to add a shorter `questChain` authoring wrapper.
