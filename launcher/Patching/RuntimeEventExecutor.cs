@@ -414,7 +414,6 @@ internal static class RuntimeEventExecutor
             "estate.ensureInventoryCounts" => BuildGenericManagedActionPlan(action, document, payload, "ensureInventoryCounts", "profile.estate.inventory"),
             "wallet.setCurrencyAmount" => BuildGenericManagedActionPlan(action, document, payload, "setCurrencyAmount", "profile.wallet"),
             "wallet.setCurrencyAmounts" => BuildGenericManagedActionPlan(action, document, payload, "setCurrencyAmounts", "profile.wallet"),
-            "inventory.disableItemSale" => BuildGenericManagedActionPlan(action, document, payload, "disableItemSale", "profile.inventory"),
             "trinket.patchEntry" => BuildGenericManagedActionPlan(action, document, payload, "patchEntry", "content.trinkets.entries"),
             "campaign.resetPlotProgress" => BuildGenericManagedActionPlan(action, document, payload, "resetPlotProgress", "profile.campaignProgress"),
             "town.unlockAllBuildings" => BuildGenericManagedActionPlan(action, document, payload, "unlockAllBuildings", "profile.town"),
@@ -1301,7 +1300,6 @@ internal static class RuntimeEventExecutor
             "estate.ensureInventoryCounts" or
             "wallet.setCurrencyAmount" or
             "wallet.setCurrencyAmounts" or
-            "inventory.disableItemSale" or
             "trinket.patchEntry" or
             "campaign.resetPlotProgress" or
             "town.unlockAllBuildings" or

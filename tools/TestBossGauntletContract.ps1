@@ -146,7 +146,8 @@ $state = Read-BossGauntletState
 Assert-True ([bool]$state.initialized) "Initialization should mark the profile initialized."
 Assert-True ($state.phase -eq "boss_gauntlet") "Initialization should enter boss_gauntlet phase."
 Assert-True ([int]$state.wallet.gold -eq 20000) "Initialization should set gold to 20000."
-Assert-True ([bool]$state.trinketSaleDisabled) "Initialization should disable trinket selling in sidecar state."
+Assert-True ([bool]$state.trinketSaleValuePatch.enabled) "Initialization should enable the trinket sale-value patch in sidecar state."
+Assert-True ((Convert-ToArray $state.trinketSaleValuePatch.rarities) -contains "very_rare") "Initialization should configure rarity-based trinket sale-value patching."
 Assert-True ((Convert-ToArray $state.fixedQuestIds).Count -eq 8) "Initialization should load the fixed boss quest ids from the definition."
 Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necromancer_3") "Fixed quest ids should include the Necromancer fixture quest."
 Assert-True ($state.finaleQuestChainId -eq "boss_gauntlet_darkest_finale_chain") "Initialization should load the finale quest chain id from the definition."
@@ -205,6 +206,13 @@ Assert-True ($inventoryArtifact.plan.arguments.source -eq "content.trinkets.enab
 Assert-True ([int]$inventoryArtifact.plan.arguments.count -eq 2) "Inventory normalization should request two trinket copies."
 Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "darkest_dungeon") "Inventory normalization should exclude Darkest Dungeon reward trinkets."
 Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "trophy") "Inventory normalization should exclude boss trophy trinkets."
+
+$trinketPatchAction = Get-ActionReport -Report $initializationReport -Type "trinket.patchEntry"
+$trinketPatchArtifact = Read-ManagedActionArtifact -Action $trinketPatchAction -ExpectedType "trinket.patchEntry"
+Assert-True ($trinketPatchArtifact.plan.arguments.target -eq "content.trinkets.entries") "Trinket patch should target original trinket entry content."
+Assert-True ([bool]$trinketPatchArtifact.plan.arguments.enabled) "Trinket patch should be enabled."
+Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "common") "Trinket patch should select entries by rarity."
+Assert-True ([int]$trinketPatchArtifact.plan.arguments.items[0].set.price -eq 0) "Trinket patch should explicitly set selected trinket prices to zero."
 
 $campaignProgressAction = Get-ActionReport -Report $initializationReport -Type "campaign.resetPlotProgress"
 $campaignProgressArtifact = Read-ManagedActionArtifact -Action $campaignProgressAction -ExpectedType "campaign.resetPlotProgress"

@@ -29,7 +29,7 @@ Runtime file interception is the harder layer. It should be implemented as gener
 
 - Replace task-board reads only from resolved `questBoard.replaceWithFixedSet` or `questBoardPolicies` artifacts that match the active profile.
 - Replace stagecoach or store data only from continuous profile policies such as `stagecoach.suppressRecruits` and `town.suppressStoreItems`.
-- Replace selection or economy behavior only after a verified consumer exists. Sidecar selection consumption is not hard enforcement; hero unavailability should first be projected through original roster unavailable/missing/status fields. Default `inventory.disableItemSale` must not claim hard enforcement. Trinket `method: content_price_zero` is a clearly named sale-value projection through original content `price = 0`; it should still be documented as sale-value suppression unless live testing proves full sell-button enforcement.
+- Replace selection or economy behavior only after a verified consumer exists. Sidecar selection consumption is not hard enforcement; hero unavailability should first be projected through original roster unavailable/missing/status fields. `trinket.patchEntry` can project sale-value changes through original content `price = 0`, but that should still be documented as sale-value suppression unless live testing proves full sell-button enforcement.
 - Keep `.dm` map replacement under the map template/overlay layer. Per-cell dynamic map mutation during a raid remains experimental and should not be mixed with task-board refresh.
 
 ## Acceptance Gates

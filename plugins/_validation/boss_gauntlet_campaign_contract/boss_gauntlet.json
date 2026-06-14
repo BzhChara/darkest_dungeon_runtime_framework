@@ -42,7 +42,17 @@
     "darkest_dungeon",
     "trophy"
   ],
-  "trinketSaleDisabled": true,
+  "trinketSaleValuePatch": {
+    "enabled": true,
+    "rarities": [
+      "common",
+      "uncommon",
+      "rare",
+      "very_rare",
+      "ancestral"
+    ],
+    "price": 0
+  },
   "stageCoachRecruits": "suppressed",
   "townBuildings": "all_unlocked_and_maxed",
   "townStoreItems": {

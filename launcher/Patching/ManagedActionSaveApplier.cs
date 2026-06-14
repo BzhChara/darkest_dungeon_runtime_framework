@@ -100,8 +100,8 @@ internal static partial class ManagedActionSaveApplier
                 case "estate.ensureInventoryCounts":
                     ApplyEstateEnsureInventoryCounts(context, artifactPath, artifact);
                     break;
-                case "inventory.disableItemSale":
-                    ApplyInventoryDisableItemSale(context, artifactPath, artifact);
+                case "trinket.patchEntry":
+                    ApplyTrinketPatchEntryContentOnly(context, artifactPath, artifact);
                     break;
                 case "campaign.resetPlotProgress":
                     ApplyCampaignResetPlotProgress(context, artifactPath, artifact);
@@ -559,7 +559,7 @@ internal static partial class ManagedActionSaveApplier
             "roster.ensureClassInstances" or "roster.setSkillUnlocks" => "persist.roster.json",
             "upgrade.ensurePurchases" => "persist.upgrades.json",
             "stagecoach.suppressRecruits" or "town.unlockAllBuildings" or "town.setBuildingLevels" or "town.suppressStoreItems" => "persist.town.json",
-            "estate.ensureInventoryCounts" or "inventory.disableItemSale" => "persist.estate.json",
+            "estate.ensureInventoryCounts" => "persist.estate.json",
             "campaign.resetPlotProgress" => "persist.progression.json",
             "townEvent.overrideCurrent" => "persist.town_event.json",
             "questBoard.replaceWithFixedSet" => "persist.quest.json",

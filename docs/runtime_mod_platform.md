@@ -175,13 +175,11 @@ Pre-finale hero and trinket consumption remains sidecar state only until a verif
 
 `--refresh-quest-board-profile <profileId>` can write the generated fixed quest board into the watched profile's current `persist.quest.json`, with `--dry-run`, pre-write backup, path validation, and running-game protection. `questBoardAutoRefreshEnabled` lets the realtime save watcher reapply the same writer after any successfully bridged stable campaign save batch, not only after `persist.quest.json` changes. Live writes to external saves require `questBoardAutoRefreshAllowRunningGameSaveWrite=true`. Quest-board policy materialization writes an explicit `status=empty` marker when no policy quests are currently selected, so stale dynamic quest-board artifacts such as an old finale board cannot continue overriding the current board. These are quest-board refreshes, not full week-settlement simulations.
 
-`inventory.disableItemSale` defaults to manifest/profile policy only. Trinket artifacts can opt into `method: content_price_zero`, which generates trinket entry `sourcePath` overlays that set `price` to `0`. This follows original content behavior for sale value suppression, but hard UI sell-button semantics still need live validation or a runtime/UI consumer.
-
-`trinket.patchEntry` can patch selected existing trinket ids by applying explicit `set` and `remove` operations to their original trinket entry objects. This is a content overlay helper, not a new trinket authoring system: buffs, icons, localization, and the base trinket entry still come from normal DD content. The trinket entry overlay compiler merges this projection with `inventory.disableItemSale` so a single target file receives one generated `sourcePath` replacement.
+`trinket.patchEntry` can patch selected existing trinket entries by applying explicit `set` and `remove` operations to their original trinket entry objects. It supports exact id selectors and field selectors such as `where.rarity`. This is a content overlay helper, not a new trinket authoring system: buffs, icons, localization, and the base trinket entry still come from normal DD content. Sale-value suppression should use this same action by explicitly setting `price: 0`; hard UI sell-button semantics still need live validation or a runtime/UI consumer.
 
 `--apply-managed-actions --managed-action-save-dir <dir>` can read these artifacts and generate `logs/managed_action_apply_report.json`. It is dry-run by default. Writes require `--write-managed-actions`, and the first version only writes project-local decoded JSON save copies.
 
-`--apply-continuous-profile-actions --managed-action-save-dir <dir>` is the narrower reapply mode for rules that should remain true after original week settlement rewrites profile files. It selects the latest artifact per action/plugin/rule/profile-scope/source group, then applies only continuous profile actions: stagecoach recruit suppression, town store suppression, trinket sale policy, and current town-event suppression. It intentionally does not replay one-time initialization actions such as wallet setup, initial trinket inventory, hero generation, upgrade purchases, campaign progress reset, quest-board replacement, or sidecar-only selection consumption. `continuousProfileActionAutoApplyEnabled` lets the realtime save watcher run this same narrow path after a stable bridged save batch; for live Steam saves it decodes the target profile files into a project-local workspace, applies the continuous actions there, re-encodes changed `persist.*.json` files, backs up the originals, and writes them back only when `continuousProfileActionAutoApplyAllowRunningGameSaveWrite` permits running-game writes.
+`--apply-continuous-profile-actions --managed-action-save-dir <dir>` is the narrower reapply mode for rules that should remain true after original week settlement rewrites profile files. It selects the latest artifact per action/plugin/rule/profile-scope/source group, then applies only continuous profile actions: stagecoach recruit suppression, town store suppression, and current town-event suppression. It intentionally does not replay one-time initialization actions such as wallet setup, initial trinket inventory, hero generation, upgrade purchases, campaign progress reset, quest-board replacement, trinket entry content overlays, or sidecar-only selection consumption. `continuousProfileActionAutoApplyEnabled` lets the realtime save watcher run this same narrow path after a stable bridged save batch; for live Steam saves it decodes the target profile files into a project-local workspace, applies the continuous actions there, re-encodes changed `persist.*.json` files, backs up the originals, and writes them back only when `continuousProfileActionAutoApplyAllowRunningGameSaveWrite` permits running-game writes.
 
 `--initialize-decoded-profile` inlines apply action/file details into its summary report so each artifact's dry-run, applied, or unsupported status can be inspected directly.
 
@@ -195,8 +193,7 @@ Currently implemented decoded-save writers:
 
 - `wallet.setCurrencyAmounts` / `wallet.setCurrencyAmount` write wallet resources into `persist.estate.json`.
 - `estate.ensureInventoryCounts` writes specified trinket inventory counts and can exclude initial sources by content rarity.
-- `inventory.disableItemSale` writes sale-disable policy into project-local `_ddrt_profile_policy.json`; with `method: content_price_zero` it can also compile trinket entry price overlays for runtime launch.
-- `trinket.patchEntry` compiles explicit `set`/`remove` edits for selected existing trinket ids into trinket entry content overlays for runtime launch.
+- `trinket.patchEntry` compiles explicit `set`/`remove` edits for selected existing trinket ids or field selectors into trinket entry content overlays for runtime launch. During decoded-save apply it is reported as a recognized content-overlay action and does not write `persist.*`.
 - `roster.ensureClassInstances` adds hero instances for enabled classes into `persist.roster.json`.
 - `roster.setProgression` normalizes existing and generated heroes' resolve XP, weapon/armor level, and current HP under max equipment.
 - `roster.setSkillUnlocks` writes normal selected combat/camping skill slots from class content definitions. Full skill unlock/max purchase state is represented by `upgrade.ensurePurchases` in `persist.upgrades.json`.
@@ -373,7 +370,7 @@ roster.set_skill_unlocks
 estate.ensure_inventory_counts
 wallet.set_currency_amounts
 wallet.modify_currency
-inventory.disable_item_sale
+trinket.patch_entry
 stagecoach.suppress_recruits
 town.unlock_all_buildings
 town_event.override_current
@@ -390,7 +387,7 @@ Declarative draft:
     { "type": "roster.ensureClassInstances", "classCount": 2, "level": "max" },
     { "type": "estate.ensureInventoryCounts", "kind": "trinket", "count": 2 },
     { "type": "wallet.setCurrencyAmounts", "amounts": { "gold": 20000, "bust": 0, "portrait": 0, "deed": 0, "crest": 0, "shard": 36 } },
-    { "type": "inventory.disableItemSale", "kind": "trinket", "method": "content_price_zero" },
+    { "type": "trinket.patchEntry", "where": { "rarity": ["common", "uncommon"] }, "set": { "price": 0 } },
     { "type": "stagecoach.suppressRecruits" },
     { "type": "town.unlockAllBuildings" },
     { "type": "town.suppressStoreItems", "buildingIds": ["nomad_wagon"], "sections": ["inventory.items", "generated"] },

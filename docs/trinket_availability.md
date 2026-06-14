@@ -1,4 +1,4 @@
-# Trinket Availability And Sale Policy
+# Trinket Availability And Entry Patching
 
 This note defines the original-first model for trinket economy rules. The framework should reference and compose normal Darkest Dungeon trinket, rarity, loot, and quest files before adding UI or memory hooks.
 
@@ -20,30 +20,9 @@ There is no verified separate `can_sell` flag in the original trinket entry file
 
 ## Implemented Framework Slice
 
-`inventory.disableItemSale` remains a policy action. Its default method is still policy-only and records intent into `_ddrt_profile_policy.json`.
+`trinket.patchEntry` is the single managed action for modifying existing trinket entry fields. It keeps the original trinket definition file as the source, then applies explicit `set` and `remove` operations chosen by the plugin author.
 
-For trinkets, plugins can opt into an original content projection:
-
-```json
-{
-  "type": "inventory.disableItemSale",
-  "capability": "inventory.disable_item_sale",
-  "risk": "managed",
-  "required": true,
-  "args": {
-    "target": "profile.inventory",
-    "itemKind": "trinket",
-    "method": "content_price_zero",
-    "disabled": true
-  }
-}
-```
-
-At launch or dry-run, materialized artifacts with `method: content_price_zero` generate virtual `sourcePath` overlays for every enabled original and official non-arena DLC `*.entries.trinkets.json` file that contains nonzero prices. The generated overlay sets those trinket `price` fields to `0`.
-
-This projection is intentionally explicit because trinket `price` can affect more than selling. If a campaign still allows trinkets to appear in the Nomad Wagon or another shop, setting prices to `0` may also affect purchase display or purchase cost. A plugin that wants "cannot sell but still buy normally" needs a verified runtime/UI/economy hook later.
-
-`trinket.patchEntry` patches one or more existing trinket entries by id. It keeps the original trinket definition file as the source, then applies explicit `set` and `remove` operations chosen by the plugin author:
+Exact id patch:
 
 ```json
 {
@@ -77,9 +56,36 @@ This projection is intentionally explicit because trinket `price` can affect mor
 }
 ```
 
-Single-item shorthand is also valid by placing `id`, `set`, and `remove` directly under `args`. The compiler requires the trinket id to already exist in an enabled trinket entry file. It does not create buffs, icons, localization, or a new trinket from nothing. It does not infer ordinary-vs-shard semantics: `price`, `shard`, `limit`, `rarity`, `origin_dungeon`, or other entry fields change only when the plugin explicitly sets or removes them.
+Selector patch:
 
-`inventory.disableItemSale` and `trinket.patchEntry` both modify trinket entry files. The overlay compiler merges them into one generated `sourcePath` file per target, so a plugin can suppress sale values and patch selected trinket entries without one overlay undoing the other.
+```json
+{
+  "type": "trinket.patchEntry",
+  "capability": "trinket.patch_entry",
+  "risk": "managed",
+  "required": true,
+  "args": {
+    "target": "content.trinkets.entries",
+    "enabled": true,
+    "items": [
+      {
+        "where": {
+          "rarity": ["common", "uncommon", "rare", "very_rare", "ancestral"]
+        },
+        "set": {
+          "price": 0
+        }
+      }
+    ]
+  }
+}
+```
+
+Single-item shorthand is also valid by placing `id` or `where`, `set`, and `remove` directly under `args`. The compiler requires each patch item to have either an exact id selector or a non-empty `where` selector. It does not create buffs, icons, localization, or a new trinket from nothing. It does not infer ordinary-vs-shard semantics: `price`, `shard`, `limit`, `rarity`, `origin_dungeon`, or other entry fields change only when the plugin explicitly sets or removes them.
+
+The selector currently matches existing entry fields by exact scalar value. String comparison is case-insensitive. A selector value can be an array, in which case any listed value can match. This supports rarity batches without adding a separate sale-lock action.
+
+At launch or dry-run, materialized `trinket.patchEntry` artifacts generate virtual `sourcePath` overlays for enabled original and official non-arena DLC `*.entries.trinkets.json` files that contain matching entries. The generated overlay only changes matching entries and leaves unrelated trinkets untouched.
 
 ## Drop-Only Recipe
 
@@ -90,7 +96,7 @@ To make a trinket available only from a specific source:
 3. Do not include that rarity in the Nomad Wagon `rarity_generation_table`.
 4. Do not include that rarity in ordinary shared loot tables.
 5. Add it to exactly the desired quest reward or boss loot path.
-6. If it should not be sellable, set `price: 0` directly in the authored trinket or use `inventory.disableItemSale` with `method: content_price_zero`.
+6. If it should not have sale value, set `price: 0` directly in the authored trinket or use `trinket.patchEntry` to set `price: 0`.
 7. If it should be bought with shards instead of gold, use original Color of Madness style fields directly or use `trinket.patchEntry` to explicitly set `shard`/`rarity`/`limit` and remove `price` if that is the intended content shape.
 
 The framework should eventually expose this as a higher-level `lootPolicy` or trinket availability declaration, then compile it into the original content files. Static trinket definitions, icons, effects, buffs, and localization remain authored by normal DD mod content.

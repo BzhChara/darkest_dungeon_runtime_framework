@@ -14,7 +14,6 @@ internal static partial class ManagedActionSaveApplier
     {
         "stagecoach.suppressRecruits",
         "town.suppressStoreItems",
-        "inventory.disableItemSale",
         "townEvent.overrideCurrent"
     };
 

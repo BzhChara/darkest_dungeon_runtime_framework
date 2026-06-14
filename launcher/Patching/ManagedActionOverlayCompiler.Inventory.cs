@@ -5,47 +5,7 @@ namespace DDRuntimeLoader;
 internal static partial class ManagedActionOverlayCompiler
 {
     private const string TrinketEntryFilePattern = "*.entries.trinkets.json";
-    private const string InventorySalePolicyOverlayTarget = "profile.inventory.saleDisabled";
-    private const string InventoryTrinketSaleValueOverlayTarget = "content.trinkets.price";
     private const string TrinketEntryPatchOverlayTarget = "content.trinkets.entries";
-
-    private static JsonObject BuildInventoryDisableItemSaleOverlay(string artifactPath, JsonObject artifact)
-    {
-        var itemKind = ReadString(artifact, "plan.arguments.itemKind");
-        if (string.IsNullOrWhiteSpace(itemKind))
-        {
-            throw new InvalidOperationException("plan.arguments.itemKind is required.");
-        }
-
-        var method = ReadString(artifact, "plan.arguments.method");
-        if (string.IsNullOrWhiteSpace(method))
-        {
-            method = "policy";
-        }
-
-        var suppressSaleValue = itemKind.Equals("trinket", StringComparison.OrdinalIgnoreCase) &&
-            IsContentPriceZeroMethod(method);
-
-        return new JsonObject
-        {
-            ["kind"] = "inventory.disableItemSale",
-            ["effect"] = suppressSaleValue ? "suppressSaleValue" : "recordSalePolicy",
-            ["target"] = suppressSaleValue
-                ? InventoryTrinketSaleValueOverlayTarget
-                : InventorySalePolicyOverlayTarget,
-            ["artifactPath"] = artifactPath,
-            ["eventId"] = ReadString(artifact, "eventId"),
-            ["pluginId"] = ReadString(artifact, "pluginId"),
-            ["sourceName"] = ReadString(artifact, "sourceName"),
-            ["sourcePath"] = ReadString(artifact, "sourcePath"),
-            ["ruleIndex"] = ReadInt(artifact, "ruleIndex"),
-            ["ruleId"] = ReadString(artifact, "ruleId"),
-            ["actionIndex"] = ReadInt(artifact, "actionIndex"),
-            ["itemKind"] = itemKind,
-            ["method"] = method,
-            ["disabled"] = RequireBool(artifact, "plan.arguments.disabled")
-        };
-    }
 
     private static JsonObject BuildTrinketPatchEntryOverlay(string artifactPath, JsonObject artifact)
     {
@@ -78,26 +38,6 @@ internal static partial class ManagedActionOverlayCompiler
         JsonArray issues,
         LauncherLog log)
     {
-        var enabledInventoryOverlays = overlays
-            .Where(overlay =>
-                ReadString(overlay, "kind").Equals("inventory.disableItemSale", StringComparison.OrdinalIgnoreCase) &&
-                ReadBool(overlay, "disabled"))
-            .ToArray();
-
-        foreach (var overlay in enabledInventoryOverlays.Where(overlay =>
-                     ReadString(overlay, "effect").Equals("recordSalePolicy", StringComparison.OrdinalIgnoreCase)))
-        {
-            log.Info(
-                $"managed-action-overlay policy-only itemKind={Quote(ReadString(overlay, "itemKind"))} " +
-                $"target={Quote(ReadString(overlay, "target"))} artifact={Quote(ReadString(overlay, "artifactPath"))}");
-        }
-
-        var trinketSaleValueOverlays = enabledInventoryOverlays
-            .Where(overlay =>
-                ReadString(overlay, "effect").Equals("suppressSaleValue", StringComparison.OrdinalIgnoreCase) &&
-                ReadString(overlay, "itemKind").Equals("trinket", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-
         var patchEntryOverlays = overlays
             .Where(overlay =>
                 ReadString(overlay, "kind").Equals("trinket.patchEntry", StringComparison.OrdinalIgnoreCase) &&
@@ -105,8 +45,7 @@ internal static partial class ManagedActionOverlayCompiler
             .ToArray();
         var patchItems = BuildTrinketEntryPatchItemList(patchEntryOverlays);
 
-        if (trinketSaleValueOverlays.Length == 0 &&
-            patchItems.Count == 0)
+        if (patchItems.Count == 0)
         {
             return [];
         }
@@ -115,7 +54,7 @@ internal static partial class ManagedActionOverlayCompiler
         Directory.CreateDirectory(outputDirectory);
 
         var rules = new List<OverlayVirtualRule>();
-        var resolvedPatchEntryItemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var resolvedPatchEntryItemKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var sourcePath in EnumerateCampaignTrinketEntryFiles(config.GameWorkingDirectory))
         {
             try
@@ -125,11 +64,9 @@ internal static partial class ManagedActionOverlayCompiler
                 var result = WriteTrinketEntryProjectionOverlay(
                     sourcePath,
                     outputPath,
-                    trinketSaleValueOverlays.Length > 0,
                     patchItems,
-                    resolvedPatchEntryItemIds);
-                if (result.SaleValueAffectedEntryCount == 0 &&
-                    result.PatchEntryAffectedEntryCount == 0)
+                    resolvedPatchEntryItemKeys);
+                if (result.PatchEntryAffectedEntryCount == 0)
                 {
                     continue;
                 }
@@ -137,23 +74,17 @@ internal static partial class ManagedActionOverlayCompiler
                 var summary = new JsonObject
                 {
                     ["target"] = target,
-                    ["effect"] = result.SaleValueAffectedEntryCount > 0
-                        ? "suppressTrinketSaleValue"
-                        : "patchTrinketEntries",
+                    ["effect"] = "patchTrinketEntries",
                     ["sourcePath"] = outputPath,
                     ["sourceContentPath"] = sourcePath,
-                    ["policyOverlayCount"] = trinketSaleValueOverlays.Length,
                     ["patchEntryOverlayCount"] = patchEntryOverlays.Length,
                     ["entryCount"] = result.EntryCount,
-                    ["affectedEntryCount"] = result.SaleValueAffectedEntryCount,
-                    ["saleValueAffectedEntryCount"] = result.SaleValueAffectedEntryCount,
+                    ["affectedEntryCount"] = result.PatchEntryAffectedEntryCount,
                     ["patchEntryAffectedEntryCount"] = result.PatchEntryAffectedEntryCount,
                     ["patchEntryItemIds"] = new JsonArray(result.AffectedPatchEntryItemIds
                         .Select(id => (JsonNode?)id)
                         .ToArray()),
-                    ["sourceArtifacts"] = BuildTrinketEntryProjectionSourceArtifacts(
-                        trinketSaleValueOverlays,
-                        patchEntryOverlays)
+                    ["sourceArtifacts"] = BuildTrinketEntryProjectionSourceArtifacts(patchEntryOverlays)
                 };
 
                 rules.Add(new OverlayVirtualRule(
@@ -166,8 +97,7 @@ internal static partial class ManagedActionOverlayCompiler
 
                 log.Info(
                     $"managed-action-overlay virtual-rule itemKind=trinket target={Quote(target)} " +
-                    $"sourcePath={Quote(outputPath)} saleValueAffectedEntries={result.SaleValueAffectedEntryCount} " +
-                    $"patchEntryAffectedEntries={result.PatchEntryAffectedEntryCount}");
+                    $"sourcePath={Quote(outputPath)} patchEntryAffectedEntries={result.PatchEntryAffectedEntryCount}");
             }
             catch (Exception ex)
             {
@@ -176,39 +106,30 @@ internal static partial class ManagedActionOverlayCompiler
                     log,
                     "error",
                     "managed-overlay-trinket-entry-projection-failed",
-                    string.Join(';', trinketSaleValueOverlays.Concat(patchEntryOverlays).Select(overlay => ReadString(overlay, "artifactPath"))),
+                    string.Join(';', patchEntryOverlays.Select(overlay => ReadString(overlay, "artifactPath"))),
                     $"{sourcePath}: {ex.Message}");
             }
         }
 
-        foreach (var missingId in patchItems
-                     .Select(item => item.Id)
-                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                     .Where(id => !resolvedPatchEntryItemIds.Contains(id))
-                     .OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+        foreach (var missingItem in patchItems
+                     .Where(item => !resolvedPatchEntryItemKeys.Contains(item.Key))
+                     .GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
         {
+            var first = missingItem.First();
+            var code = string.IsNullOrWhiteSpace(first.Id)
+                ? "managed-overlay-trinket-patch-entry-selector-not-found"
+                : "managed-overlay-trinket-patch-entry-item-not-found";
             AddIssue(
                 issues,
                 log,
                 "warning",
-                "managed-overlay-trinket-patch-entry-item-not-found",
+                code,
                 string.Join(';', patchItems
-                    .Where(item => item.Id.Equals(missingId, StringComparison.OrdinalIgnoreCase))
+                    .Where(item => item.Key.Equals(missingItem.Key, StringComparison.OrdinalIgnoreCase))
                     .Select(item => item.ArtifactPath)
                     .Distinct(StringComparer.OrdinalIgnoreCase)),
-                $"trinket.patchEntry referenced trinket id '{missingId}', but no enabled trinket entry file defined it");
-        }
-
-        if (trinketSaleValueOverlays.Length > 0 &&
-            rules.All(rule => ReadInt(rule.Summary, "saleValueAffectedEntryCount") == 0))
-        {
-            AddIssue(
-                issues,
-                log,
-                "warning",
-                "managed-overlay-trinket-entry-files-unmodified",
-                string.Join(';', trinketSaleValueOverlays.Select(overlay => ReadString(overlay, "artifactPath"))),
-                "inventory.disableItemSale requested trinket sale-value suppression, but no trinket entry prices were modified");
+                $"trinket.patchEntry selector '{first.Description}' did not match any enabled trinket entry");
         }
 
         return rules;
@@ -217,9 +138,8 @@ internal static partial class ManagedActionOverlayCompiler
     private static TrinketEntryProjectionResult WriteTrinketEntryProjectionOverlay(
         string sourcePath,
         string outputPath,
-        bool suppressSaleValue,
         IReadOnlyList<TrinketEntryPatchItem> patchItems,
-        HashSet<string> resolvedPatchEntryItemIds)
+        HashSet<string> resolvedPatchEntryItemKeys)
     {
         var root = JsonNode.Parse(
                 File.ReadAllText(sourcePath, Encoding.UTF8),
@@ -236,29 +156,15 @@ internal static partial class ManagedActionOverlayCompiler
         }
 
         var entryCount = 0;
-        var saleValueAffectedEntryCount = 0;
         var patchEntryAffectedEntryCount = 0;
         var affectedPatchEntryItemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in entries.OfType<JsonObject>())
         {
             entryCount++;
             var id = ReadString(entry, "id");
-            if (suppressSaleValue &&
-                entry["price"] is JsonValue price &&
-                price.TryGetValue<int>(out var currentPrice) &&
-                currentPrice != 0)
-            {
-                entry["price"] = 0;
-                saleValueAffectedEntryCount++;
-            }
-
-            if (string.IsNullOrWhiteSpace(id))
-            {
-                continue;
-            }
 
             var matchingPatchItems = patchItems
-                .Where(item => item.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
+                .Where(item => MatchesTrinketEntryPatchItem(entry, item))
                 .ToArray();
             if (matchingPatchItems.Length == 0)
             {
@@ -279,12 +185,18 @@ internal static partial class ManagedActionOverlayCompiler
             }
 
             patchEntryAffectedEntryCount++;
-            affectedPatchEntryItemIds.Add(id);
-            resolvedPatchEntryItemIds.Add(id);
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                affectedPatchEntryItemIds.Add(id);
+            }
+
+            foreach (var patchItem in matchingPatchItems)
+            {
+                resolvedPatchEntryItemKeys.Add(patchItem.Key);
+            }
         }
 
-        if (saleValueAffectedEntryCount > 0 ||
-            patchEntryAffectedEntryCount > 0)
+        if (patchEntryAffectedEntryCount > 0)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
             File.WriteAllText(outputPath, root.ToJsonString(JsonOptions), Utf8NoBom);
@@ -292,7 +204,6 @@ internal static partial class ManagedActionOverlayCompiler
 
         return new TrinketEntryProjectionResult(
             entryCount,
-            saleValueAffectedEntryCount,
             patchEntryAffectedEntryCount,
             affectedPatchEntryItemIds
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
@@ -330,9 +241,11 @@ internal static partial class ManagedActionOverlayCompiler
     private static JsonObject BuildTrinketPatchEntryItem(JsonObject item)
     {
         var id = ReadFirstString(item, "id", "trinketId", "itemId");
-        if (string.IsNullOrWhiteSpace(id))
+        var where = item["where"] as JsonObject;
+        if (string.IsNullOrWhiteSpace(id) &&
+            (where is null || where.Count == 0))
         {
-            throw new InvalidOperationException("trinket.patchEntry item requires id.");
+            throw new InvalidOperationException("trinket.patchEntry item requires id or where.");
         }
 
         var setFields = item["set"] as JsonObject;
@@ -340,17 +253,28 @@ internal static partial class ManagedActionOverlayCompiler
         if ((setFields is null || setFields.Count == 0) &&
             removeFields.Count == 0)
         {
-            throw new InvalidOperationException($"trinket.patchEntry item '{id}' requires set fields or remove fields.");
+            throw new InvalidOperationException($"trinket.patchEntry item '{DescribeTrinketPatchEntrySelector(id, where)}' requires set fields or remove fields.");
         }
 
-        return new JsonObject
+        var result = new JsonObject
         {
-            ["id"] = id,
             ["set"] = CloneNode(setFields) ?? new JsonObject(),
             ["remove"] = new JsonArray(removeFields
                 .Select(field => (JsonNode?)field)
                 .ToArray())
         };
+
+        if (!string.IsNullOrWhiteSpace(id))
+        {
+            result["id"] = id;
+        }
+
+        if (where is not null && where.Count > 0)
+        {
+            result["where"] = CloneNode(where);
+        }
+
+        return result;
     }
 
     private static List<TrinketEntryPatchItem> BuildTrinketEntryPatchItemList(IReadOnlyList<JsonObject> overlays)
@@ -370,15 +294,75 @@ internal static partial class ManagedActionOverlayCompiler
                     continue;
                 }
 
+                var id = ReadFirstString(item, "id", "trinketId", "itemId");
+                var where = item["where"] as JsonObject;
+                var description = DescribeTrinketPatchEntrySelector(id, where);
                 result.Add(new TrinketEntryPatchItem(
-                    RequireString(item, "id"),
+                    BuildTrinketPatchEntryKey(id, where),
+                    id,
+                    where ?? new JsonObject(),
                     item["set"] as JsonObject ?? new JsonObject(),
                     BuildRemoveFields(item),
-                    ReadString(overlay, "artifactPath")));
+                    ReadString(overlay, "artifactPath"),
+                    description));
             }
         }
 
         return result;
+    }
+
+    private static bool MatchesTrinketEntryPatchItem(JsonObject entry, TrinketEntryPatchItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.Id))
+        {
+            return ReadString(entry, "id").Equals(item.Id, StringComparison.OrdinalIgnoreCase);
+        }
+
+        foreach (var condition in item.Where)
+        {
+            if (!entry.TryGetPropertyValue(condition.Key, out var actual) ||
+                !MatchesTrinketPatchWhereValue(actual, condition.Value))
+            {
+                return false;
+            }
+        }
+
+        return item.Where.Count > 0;
+    }
+
+    private static bool MatchesTrinketPatchWhereValue(JsonNode? actual, JsonNode? expected)
+    {
+        if (expected is JsonArray expectedArray)
+        {
+            return expectedArray.Any(item => MatchesTrinketPatchWhereValue(actual, item));
+        }
+
+        if (actual is JsonArray actualArray)
+        {
+            return actualArray.Any(item => MatchesTrinketPatchWhereValue(item, expected));
+        }
+
+        if (TryReadString(actual, out var actualText) &&
+            TryReadString(expected, out var expectedText))
+        {
+            return actualText.Equals(expectedText, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return JsonNode.DeepEquals(actual, expected);
+    }
+
+    private static bool TryReadString(JsonNode? node, out string text)
+    {
+        text = string.Empty;
+        if (node is not JsonValue value ||
+            !value.TryGetValue<string>(out var candidate) ||
+            string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        text = candidate;
+        return true;
     }
 
     private static IReadOnlyList<string> BuildRemoveFields(JsonObject item)
@@ -416,12 +400,10 @@ internal static partial class ManagedActionOverlayCompiler
         return result;
     }
 
-    private static JsonArray BuildTrinketEntryProjectionSourceArtifacts(
-        IReadOnlyList<JsonObject> saleValueOverlays,
-        IReadOnlyList<JsonObject> patchEntryOverlays)
+    private static JsonArray BuildTrinketEntryProjectionSourceArtifacts(IReadOnlyList<JsonObject> patchEntryOverlays)
     {
         var result = new JsonArray();
-        foreach (var overlay in saleValueOverlays.Concat(patchEntryOverlays))
+        foreach (var overlay in patchEntryOverlays)
         {
             result.Add(new JsonObject
             {
@@ -433,16 +415,6 @@ internal static partial class ManagedActionOverlayCompiler
         }
 
         return result;
-    }
-
-    private static bool IsContentPriceZeroMethod(string method)
-    {
-        return method.Equals("content_price_zero", StringComparison.OrdinalIgnoreCase) ||
-            method.Equals("contentPriceZero", StringComparison.OrdinalIgnoreCase) ||
-            method.Equals("price_zero", StringComparison.OrdinalIgnoreCase) ||
-            method.Equals("priceZero", StringComparison.OrdinalIgnoreCase) ||
-            method.Equals("suppress_sale_value", StringComparison.OrdinalIgnoreCase) ||
-            method.Equals("suppressSaleValue", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ReadFirstString(JsonObject root, params string[] paths)
@@ -545,13 +517,29 @@ internal static partial class ManagedActionOverlayCompiler
 
     private sealed record TrinketEntryProjectionResult(
         int EntryCount,
-        int SaleValueAffectedEntryCount,
         int PatchEntryAffectedEntryCount,
         IReadOnlyList<string> AffectedPatchEntryItemIds);
 
     private sealed record TrinketEntryPatchItem(
+        string Key,
         string Id,
+        JsonObject Where,
         JsonObject SetFields,
         IReadOnlyList<string> RemoveFields,
-        string ArtifactPath);
+        string ArtifactPath,
+        string Description);
+
+    private static string BuildTrinketPatchEntryKey(string id, JsonObject? where)
+    {
+        return string.IsNullOrWhiteSpace(id)
+            ? "where:" + (where?.ToJsonString(JsonOptions) ?? "{}")
+            : "id:" + id.Trim();
+    }
+
+    private static string DescribeTrinketPatchEntrySelector(string id, JsonObject? where)
+    {
+        return string.IsNullOrWhiteSpace(id)
+            ? "where " + (where?.ToJsonString(JsonOptions) ?? "{}")
+            : "id " + id.Trim();
+    }
 }

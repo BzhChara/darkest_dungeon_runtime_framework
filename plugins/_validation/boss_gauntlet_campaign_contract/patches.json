@@ -16,7 +16,7 @@
     "wallet.set_currency_amount",
     "wallet.set_currency_amounts",
     "wallet.modify_currency",
-    "inventory.disable_item_sale",
+    "trinket.patch_entry",
     "campaign.reset_plot_progress",
     "town.unlock_all_buildings",
     "town.suppress_store_items",
@@ -338,7 +338,7 @@
         "stagecoach.suppress_recruits",
         "estate.ensure_inventory_counts",
         "wallet.set_currency_amounts",
-        "inventory.disable_item_sale",
+        "trinket.patch_entry",
         "campaign.reset_plot_progress",
         "town.unlock_all_buildings",
         "quest_board.replace_with_fixed_set",
@@ -452,15 +452,23 @@
           }
         },
         {
-          "type": "inventory.disableItemSale",
-          "capability": "inventory.disable_item_sale",
+          "type": "trinket.patchEntry",
+          "capability": "trinket.patch_entry",
           "risk": "managed",
           "required": true,
           "args": {
-            "target": "profile.inventory",
-            "itemKind": "trinket",
-            "method": "content_price_zero",
-            "disabled": "state.bossGauntlet.trinketSaleDisabled"
+            "target": "content.trinkets.entries",
+            "enabled": "state.bossGauntlet.trinketSaleValuePatch.enabled",
+            "items": [
+              {
+                "where": {
+                  "rarity": "state.bossGauntlet.trinketSaleValuePatch.rarities"
+                },
+                "set": {
+                  "price": "state.bossGauntlet.trinketSaleValuePatch.price"
+                }
+              }
+            ]
           }
         },
         {

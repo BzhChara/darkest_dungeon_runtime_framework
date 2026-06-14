@@ -70,18 +70,6 @@ internal static partial class ManagedActionOverlayCompiler
 
                         overlayCandidates.Add(BuildQuestBoardFixedSetOverlay(artifactPath, artifact));
                     }
-                    else if (actionType.Equals("inventory.disableItemSale", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var overlay = BuildInventoryDisableItemSaleOverlay(artifactPath, artifact);
-                        if (ReadBool(overlay, "disabled"))
-                        {
-                            overlayCandidates.Add(overlay);
-                        }
-                        else
-                        {
-                            ignoredArtifactCount++;
-                        }
-                    }
                     else if (actionType.Equals("trinket.patchEntry", StringComparison.OrdinalIgnoreCase))
                     {
                         var overlay = BuildTrinketPatchEntryOverlay(artifactPath, artifact);

@@ -189,15 +189,7 @@ New-ManagedActionArtifact `
     }
 
 New-ManagedActionArtifact `
-    -Path (Join-Path $artifactRoot "004_inventory.disableItemSale.json") `
-    -Type "inventory.disableItemSale" `
-    -Target "profile.inventory" `
-    -RuleId "continuous_sale_policy" `
-    -ActionIndex 0 `
-    -Arguments @{ itemKind = "trinket"; disabled = $true }
-
-New-ManagedActionArtifact `
-    -Path (Join-Path $artifactRoot "005_townEvent.overrideCurrent.json") `
+    -Path (Join-Path $artifactRoot "004_townEvent.overrideCurrent.json") `
     -Type "townEvent.overrideCurrent" `
     -Target "profile.townEvent" `
     -RuleId "continuous_town_event" `
@@ -214,7 +206,7 @@ $baseArgs = @("--config", $config, "--mod-state-dir", $stateRoot, "--apply-conti
 Invoke-Loader -LoaderArgs $baseArgs
 $dryRunReport = Read-ApplyReport
 Assert-True ($dryRunReport.applyMode -eq "continuousProfile") "Dry-run report should use continuousProfile apply mode."
-Assert-True ($dryRunReport.artifactCount -eq 4) "Dry-run should select only the four continuous artifacts."
+Assert-True ($dryRunReport.artifactCount -eq 3) "Dry-run should select only the three continuous artifacts."
 Assert-True ($dryRunReport.actions.actionType -notcontains "wallet.setCurrencyAmounts") "Dry-run should not apply one-shot wallet artifacts."
 
 $town = Read-Utf8Text -Path (Join-Path $saveRoot "persist.town.json") | ConvertFrom-Json
@@ -224,7 +216,7 @@ Assert-True ((Count-ObjectProperties $town.base_root.buildings.nomad_wagon.store
 Invoke-Loader -LoaderArgs ($baseArgs + @("--write-managed-actions"))
 $writeReport = Read-ApplyReport
 Assert-True ($writeReport.applyMode -eq "continuousProfile") "Write report should use continuousProfile apply mode."
-Assert-True ($writeReport.appliedActionCount -eq 4) "Write pass should apply four continuous artifacts."
+Assert-True ($writeReport.appliedActionCount -eq 3) "Write pass should apply three continuous artifacts."
 Assert-True ($writeReport.actions.actionType -notcontains "wallet.setCurrencyAmounts") "Write pass should not apply one-shot wallet artifacts."
 
 $town = Read-Utf8Text -Path (Join-Path $saveRoot "persist.town.json") | ConvertFrom-Json
@@ -240,7 +232,7 @@ Assert-True ([int]$townEvent.base_root.current_result_event_id -eq 0) "Write pas
 Assert-True (-not [bool]$townEvent.base_root.has_unclaimed_interaction) "Write pass should clear unclaimed event interaction."
 
 $profilePolicy = Read-Utf8Text -Path (Join-Path $saveRoot "_ddrt_profile_policy.json") | ConvertFrom-Json
-Assert-True ([bool]$profilePolicy.profilePolicies.inventory.saleDisabled.trinket) "Write pass should record trinket sale-disable policy."
+Assert-True ($null -eq $profilePolicy.profilePolicies.inventory) "Write pass should not record removed inventory sale policy."
 Assert-True ($profilePolicy.profilePolicies.townEvent.mode -eq "suppress") "Write pass should record town-event policy."
 
 Write-Host "Continuous profile action apply test passed: $sessionId"

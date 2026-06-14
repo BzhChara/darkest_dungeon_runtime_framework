@@ -130,12 +130,6 @@ function Read-DecodedTownEvent {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
-function Read-DecodedProfilePolicy {
-    $path = Join-Path $saveRoot "_ddrt_profile_policy.json"
-    Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Decoded profile policy file was not created: $path"
-    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
-}
-
 function Write-ManagedActionArtifact {
     param(
         [string]$Name,
@@ -1025,7 +1019,7 @@ Assert-True (-not [bool]$dryRunInitializationReport.applySkipped) "Decoded profi
 Assert-True ([bool]$dryRunInitializationReport.applySucceeded) "Decoded profile dry-run initialization apply should succeed."
 Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 12) "Decoded profile dry-run initialization should recognize twelve supported decoded-save/policy actions."
 Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 12) "Decoded profile dry-run initialization should dry-run twelve supported actions."
-Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 7) "Decoded profile dry-run initialization should report seven would-change decoded save or policy files."
+Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 6) "Decoded profile dry-run initialization should report six would-change decoded save files."
 Assert-True (@(Convert-ToArray $dryRunInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "dry-run" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression dry-run action details."
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
@@ -1035,7 +1029,7 @@ Assert-True ([int]$dryRunReport.dryRunActionCount -eq 12) "Dry-run should report
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
 Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 0) "Dry-run should not report unsupported boss gauntlet initialization actions."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
-Assert-True ([int]$dryRunReport.changedFileCount -eq 7) "Dry-run should report seven would-change decoded save or policy files."
+Assert-True ([int]$dryRunReport.changedFileCount -eq 6) "Dry-run should report six would-change decoded save files."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
@@ -1078,7 +1072,7 @@ Assert-True ([bool]$writeInitializationReport.eventSucceeded) "Decoded profile w
 Assert-True (-not [bool]$writeInitializationReport.applySkipped) "Decoded profile write initialization should run managed action apply."
 Assert-True ([bool]$writeInitializationReport.applySucceeded) "Decoded profile write initialization apply should succeed."
 Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 12) "Decoded profile write initialization should apply twelve supported decoded-save/policy actions."
-Assert-True ([int]$writeInitializationReport.applyChangedFileCount -eq 7) "Decoded profile write initialization should write seven decoded save or policy files."
+Assert-True ([int]$writeInitializationReport.applyChangedFileCount -eq 6) "Decoded profile write initialization should write six decoded save files."
 Assert-True (@(Convert-ToArray $writeInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "applied" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression applied action details."
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
@@ -1086,8 +1080,8 @@ Assert-True ([int]$writeReport.supportedActionCount -eq 12) "Write pass should r
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
 Assert-True ([int]$writeReport.appliedActionCount -eq 12) "Write pass should apply twelve currently supported decoded-save/policy actions."
 Assert-True ([int]$writeReport.unsupportedActionCount -eq 0) "Write pass should not leave unsupported boss gauntlet initialization actions."
-Assert-True ([int]$writeReport.changedFileCount -eq 7) "Write pass should change seven decoded save or policy files."
-Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 7) "Write pass should mark seven files as written."
+Assert-True ([int]$writeReport.changedFileCount -eq 6) "Write pass should change six decoded save files."
+Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 6) "Write pass should mark six files as written."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq 20000) "Write pass should set starting gold to 20000."
@@ -1166,9 +1160,7 @@ Assert-True ([int]$townEvent.base_root.current_result_event_id -eq 123456789) "W
 Assert-True ([bool]$townEvent.base_root.has_unclaimed_interaction) "Write pass must not clear town event interaction state."
 Assert-True ((Get-ObjectPropertyCount -Value $townEvent.base_root.event_cost) -eq 1) "Write pass must not clear current town event costs."
 Assert-True ((Convert-ToArray $townEvent.base_root.dead_hero_entries).Count -eq 1) "Write pass must not clear current town event dead hero entries."
-$profilePolicy = Read-DecodedProfilePolicy
-Assert-True ([bool]$profilePolicy.profilePolicies.inventory.saleDisabled.trinket) "Write pass should record trinket sale disable policy."
-Assert-True ($null -eq $profilePolicy.profilePolicies.townEvent) "Write pass should not record a town event override policy when the plugin did not request one."
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $saveRoot "_ddrt_profile_policy.json") -PathType Leaf)) "Write pass should not create a profile policy file for trinket entry patches."
 
 $necroQuest = Get-QuestById -Quest $quest -Id "plot_kill_necromancer_3"
 Assert-True ([string]$necroQuest.dungeon -eq "crypts") "Fixed quest should preserve content-defined dungeon."
