@@ -20,7 +20,7 @@
   "fileIoDeduplicate": true,
   "eventProbeEnabled": true,
   "eventProbeLogFileOpen": true,
-  "eventProbeLogFileWrite": true,
+  "eventProbeLogFileWrite": false,
   "eventProbeLogSaveFiles": true,
   "eventProbeLogDataFiles": false,
   "eventProbeLogAssetFiles": false,

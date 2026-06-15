@@ -364,7 +364,7 @@ internal sealed partial class SaveDirectoryWatcher
                 throw new InvalidOperationException($"Map final-room prototype validation failed: {string.Join("; ", accessIssues)}");
             }
 
-            var bytes = File.ReadAllBytes(sourceFullPath);
+            var bytes = ReadSaveFileBytesShared(sourceFullPath);
             var valueOffset = GetDsonScalarValueOffset(finalRoomScalar);
             if (valueOffset < 0 || valueOffset + sizeof(int) > bytes.Length)
             {
@@ -467,7 +467,7 @@ internal sealed partial class SaveDirectoryWatcher
 
             try
             {
-                var bytes = File.ReadAllBytes(path);
+                var bytes = ReadSaveFileBytesShared(path);
                 var info = new FileInfo(path);
                 var sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
                 var firstByte = bytes.FirstOrDefault();
@@ -551,6 +551,44 @@ internal sealed partial class SaveDirectoryWatcher
                     [],
                     accessIssues);
             }
+        }
+
+        private static byte[] ReadSaveFileBytesShared(string path)
+        {
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 64 * 1024,
+                FileOptions.SequentialScan);
+
+            var expectedLength = stream.Length;
+            if (expectedLength > int.MaxValue)
+            {
+                throw new IOException($"Save file is too large to inspect safely: {path}");
+            }
+
+            var bytes = new byte[checked((int)expectedLength)];
+            var offset = 0;
+            while (offset < bytes.Length)
+            {
+                var read = stream.Read(bytes, offset, bytes.Length - offset);
+                if (read == 0)
+                {
+                    throw new EndOfStreamException($"Save file ended before expected length: {path}");
+                }
+
+                offset += read;
+            }
+
+            var finalLength = stream.Length;
+            if (finalLength != expectedLength)
+            {
+                throw new IOException($"Save file changed while it was being inspected: {path}");
+            }
+
+            return bytes;
         }
 
         private static void TryWriteFileMapReport(
