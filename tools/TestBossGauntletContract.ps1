@@ -150,6 +150,8 @@ Assert-True ([bool]$state.trinketSaleValuePatch.enabled) "Initialization should 
 Assert-True ((Convert-ToArray $state.trinketSaleValuePatch.rarities) -contains "very_rare") "Initialization should configure rarity-based trinket sale-value patching."
 Assert-True ((Convert-ToArray $state.trinketSaleValuePatch.rarities) -contains "very_common") "Initialization should include very common trinkets in sale-value patching."
 Assert-True ((Convert-ToArray $state.trinketSaleValuePatch.rarities) -contains "crimson_court") "Initialization should include Crimson Court trinkets in sale-value patching."
+Assert-True ((Convert-ToArray $state.trinketSaleValuePatch.rarities) -contains "thing") "Initialization should include Thing trinkets in sale-value patching."
+Assert-True ((Convert-ToArray $state.trinketSaleValuePatch.rarities) -contains "mildred") "Initialization should include Mildred trinkets in sale-value patching."
 Assert-True ((Convert-ToArray $state.fixedQuestIds).Count -eq 8) "Initialization should load the fixed boss quest ids from the definition."
 Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necromancer_3") "Fixed quest ids should include the Necromancer fixture quest."
 Assert-True ($state.finaleQuestChainId -eq "boss_gauntlet_darkest_finale_chain") "Initialization should load the finale quest chain id from the definition."
@@ -172,7 +174,7 @@ Assert-True (@($dd2PolicyEntry.availableWhen.completedQuests) -contains "plot_da
 Assert-True (@($dd2PolicyEntry.availableWhen.notCompletedQuests) -contains "plot_darkest_dungeon_2") "DD2 should disappear after completion."
 
 $initializationReport = Read-RuntimeEventReport
-Assert-True ([int]$initializationReport.materializedActionCount -eq 12) "Initialization should materialize twelve managed profile-normalization actions."
+Assert-True ([int]$initializationReport.materializedActionCount -eq 13) "Initialization should materialize thirteen managed profile-normalization actions."
 
 $rosterAction = Get-ActionReport -Report $initializationReport -Type "roster.ensureClassInstances"
 $rosterArtifact = Read-ManagedActionArtifact -Action $rosterAction -ExpectedType "roster.ensureClassInstances"
@@ -209,6 +211,19 @@ Assert-True ([int]$inventoryArtifact.plan.arguments.count -eq 2) "Inventory norm
 Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "darkest_dungeon") "Inventory normalization should exclude Darkest Dungeon reward trinkets."
 Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "trophy") "Inventory normalization should exclude boss trophy trinkets."
 Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "kickstarter") "Inventory normalization should exclude Kickstarter donor trinkets."
+Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "collector") "Inventory normalization should exclude collector drop trinkets."
+Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "crow") "Inventory normalization should exclude crow drop trinkets."
+Assert-True ((Convert-ToArray $inventoryArtifact.plan.arguments.excludeRarities) -contains "thing") "Inventory normalization should exclude Thing drop trinkets."
+
+$removeInventoryAction = Get-ActionReport -Report $initializationReport -Type "estate.removeInventoryItems"
+$removeInventoryArtifact = Read-ManagedActionArtifact -Action $removeInventoryAction -ExpectedType "estate.removeInventoryItems"
+Assert-True ($removeInventoryArtifact.plan.arguments.source -eq "content.trinkets.enabled") "Inventory cleanup should use the generic content trinket source."
+Assert-True ((Convert-ToArray $removeInventoryArtifact.plan.arguments.includeRarities) -contains "darkest_dungeon") "Inventory cleanup should remove existing Darkest Dungeon reward trinkets."
+Assert-True ((Convert-ToArray $removeInventoryArtifact.plan.arguments.includeRarities) -contains "trophy") "Inventory cleanup should remove existing boss trophy trinkets."
+Assert-True ((Convert-ToArray $removeInventoryArtifact.plan.arguments.includeRarities) -contains "kickstarter") "Inventory cleanup should remove existing Kickstarter donor trinkets."
+Assert-True ((Convert-ToArray $removeInventoryArtifact.plan.arguments.includeRarities) -contains "collector") "Inventory cleanup should remove existing collector drop trinkets."
+Assert-True ((Convert-ToArray $removeInventoryArtifact.plan.arguments.includeRarities) -contains "crow") "Inventory cleanup should remove existing crow drop trinkets."
+Assert-True ((Convert-ToArray $removeInventoryArtifact.plan.arguments.includeRarities) -contains "thing") "Inventory cleanup should remove existing Thing drop trinkets."
 
 $trinketPatchAction = Get-ActionReport -Report $initializationReport -Type "trinket.patchEntry"
 $trinketPatchArtifact = Read-ManagedActionArtifact -Action $trinketPatchAction -ExpectedType "trinket.patchEntry"
@@ -217,6 +232,11 @@ Assert-True ([bool]$trinketPatchArtifact.plan.arguments.enabled) "Trinket patch 
 Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "common") "Trinket patch should select entries by rarity."
 Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "very_common") "Trinket patch should select very common entries by rarity."
 Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "crimson_court") "Trinket patch should select Crimson Court entries by rarity."
+Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "collector") "Trinket patch should select collector entries by rarity."
+Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "crow") "Trinket patch should select crow entries by rarity."
+Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "ancestral_shambler") "Trinket patch should select Shambler ancestral entries by rarity."
+Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "thing") "Trinket patch should select Thing entries by rarity."
+Assert-True ((Convert-ToArray $trinketPatchArtifact.plan.arguments.items[0].where.rarity) -contains "mildred") "Trinket patch should select Mildred entries by rarity."
 Assert-True ([int]$trinketPatchArtifact.plan.arguments.items[0].set.price -eq 0) "Trinket patch should explicitly set selected trinket prices to zero."
 
 $campaignProgressAction = Get-ActionReport -Report $initializationReport -Type "campaign.resetPlotProgress"

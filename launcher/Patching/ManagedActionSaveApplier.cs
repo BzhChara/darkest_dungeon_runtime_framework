@@ -100,6 +100,9 @@ internal static partial class ManagedActionSaveApplier
                 case "estate.ensureInventoryCounts":
                     ApplyEstateEnsureInventoryCounts(context, artifactPath, artifact);
                     break;
+                case "estate.removeInventoryItems":
+                    ApplyEstateRemoveInventoryItems(context, artifactPath, artifact);
+                    break;
                 case "trinket.patchEntry":
                     ApplyTrinketPatchEntryContentOnly(context, artifactPath, artifact);
                     break;
@@ -231,14 +234,65 @@ internal static partial class ManagedActionSaveApplier
             ]);
     }
 
+    private static void ApplyEstateRemoveInventoryItems(ApplyContext context, string artifactPath, JsonObject artifact)
+    {
+        var itemKind = ReadString(artifact, "plan.arguments.itemKind");
+        if (!itemKind.Equals("trinket", StringComparison.OrdinalIgnoreCase))
+        {
+            AddUnsupportedAction(context, artifactPath, artifact, ReadString(artifact, "action.type"));
+            return;
+        }
+
+        var source = ReadString(artifact, "plan.arguments.source");
+        var includeRarities = ReadOptionalStringArrayPath(artifact, "plan.arguments.includeRarities");
+        var excludeRarities = ReadOptionalStringArrayPath(artifact, "plan.arguments.excludeRarities");
+        if (includeRarities.Count == 0)
+        {
+            throw new InvalidDataException("estate.removeInventoryItems requires plan.arguments.includeRarities for content source removal.");
+        }
+
+        var itemIds = ResolveInventorySourceIds(context, source, excludeRarities, includeRarities);
+        if (itemIds.Count == 0)
+        {
+            throw new InvalidDataException($"Inventory removal source produced no item ids: {source}");
+        }
+
+        var file = context.LoadDecodedJsonFile("persist.estate.json");
+        var items = EnsureObject(file.Root, "base_root.trinkets.items");
+        var removed = RemoveInventoryItems(items, itemIds, itemKind, context.WriteChanges);
+        if (removed > 0)
+        {
+            file.MarkChanged(removed);
+        }
+
+        AddSuccessfulAction(
+            context,
+            artifactPath,
+            artifact,
+            file.Path,
+            [
+                $"remove {itemKind} ids from {source} includeRarities={string.Join(",", includeRarities)}",
+                $"sourceIds={itemIds.Count} removed={removed}"
+            ]);
+    }
+
     private static IReadOnlyList<string> ResolveInventorySourceIds(
         ApplyContext context,
         string source,
         IReadOnlyList<string> excludeRarities)
     {
+        return ResolveInventorySourceIds(context, source, excludeRarities, []);
+    }
+
+    private static IReadOnlyList<string> ResolveInventorySourceIds(
+        ApplyContext context,
+        string source,
+        IReadOnlyList<string> excludeRarities,
+        IReadOnlyList<string> includeRarities)
+    {
         return source switch
         {
-            "content.trinkets.enabled" => LoadEnabledContentTrinketIds(context.GameWorkingDirectory, excludeRarities),
+            "content.trinkets.enabled" => LoadEnabledContentTrinketIds(context.GameWorkingDirectory, excludeRarities, includeRarities),
             _ => throw new InvalidDataException($"Unsupported inventory source: {source}")
         };
     }
@@ -256,6 +310,40 @@ internal static partial class ManagedActionSaveApplier
         }
 
         return EnsureStackableInventoryItemCounts(items, itemIds, itemKind, count, writeChanges);
+    }
+
+    private static int RemoveInventoryItems(
+        JsonObject items,
+        IReadOnlyList<string> itemIds,
+        string itemKind,
+        bool writeChanges)
+    {
+        var targetIds = new HashSet<string>(itemIds, StringComparer.OrdinalIgnoreCase);
+        var keysToRemove = new List<string>();
+        foreach (var pair in items)
+        {
+            if (pair.Value is not JsonObject candidate ||
+                !ReadOptionalString(candidate, "type").Equals(itemKind, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var id = ReadOptionalString(candidate, "id");
+            if (!string.IsNullOrWhiteSpace(id) && targetIds.Contains(id))
+            {
+                keysToRemove.Add(pair.Key);
+            }
+        }
+
+        if (writeChanges)
+        {
+            foreach (var key in keysToRemove)
+            {
+                items.Remove(key);
+            }
+        }
+
+        return keysToRemove.Count;
     }
 
     private static InventoryEnsureResult EnsureNonStackableInventoryItemCounts(
@@ -418,10 +506,12 @@ internal static partial class ManagedActionSaveApplier
 
     private static IReadOnlyList<string> LoadEnabledContentTrinketIds(
         string gameWorkingDirectory,
-        IReadOnlyList<string> excludeRarities)
+        IReadOnlyList<string> excludeRarities,
+        IReadOnlyList<string> includeRarities)
     {
         var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         var excludedRarities = excludeRarities.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var includedRarities = includeRarities.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var path in EnumerateCampaignTrinketEntryFiles(gameWorkingDirectory))
         {
             using var document = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions
@@ -447,6 +537,12 @@ internal static partial class ManagedActionSaveApplier
                         rarityElement.ValueKind == JsonValueKind.String
                         ? rarityElement.GetString()
                         : string.Empty;
+                    if (includedRarities.Count > 0 &&
+                        (string.IsNullOrWhiteSpace(rarity) || !includedRarities.Contains(rarity)))
+                    {
+                        continue;
+                    }
+
                     if (!string.IsNullOrWhiteSpace(rarity) && excludedRarities.Contains(rarity))
                     {
                         continue;

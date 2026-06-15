@@ -130,6 +130,30 @@ function Read-DecodedTownEvent {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Add-DecodedEstateTrinket {
+    param([string]$Id)
+
+    $path = Join-Path $saveRoot "persist.estate.json"
+    $estate = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    $items = $estate.base_root.trinkets.items
+    $maxKey = -1
+    foreach ($property in $items.PSObject.Properties) {
+        $numericKey = 0
+        if ([int]::TryParse($property.Name, [ref]$numericKey)) {
+            $maxKey = [Math]::Max($maxKey, $numericKey)
+        }
+    }
+
+    $newKey = [string]($maxKey + 1)
+    $items | Add-Member -MemberType NoteProperty -Name $newKey -Value ([pscustomobject]@{
+        id = $Id
+        type = "trinket"
+        amount = 1
+    })
+
+    $estate | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
 function Write-ManagedActionArtifact {
     param(
         [string]$Name,
@@ -914,6 +938,13 @@ Assert-True (Test-Path -LiteralPath (Join-Path $sourceSaveRoot "persist.estate.j
 New-Item -ItemType Directory -Force -Path $testRoot, $saveRoot | Out-Null
 Get-ChildItem -LiteralPath $sourceSaveRoot -Filter "*.json" |
     Copy-Item -Destination $saveRoot -Force
+Add-DecodedEstateTrinket -Id "crest_of_1100"
+Add-DecodedEstateTrinket -Id "dd_trinket"
+Add-DecodedEstateTrinket -Id "boss_hag"
+Add-DecodedEstateTrinket -Id "collector_1"
+Add-DecodedEstateTrinket -Id "crow_eye"
+Add-DecodedEstateTrinket -Id "com_thing_eye"
+Add-DecodedEstateTrinket -Id "com_mildredslocket"
 Write-DecodedRosterFixture
 Write-DecodedUpgradesFixture
 Write-DecodedTownFixture
@@ -933,6 +964,13 @@ $estate = Read-DecodedEstate
 $startingGold = Get-WalletAmount -Estate $estate -Currency "gold"
 Assert-True ($startingGold -ne 20000) "Fixture should start with a non-normalized gold amount so the write assertion is meaningful."
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 0) "Fixture should start without focus_ring so the trinket write assertion is meaningful."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "crest_of_1100") -eq 1) "Fixture should include one Kickstarter trinket for removal."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "dd_trinket") -eq 1) "Fixture should include one Darkest Dungeon trinket for removal."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "boss_hag") -eq 1) "Fixture should include one boss trophy trinket for removal."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "collector_1") -eq 1) "Fixture should include one collector trinket for removal."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "crow_eye") -eq 1) "Fixture should include one crow trinket for removal."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "com_thing_eye") -eq 1) "Fixture should include one Thing trinket for removal."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "com_mildredslocket") -eq 1) "Fixture should include one Mildred trinket for removal."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Fixture should start with one crusader."
 $initialCrusader = Get-FirstHeroRootByClass -Roster $roster -ClassId "crusader"
@@ -1012,20 +1050,20 @@ Assert-True ([bool]$dryRunInitializationReport.succeeded) "Decoded profile dry-r
 Assert-True ([bool]$dryRunInitializationReport.dryRun) "Decoded profile dry-run initialization should record dryRun=true."
 Assert-True ([bool]$dryRunInitializationReport.stateSucceeded) "Decoded profile dry-run initialization should initialize sidecar state."
 Assert-True ([bool]$dryRunInitializationReport.eventSucceeded) "Decoded profile dry-run initialization should run the initialization event."
-Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 12) "Decoded profile dry-run initialization should materialize twelve actions."
+Assert-True ([int]$dryRunInitializationReport.materializedActionCount -eq 13) "Decoded profile dry-run initialization should materialize thirteen actions."
 Assert-True ([bool]$dryRunInitializationReport.questBoardPreviewSucceeded) "Decoded profile dry-run initialization should preview the quest board."
 Assert-True ([int]$dryRunInitializationReport.questBoardCandidateCount -eq 8) "Decoded profile dry-run initialization should preview eight fixed boss quests."
 Assert-True (-not [bool]$dryRunInitializationReport.applySkipped) "Decoded profile dry-run initialization should run managed action apply."
 Assert-True ([bool]$dryRunInitializationReport.applySucceeded) "Decoded profile dry-run initialization apply should succeed."
-Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 12) "Decoded profile dry-run initialization should recognize twelve supported decoded-save/policy actions."
-Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 12) "Decoded profile dry-run initialization should dry-run twelve supported actions."
+Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 13) "Decoded profile dry-run initialization should recognize thirteen supported decoded-save/policy actions."
+Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 13) "Decoded profile dry-run initialization should dry-run thirteen supported actions."
 Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 6) "Decoded profile dry-run initialization should report six would-change decoded save files."
 Assert-True (@(Convert-ToArray $dryRunInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "dry-run" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression dry-run action details."
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
-Assert-True ([int]$dryRunReport.artifactCount -eq 12) "Dry-run should inspect twelve boss gauntlet initialization artifacts."
-Assert-True ([int]$dryRunReport.supportedActionCount -eq 12) "Dry-run should recognize twelve currently supported decoded-save/policy actions."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 12) "Dry-run should report twelve dry-run actions."
+Assert-True ([int]$dryRunReport.artifactCount -eq 13) "Dry-run should inspect thirteen boss gauntlet initialization artifacts."
+Assert-True ([int]$dryRunReport.supportedActionCount -eq 13) "Dry-run should recognize thirteen currently supported decoded-save/policy actions."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 13) "Dry-run should report thirteen dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
 Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 0) "Dry-run should not report unsupported boss gauntlet initialization actions."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
@@ -1034,6 +1072,13 @@ Assert-True ([int]$dryRunReport.changedFileCount -eq 6) "Dry-run should report s
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 0) "Dry-run must not add trinkets to decoded save JSON."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "crest_of_1100") -eq 1) "Dry-run must not remove Kickstarter trinkets from decoded save JSON."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "dd_trinket") -eq 1) "Dry-run must not remove Darkest Dungeon trinkets from decoded save JSON."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "boss_hag") -eq 1) "Dry-run must not remove boss trophy trinkets from decoded save JSON."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "collector_1") -eq 1) "Dry-run must not remove collector trinkets from decoded save JSON."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "crow_eye") -eq 1) "Dry-run must not remove crow trinkets from decoded save JSON."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "com_thing_eye") -eq 1) "Dry-run must not remove Thing trinkets from decoded save JSON."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "com_mildredslocket") -eq 1) "Dry-run must not remove Mildred trinkets from decoded save JSON."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 1) "Dry-run must not add roster heroes."
 $dryRunHighwayman = Get-FirstHeroRootByClass -Roster $roster -ClassId "highwayman"
@@ -1071,14 +1116,14 @@ Assert-True ([bool]$writeInitializationReport.stateSucceeded) "Decoded profile w
 Assert-True ([bool]$writeInitializationReport.eventSucceeded) "Decoded profile write initialization event should succeed even after initialized=true."
 Assert-True (-not [bool]$writeInitializationReport.applySkipped) "Decoded profile write initialization should run managed action apply."
 Assert-True ([bool]$writeInitializationReport.applySucceeded) "Decoded profile write initialization apply should succeed."
-Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 12) "Decoded profile write initialization should apply twelve supported decoded-save/policy actions."
+Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 13) "Decoded profile write initialization should apply thirteen supported decoded-save/policy actions."
 Assert-True ([int]$writeInitializationReport.applyChangedFileCount -eq 6) "Decoded profile write initialization should write six decoded save files."
 Assert-True (@(Convert-ToArray $writeInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "applied" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression applied action details."
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
-Assert-True ([int]$writeReport.supportedActionCount -eq 12) "Write pass should recognize twelve currently supported decoded-save/policy actions."
+Assert-True ([int]$writeReport.supportedActionCount -eq 13) "Write pass should recognize thirteen currently supported decoded-save/policy actions."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 12) "Write pass should apply twelve currently supported decoded-save/policy actions."
+Assert-True ([int]$writeReport.appliedActionCount -eq 13) "Write pass should apply thirteen currently supported decoded-save/policy actions."
 Assert-True ([int]$writeReport.unsupportedActionCount -eq 0) "Write pass should not leave unsupported boss gauntlet initialization actions."
 Assert-True ([int]$writeReport.changedFileCount -eq 6) "Write pass should change six decoded save files."
 Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 6) "Write pass should mark six files as written."
@@ -1091,9 +1136,18 @@ Assert-True ((Get-WalletAmount -Estate $estate -Currency "deed") -eq 0) "Write p
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "crest") -eq 0) "Write pass should set starting crests to 0."
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "shard") -eq 36) "Write pass should set starting shards to 36."
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "focus_ring") -eq 2) "Write pass should add two independent copies of focus_ring."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "crest_of_1100") -eq 0) "Write pass should remove existing Kickstarter trinkets."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "dd_trinket") -eq 0) "Write pass should remove existing Darkest Dungeon trinkets."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "boss_hag") -eq 0) "Write pass should remove existing boss trophy trinkets."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "collector_1") -eq 0) "Write pass should remove existing collector trinkets."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "crow_eye") -eq 0) "Write pass should remove existing crow trinkets."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "com_thing_eye") -eq 0) "Write pass should remove existing Thing trinkets."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "com_mildredslocket") -eq 0) "Write pass should remove existing Mildred trinkets."
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "berserk_mask") -eq 2) "Write pass should add two independent copies of berserk_mask."
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "dd_trinket") -eq 0) "Write pass should not add Darkest Dungeon reward trinkets to the starting estate."
 Assert-True ((Get-TrinketCopies -Estate $estate -Id "boss_necromancer") -eq 0) "Write pass should not add boss trophy trinkets to the starting estate."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "collector_1") -eq 0) "Write pass should not add collector drop trinkets to the starting estate."
+Assert-True ((Get-TrinketCopies -Estate $estate -Id "crow_eye") -eq 0) "Write pass should not add crow drop trinkets to the starting estate."
 $roster = Read-DecodedRoster
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "crusader") -eq 2) "Write pass should ensure two crusaders."
 Assert-True ((Get-HeroClassCount -Roster $roster -ClassId "highwayman") -eq 2) "Write pass should ensure two highwaymen."

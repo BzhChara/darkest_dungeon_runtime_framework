@@ -13,6 +13,7 @@
     "upgrade.ensure_purchases",
     "stagecoach.suppress_recruits",
     "estate.ensure_inventory_counts",
+    "estate.remove_inventory_items",
     "wallet.set_currency_amount",
     "wallet.set_currency_amounts",
     "wallet.modify_currency",
@@ -439,6 +440,18 @@
             "source": "content.trinkets.enabled",
             "count": "state.bossGauntlet.trinketCopies",
             "excludeRarities": "state.bossGauntlet.initialTrinketExcludeRarities"
+          }
+        },
+        {
+          "type": "estate.removeInventoryItems",
+          "capability": "estate.remove_inventory_items",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.estate.inventory",
+            "itemKind": "trinket",
+            "source": "content.trinkets.enabled",
+            "includeRarities": "state.bossGauntlet.initialTrinketRemoveRarities"
           }
         },
         {

@@ -41,7 +41,24 @@
   "initialTrinketExcludeRarities": [
     "darkest_dungeon",
     "trophy",
-    "kickstarter"
+    "kickstarter",
+    "ancestral_shambler",
+    "collector",
+    "crow",
+    "madman",
+    "thing",
+    "mildred"
+  ],
+  "initialTrinketRemoveRarities": [
+    "darkest_dungeon",
+    "trophy",
+    "kickstarter",
+    "ancestral_shambler",
+    "collector",
+    "crow",
+    "madman",
+    "thing",
+    "mildred"
   ],
   "trinketSaleValuePatch": {
     "enabled": true,
@@ -52,6 +69,12 @@
       "rare",
       "very_rare",
       "ancestral",
+      "ancestral_shambler",
+      "collector",
+      "crow",
+      "madman",
+      "thing",
+      "mildred",
       "crimson_court"
     ],
     "price": 0
