@@ -40,16 +40,19 @@
   "trinketCopies": 2,
   "initialTrinketExcludeRarities": [
     "darkest_dungeon",
-    "trophy"
+    "trophy",
+    "kickstarter"
   ],
   "trinketSaleValuePatch": {
     "enabled": true,
     "rarities": [
+      "very_common",
       "common",
       "uncommon",
       "rare",
       "very_rare",
-      "ancestral"
+      "ancestral",
+      "crimson_court"
     ],
     "price": 0
   },
