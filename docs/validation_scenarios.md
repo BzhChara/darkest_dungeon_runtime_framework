@@ -145,10 +145,10 @@ plugins/_validation/challenge_run_contract/challenge.json
 plugins/_validation/challenge_run_contract/sample_state.json
 ```
 
-Dry-run tools:
+Runtime validation tools:
 
 ```text
-tools/TestChallengeRunDryRun.ps1
+tools/TestRuntimeEventExecutor.ps1
 tools/TestSaveEventBridge.ps1
 tools/TestRealtimeSaveBridge.ps1
 tools/TestManagedActionOverlay.ps1
@@ -157,9 +157,7 @@ tools/TestManagedActionOverlay.ps1
 Run:
 
 ```text
-.\tools\TestChallengeRunDryRun.ps1 -AssertSample
-.\tools\TestChallengeRunDryRun.ps1 -Outcome stage_failed -SelectedHeroIds 1,2,7,8 -SelectedTrinketIds berserk_mask,immunity_mask,fortunate_armlet,sb_4,sb_3,sb_2,sb_1,bleeding_pendant
-.\tools\TestChallengeRunDryRun.ps1 -Outcome stage_completed -SelectedHeroIds 1,2,7,8 -SelectedTrinketIds berserk_mask,immunity_mask,fortunate_armlet,sb_4,sb_3,sb_2,sb_1,bleeding_pendant
+.\tools\TestRuntimeEventExecutor.ps1
 .\tools\TestSaveEventBridge.ps1
 .\tools\TestRealtimeSaveBridge.ps1
 .\tools\TestManagedActionOverlay.ps1
@@ -206,16 +204,16 @@ capability quest.inject_fixed_stage
 Acceptance ladder:
 
 1. `--explain-rules` lists all challenge-run rules as active.
-2. The dry-run tool can read a challenge definition, sample save facts, and sidecar state.
-3. The dry-run tool can report available/unavailable heroes and trinkets.
-4. The dry-run tool can simulate stage failure by recording an attempt and locking the selected heroes/trinkets without marking them used.
-5. The dry-run tool can simulate stage completion by adding selected heroes/trinkets to used lists and advancing the stage index.
-6. Sidecar state can be loaded and saved through the framework, not just a standalone tool.
-7. The framework can observe stage selection confirmation and stage completion/failure from game flow.
+2. The runtime executor initializes challenge sidecar state from plugin rules and `challenge.json` through generic `state.*` actions.
+3. The runtime executor materializes fixed-stage quest injection, hero filtering, and trinket filtering artifacts when stage selection starts.
+4. The runtime executor locks selected heroes/trinkets on selection confirmation through the generic `selection.lock` action.
+5. The runtime executor records failed/completed attempts, consumes selected resources on completion, and advances the current stage through generic state actions.
+6. The save-event bridge can infer stage selection confirmation and stage completion/failure from game save facts, then replay the same runtime events.
+7. The launcher-side watcher can run the save-event bridge during game execution after debounced stable `profile_*` save changes.
 8. The framework can inject or replace fixed stages through a managed quest/content primitive.
 9. The framework can materialize preset max-level heroes with randomized positive/negative quirks through verified roster/save primitives.
 
-Steps 1-6 now exist for the sidecar state path: `--emit-event` can lock selection, record failed attempts, consume selected heroes/trinkets, and advance the stage in framework state. Step 7 has a generic save-facts bridge: `--infer-save-events` evaluates plugin-declared `factEventRules`; the validation plugin uses those rules to map active raid party/loadout facts or structured post-task `campaignLog.partyRaidRecords` to `challenge.stage_selection_confirmed`, and last raid quest/result facts to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. A single bridge pass can now reload sidecar state between inferred events, so a post-task save report can infer selection and completion together. The launcher-side watcher can also run that bridge during game execution after debounced stable `profile_*` save changes, while keeping original saves read-only. Step 8 has an observe-first materialization path: `challenge.stage_selection_started` produces `materialized` artifacts for fixed-stage quest injection, hero filtering, and trinket filtering under `modStateDirectory/_managed_actions/`; startup and `--dry-run` compile the latest fixed-stage quest artifact into `logs/managed_action_overlay_manifest.json`, supersede older fixed-stage artifacts for the same source rule, and append one virtual file replacement for `campaign/quest/quest.plot_quests.json` that forces the selected source plot quest to early/repeatable availability. Real quest list control, roster materialization, and UI filtering still require later capabilities.
+Steps 1-7 now exist through the framework path rather than a standalone simulator: `--emit-event` initializes state, locks selection, records failed attempts, consumes selected heroes/trinkets on completion, and advances the stage in framework state. `--infer-save-events` evaluates plugin-declared `factEventRules`; the validation plugin uses those rules to map active raid party/loadout facts or structured post-task `campaignLog.partyRaidRecords` to `challenge.stage_selection_confirmed`, and last raid quest/result facts to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. A single bridge pass can reload sidecar state between inferred events, so a post-task save report can infer selection and completion together. The launcher-side watcher can also run that bridge during game execution after debounced stable `profile_*` save changes, while keeping original saves read-only. Step 8 has an observe-first materialization path: `challenge.stage_selection_started` produces `materialized` artifacts for fixed-stage quest injection, hero filtering, and trinket filtering under `modStateDirectory/_managed_actions/`; startup and `--dry-run` compile the latest fixed-stage quest artifact into `logs/managed_action_overlay_manifest.json`, supersede older fixed-stage artifacts for the same source rule, and append one virtual file replacement for `campaign/quest/quest.plot_quests.json` that forces the selected source plot quest to early/repeatable availability. Real quest list control, roster materialization, and UI filtering still require later capabilities.
 
 ## Scenario 4: Fixed Resource Boss Gauntlet Campaign
 
