@@ -10,7 +10,7 @@
     "challenge.observe_stage_selection_confirmed",
     "challenge.observe_stage_completed",
     "challenge.observe_stage_failed",
-    "challenge.lock_stage_selection",
+    "selection.lock",
     "challenge.advance_stage",
     "roster.provide_fixed_hero_pool",
     "roster.filter_available_heroes",
@@ -410,12 +410,12 @@
       "requiresCapabilities": [
         "state.sidecar",
         "challenge.observe_stage_selection_confirmed",
-        "challenge.lock_stage_selection"
+        "selection.lock"
       ],
       "actions": [
         {
-          "type": "challenge.lockStageSelection",
-          "capability": "challenge.lock_stage_selection",
+          "type": "selection.lock",
+          "capability": "selection.lock",
           "risk": "safe",
           "required": true,
           "args": {

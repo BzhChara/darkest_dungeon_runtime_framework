@@ -184,12 +184,12 @@ action challenge.initializeRunState
 action quest.injectFixedStage
 action roster.filterAvailableHeroes
 action equipment.filterAvailableTrinkets
-action challenge.lockStageSelection
+action selection.lock
 action challenge.advanceStage
 action challenge.recordFailedAttempt
 capability state.sidecar
 capability challenge.define_stage_chain
-capability challenge.lock_stage_selection
+capability selection.lock
 capability challenge.advance_stage
 capability roster.provide_fixed_hero_pool
 capability roster.filter_available_heroes
@@ -315,7 +315,7 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Detect selected party | `party.selection_confirmed` event payload |
 | Hide used heroes | original roster unavailable/missing/status projection |
 | Define a fixed challenge stage chain | `challenge.define_stage_chain` plus `quest.inject_fixed_stage` |
-| Lock failed-stage retry selection | `challenge.lock_stage_selection` plus sidecar state |
+| Lock failed-stage retry selection | `selection.lock` plus sidecar state |
 | Remember used trinkets | sidecar state list actions plus `equipment.filter_available_trinkets` |
 | Consume selection after any terminal attempt | `quest.attempt_resolved` plus reusable selection-consume actions |
 | Fixed simultaneous quest board | `quest_board.replace_with_fixed_set` and content-derived quest facts |

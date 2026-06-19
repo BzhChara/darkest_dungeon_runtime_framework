@@ -824,17 +824,33 @@ internal static class RuntimeEventExecutor
     private static bool ExecuteLockSelection(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
     {
         var stateKey = RequireStringArg(action, "stateKey");
-        var questId = ResolveRequiredArgNode(action, "questId", document.State, payload);
         var heroIds = ResolveRequiredArgNode(action, "heroIds", document.State, payload);
         var trinketIds = ResolveRequiredArgNode(action, "trinketIds", document.State, payload);
 
         var locked = new JsonObject
         {
-            ["questId"] = CloneNode(questId),
             ["heroIds"] = new JsonArray(AsArrayItems(heroIds).Select(CloneNode).ToArray()),
             ["trinketIds"] = new JsonArray(AsArrayItems(trinketIds).Select(CloneNode).ToArray()),
             ["lockedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
         };
+
+        var hasContext = false;
+        if (action.Args.ContainsKey("questId"))
+        {
+            locked["questId"] = CloneNode(ResolveRequiredArgNode(action, "questId", document.State, payload));
+            hasContext = true;
+        }
+
+        if (action.Args.ContainsKey("stageId"))
+        {
+            locked["stageId"] = CloneNode(ResolveRequiredArgNode(action, "stageId", document.State, payload));
+            hasContext = true;
+        }
+
+        if (!hasContext)
+        {
+            throw new InvalidOperationException("selection.lock requires questId or stageId.");
+        }
 
         if (TryGetStringArg(action, "attemptId", out var attemptIdArg))
         {
