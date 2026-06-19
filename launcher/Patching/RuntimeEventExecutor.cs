@@ -371,6 +371,7 @@ internal static class RuntimeEventExecutor
                 "state.addUnique" => ExecuteAddUnique(action, document, payload),
                 "state.incrementCounter" => ExecuteIncrementCounter(action, document),
                 "state.setFromArrayIndex" => ExecuteSetFromArrayIndex(action, document),
+                "state.setArrayCount" => ExecuteSetArrayCount(action, document),
                 "state.mergeDefinition" => ExecuteMergeDefinition(sourceRule, action, document),
                 "attempt.recordOnce" => ExecuteRecordAttemptOnce(action, document, payload),
                 "selection.lock" => ExecuteLockSelection(action, document, payload),
@@ -379,8 +380,6 @@ internal static class RuntimeEventExecutor
                 "quest.markCompletedIfSuccessful" => ExecuteMarkCompletedIfSuccessful(action, document, payload),
                 "state.transitionWhenAllCompleted" => ExecuteTransitionWhenAllCompleted(action, document),
                 "wallet.addCurrencyOnEvent" => ExecuteAddCurrencyOnEvent(action, document, payload),
-                "challenge.lockStageSelection" => ExecuteLockStageSelection(action, document, payload),
-                "challenge.initializeRunState" => ExecuteInitializeChallengeRun(sourceRule, action, document),
                 _ => false
             };
 
@@ -709,7 +708,37 @@ internal static class RuntimeEventExecutor
     private static bool ExecuteSetValue(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
     {
         var key = RequireStringArg(action, "key");
+        if (!ReadOptionalBoolArg(action, "overwriteExisting", true) && TryGetPath(document.State, key, out _))
+        {
+            return false;
+        }
+
         var value = ResolveRequiredArgNode(action, "value", document.State, payload);
+        if (TryGetPath(document.State, key, out var existing) && JsonNode.DeepEquals(existing, value))
+        {
+            return false;
+        }
+
+        SetPath(document.State, key, value);
+        return true;
+    }
+
+    private static bool ExecuteSetArrayCount(RuntimeRuleAction action, ModStateDocument document)
+    {
+        var key = RequireStringArg(action, "key");
+        if (!ReadOptionalBoolArg(action, "overwriteExisting", true) && TryGetPath(document.State, key, out _))
+        {
+            return false;
+        }
+
+        var arrayStateKey = RequireStringArg(action, "arrayStateKey");
+        var arrayNode = RequirePath(document.State, arrayStateKey, "state", action, "arrayStateKey");
+        if (arrayNode is not JsonArray array)
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg 'arrayStateKey' must reference a state array.");
+        }
+
+        var value = JsonValue.Create(array.Count);
         if (TryGetPath(document.State, key, out var existing) && JsonNode.DeepEquals(existing, value))
         {
             return false;
@@ -800,23 +829,59 @@ internal static class RuntimeEventExecutor
 
         var target = GetOrCreateObject(document.State, stateKey);
         var changed = false;
-        foreach (var property in definitionObject)
+        if (action.Args.TryGetValue("fields", out var fieldsElement))
         {
-            if (!overwriteExisting && target.ContainsKey(property.Key))
+            if (fieldsElement.ValueKind != JsonValueKind.Object)
             {
-                continue;
+                throw new InvalidOperationException($"Action {action.Type} arg 'fields' must be an object.");
             }
 
-            if (target.TryGetPropertyValue(property.Key, out var existing) && JsonNode.DeepEquals(existing, property.Value))
+            var fields = JsonNode.Parse(fieldsElement.GetRawText()) as JsonObject;
+            if (fields is null)
             {
-                continue;
+                throw new InvalidOperationException($"Action {action.Type} arg 'fields' must be an object.");
             }
 
-            target[property.Key] = CloneNode(property.Value);
-            changed = true;
+            foreach (var field in fields)
+            {
+                if (!TryReadString(field.Value, out var sourcePath) || string.IsNullOrWhiteSpace(sourcePath))
+                {
+                    throw new InvalidOperationException($"Action {action.Type} arg 'fields.{field.Key}' must be a non-empty definition path string.");
+                }
+
+                if (!TryGetPath(definitionObject, sourcePath, out var sourceValue))
+                {
+                    continue;
+                }
+
+                changed |= SetDefinitionTargetValue(target, field.Key, sourceValue, overwriteExisting);
+            }
+        }
+        else
+        {
+            foreach (var property in definitionObject)
+            {
+                changed |= SetDefinitionTargetValue(target, property.Key, property.Value, overwriteExisting);
+            }
         }
 
         return changed;
+    }
+
+    private static bool SetDefinitionTargetValue(JsonObject target, string key, JsonNode? value, bool overwriteExisting)
+    {
+        if (!overwriteExisting && target.ContainsKey(key))
+        {
+            return false;
+        }
+
+        if (target.TryGetPropertyValue(key, out var existing) && JsonNode.DeepEquals(existing, value))
+        {
+            return false;
+        }
+
+        target[key] = CloneNode(value);
+        return true;
     }
 
     private static bool ExecuteRecordAttemptOnce(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
@@ -1128,24 +1193,6 @@ internal static class RuntimeEventExecutor
         return amount != 0;
     }
 
-    private static bool ExecuteLockStageSelection(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
-    {
-        var stateKey = RequireStringArg(action, "stateKey");
-        var stageId = ResolveRequiredArgNode(action, "stageId", document.State, payload);
-        var heroIds = ResolveRequiredArgNode(action, "heroIds", document.State, payload);
-        var trinketIds = ResolveRequiredArgNode(action, "trinketIds", document.State, payload);
-
-        var locked = new JsonObject
-        {
-            ["stageId"] = CloneNode(stageId),
-            ["heroIds"] = new JsonArray(AsArrayItems(heroIds).Select(CloneNode).ToArray()),
-            ["trinketIds"] = new JsonArray(AsArrayItems(trinketIds).Select(CloneNode).ToArray())
-        };
-
-        SetPath(document.State, stateKey, locked);
-        return true;
-    }
-
     private static string ReadFingerprintValue(JsonNode? value)
     {
         return value?.ToJsonString(JsonOptions) ?? "null";
@@ -1190,96 +1237,6 @@ internal static class RuntimeEventExecutor
         return true;
     }
 
-    private static bool ExecuteInitializeChallengeRun(RuntimeEventRuleSource sourceRule, RuntimeRuleAction action, ModStateDocument document)
-    {
-        var stateKey = RequireStringArg(action, "stateKey");
-        var runState = GetOrCreateObject(document.State, stateKey);
-        var changed = EnsureJsonValue(runState, "enabled", JsonValue.Create(true));
-        changed |= EnsureJsonValue(runState, "currentStageIndex", JsonValue.Create(0));
-        changed |= EnsureJsonValue(runState, "completedStageIds", new JsonArray());
-        changed |= EnsureJsonValue(runState, "usedHeroIds", new JsonArray());
-        changed |= EnsureJsonValue(runState, "usedTrinketIds", new JsonArray());
-        changed |= EnsureJsonValue(runState, "stageAttempts", new JsonArray());
-
-        if (!action.Args.ContainsKey("definition"))
-        {
-            return changed;
-        }
-
-        var definition = RequireStringArg(action, "definition");
-        var definitionPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceRule.SourcePath) ?? ".", definition));
-        if (!File.Exists(definitionPath))
-        {
-            throw new FileNotFoundException("Challenge definition file was not found.", definitionPath);
-        }
-
-        var challenge = JsonNode.Parse(File.ReadAllText(definitionPath, Encoding.UTF8)) as JsonObject;
-        if (challenge is null)
-        {
-            throw new InvalidDataException($"Challenge definition root must be a JSON object: {definitionPath}");
-        }
-
-        if (challenge["id"] is not null)
-        {
-            changed |= EnsureJsonValue(runState, "challengeId", CloneNode(challenge["id"]));
-        }
-
-        if (challenge["name"] is not null)
-        {
-            changed |= EnsureJsonValue(runState, "challengeName", CloneNode(challenge["name"]));
-        }
-
-        if (challenge["stages"] is JsonArray stages)
-        {
-            changed |= EnsureJsonValue(runState, "stageCount", JsonValue.Create(stages.Count));
-            changed |= EnsureJsonValue(runState, "stages", CloneNode(stages));
-            changed |= UpdateCurrentStage(runState);
-        }
-
-        foreach (var propertyName in new[]
-        {
-            "partySize",
-            "maxTrinketsPerHero",
-            "retryPolicy",
-            "heroReuse",
-            "trinketReuse",
-            "heroPoolPolicy",
-            "heroPool",
-            "trinketPool"
-        })
-        {
-            if (challenge[propertyName] is not null)
-            {
-                changed |= EnsureJsonValue(runState, propertyName, CloneNode(challenge[propertyName]));
-            }
-        }
-
-        return changed;
-    }
-
-    private static bool UpdateCurrentStage(JsonObject runState)
-    {
-        var currentIndex = 0;
-        if (runState["currentStageIndex"] is JsonValue indexValue && indexValue.TryGetValue<int>(out var index))
-        {
-            currentIndex = index;
-        }
-
-        JsonNode? currentStage = null;
-        if (runState["stages"] is JsonArray stages && currentIndex >= 0 && currentIndex < stages.Count)
-        {
-            currentStage = stages[currentIndex];
-        }
-
-        if (JsonNode.DeepEquals(runState["currentStage"], currentStage))
-        {
-            return false;
-        }
-
-        runState["currentStage"] = CloneNode(currentStage);
-        return true;
-    }
-
     private static bool IsSupportedSafeAction(string type)
     {
         return type is
@@ -1289,6 +1246,7 @@ internal static class RuntimeEventExecutor
             "state.addUnique" or
             "state.incrementCounter" or
             "state.setFromArrayIndex" or
+            "state.setArrayCount" or
             "state.mergeDefinition" or
             "attempt.recordOnce" or
             "selection.lock" or
@@ -1296,9 +1254,7 @@ internal static class RuntimeEventExecutor
             "selection.consumeTrinkets" or
             "quest.markCompletedIfSuccessful" or
             "state.transitionWhenAllCompleted" or
-            "wallet.addCurrencyOnEvent" or
-            "challenge.lockStageSelection" or
-            "challenge.initializeRunState";
+            "wallet.addCurrencyOnEvent";
     }
 
     private static bool IsSupportedManagedPlanAction(string type)
@@ -1393,17 +1349,6 @@ internal static class RuntimeEventExecutor
         var created = new JsonObject();
         SetPath(root, path, created);
         return created;
-    }
-
-    private static bool EnsureJsonValue(JsonObject root, string key, JsonNode? value)
-    {
-        if (root.ContainsKey(key))
-        {
-            return false;
-        }
-
-        root[key] = CloneNode(value);
-        return true;
     }
 
     private static void AddUnique(JsonArray array, JsonNode? value)

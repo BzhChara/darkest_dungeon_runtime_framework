@@ -180,7 +180,9 @@ state.challengeRun.lockedStageSelection
 state.challengeRun.usedHeroIds
 state.challengeRun.usedTrinketIds
 state.challengeRun.stageAttempts
-action challenge.initializeRunState
+action state.setValue
+action state.mergeDefinition
+action state.setArrayCount
 action quest.injectFixedStage
 action roster.filterAvailableHeroes
 action equipment.filterAvailableTrinkets
@@ -192,7 +194,6 @@ action state.clearPaths
 action selection.lock
 action attempt.recordOnce
 capability state.sidecar
-capability challenge.define_stage_chain
 capability selection.lock
 capability attempt.record_once
 capability roster.provide_fixed_hero_pool
@@ -318,7 +319,7 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Remember used heroes | sidecar state list actions |
 | Detect selected party | `party.selection_confirmed` event payload |
 | Hide used heroes | original roster unavailable/missing/status projection |
-| Define a fixed challenge stage chain | `challenge.define_stage_chain` plus `quest.inject_fixed_stage` |
+| Define a fixed challenge stage chain | `state.mergeDefinition`, `state.setArrayCount`, `state.setFromArrayIndex`, plus `quest.inject_fixed_stage` |
 | Lock failed-stage retry selection | `selection.lock` plus sidecar state |
 | Remember used trinkets | sidecar state list actions plus `equipment.filter_available_trinkets` |
 | Consume selection after any terminal attempt | `quest.attempt_resolved` plus reusable selection-consume actions |

@@ -5,7 +5,6 @@
   "enabled": true,
   "capabilities": [
     "state.sidecar",
-    "challenge.define_stage_chain",
     "challenge.observe_stage_selection_started",
     "challenge.observe_stage_selection_confirmed",
     "challenge.observe_stage_completed",
@@ -325,19 +324,131 @@
       "priority": 0,
       "requiresCapabilities": [
         "state.sidecar",
-        "challenge.define_stage_chain",
         "roster.provide_fixed_hero_pool",
         "equipment.provide_fixed_trinket_pool"
       ],
       "actions": [
         {
-          "type": "challenge.initializeRunState",
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.enabled",
+            "value": true,
+            "overwriteExisting": false
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.currentStageIndex",
+            "value": 0,
+            "overwriteExisting": false
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.completedStageIds",
+            "value": [],
+            "overwriteExisting": false
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.usedHeroIds",
+            "value": [],
+            "overwriteExisting": false
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.usedTrinketIds",
+            "value": [],
+            "overwriteExisting": false
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.lockedStageSelection",
+            "value": null,
+            "overwriteExisting": false
+          }
+        },
+        {
+          "type": "state.setValue",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.stageAttempts",
+            "value": [],
+            "overwriteExisting": false
+          }
+        },
+        {
+          "type": "state.mergeDefinition",
           "capability": "state.sidecar",
           "risk": "safe",
           "required": true,
           "args": {
             "stateKey": "challengeRun",
-            "definition": "challenge.json"
+            "definition": "challenge.json",
+            "overwriteExisting": false,
+            "fields": {
+              "challengeId": "id",
+              "challengeName": "name",
+              "stages": "stages",
+              "partySize": "partySize",
+              "maxTrinketsPerHero": "maxTrinketsPerHero",
+              "retryPolicy": "retryPolicy",
+              "heroReuse": "heroReuse",
+              "trinketReuse": "trinketReuse",
+              "heroPoolPolicy": "heroPoolPolicy",
+              "heroPool": "heroPool",
+              "trinketPool": "trinketPool"
+            }
+          }
+        },
+        {
+          "type": "state.setArrayCount",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.stageCount",
+            "arrayStateKey": "challengeRun.stages",
+            "overwriteExisting": false
+          }
+        },
+        {
+          "type": "state.setFromArrayIndex",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.currentStage",
+            "arrayStateKey": "challengeRun.stages",
+            "indexStateKey": "challengeRun.currentStageIndex"
           }
         }
       ]

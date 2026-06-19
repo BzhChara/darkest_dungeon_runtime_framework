@@ -62,16 +62,15 @@ $blockingRules = @(
         Name = "core-specific-plot-kill-quest"
         Pattern = "(?i)\bplot_kill_[a-z0-9_]+\b"
         Message = "Core code should not hardcode a concrete plot-kill quest id."
+    },
+    [pscustomobject]@{
+        Name = "core-challenge-action-branch"
+        Pattern = "(?i)\bchallenge\.[A-Za-z0-9_]+\b"
+        Message = "Core code should not contain challenge.* executor branches; use generic primitives composed by plugins."
     }
 )
 
-$knownIssueRules = @(
-    [pscustomobject]@{
-        Name = "known-challenge-action"
-        Pattern = "(?i)\bchallenge\.[A-Za-z0-9_]+\b"
-        Message = "Existing challenge.* actions are known early primitives. Keep reporting them until audited or deprecated."
-    }
-)
+$knownIssueRules = @()
 
 $blocking = [System.Collections.Generic.List[object]]::new()
 $knownIssues = [System.Collections.Generic.List[object]]::new()
