@@ -374,7 +374,7 @@
           "required": true,
           "args": {
             "stage": "state.challengeRun.currentStage",
-            "source": "challenge.stageChain"
+            "source": "state.challengeRun.stages"
           }
         },
         {
@@ -383,7 +383,7 @@
           "risk": "managed",
           "required": true,
           "args": {
-            "source": "challenge.heroPool",
+            "source": "state.challengeRun.heroPool",
             "excludeStateList": "challengeRun.usedHeroIds",
             "lockedSelectionKey": "challengeRun.lockedStageSelection.heroIds"
           }
@@ -394,7 +394,7 @@
           "risk": "managed",
           "required": true,
           "args": {
-            "source": "challenge.trinketPool",
+            "source": "state.challengeRun.trinketPool",
             "excludeStateList": "challengeRun.usedTrinketIds",
             "lockedSelectionKey": "challengeRun.lockedStageSelection.trinketIds"
           }

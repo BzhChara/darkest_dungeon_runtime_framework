@@ -640,17 +640,8 @@ internal static class RuntimeEventExecutor
             return RequirePath(state, source["state.".Length..], "state", action, argName);
         }
 
-        if (source.StartsWith("challenge.", StringComparison.OrdinalIgnoreCase))
-        {
-            var suffix = source["challenge.".Length..];
-            var statePath = suffix.Equals("stageChain", StringComparison.OrdinalIgnoreCase)
-                ? "challengeRun.stages"
-                : $"challengeRun.{suffix}";
-            return RequirePath(state, statePath, "challenge state", action, argName);
-        }
-
         throw new InvalidOperationException(
-            $"Action {action.Type} arg '{argName}' uses unsupported source address '{source}'. Use event.*, state.*, or challenge.*.");
+            $"Action {action.Type} arg '{argName}' uses unsupported source address '{source}'. Use event.* or state.*.");
     }
 
     private static HashSet<string> ReadStringSet(JsonNode? node)
