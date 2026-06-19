@@ -11,6 +11,7 @@
     "challenge.observe_stage_completed",
     "challenge.observe_stage_failed",
     "selection.lock",
+    "attempt.record_once",
     "challenge.advance_stage",
     "roster.provide_fixed_hero_pool",
     "roster.filter_available_heroes",
@@ -479,18 +480,41 @@
       "priority": 0,
       "requiresCapabilities": [
         "state.sidecar",
-        "challenge.observe_stage_failed"
+        "challenge.observe_stage_failed",
+        "attempt.record_once"
       ],
       "actions": [
         {
-          "type": "challenge.recordFailedAttempt",
-          "capability": "state.sidecar",
+          "type": "attempt.recordOnce",
+          "capability": "attempt.record_once",
           "risk": "safe",
           "required": true,
           "args": {
             "stateKey": "challengeRun.stageAttempts",
-            "stageId": "event.stageId",
-            "selectionStateKey": "challengeRun.lockedStageSelection"
+            "fingerprint": {
+              "explicit": "event.attemptFingerprint",
+              "requiresAny": [
+                "event.observedAttemptId",
+                "event.observedPartyRaidRecordCount"
+              ],
+              "prefix": "stageAttempt",
+              "parts": {
+                "stage": "event.stageId",
+                "result": "failed",
+                "attempt": "event.observedAttemptId",
+                "partyRaidRecordCount": "event.observedPartyRaidRecordCount",
+                "sourceQuestId": "event.sourceQuestId",
+                "observedQuestHash": "event.observedQuestHash",
+                "observedSuccess": "event.observedSuccess"
+              }
+            },
+            "includeEvent": false,
+            "fields": {
+              "stageId": "event.stageId",
+              "result": "failed"
+            },
+            "selectionStateKey": "challengeRun.lockedStageSelection",
+            "selectionRequired": true
           }
         }
       ]

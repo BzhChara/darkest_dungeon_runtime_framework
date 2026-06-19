@@ -379,7 +379,6 @@ internal static class RuntimeEventExecutor
                 "state.transitionWhenAllCompleted" => ExecuteTransitionWhenAllCompleted(action, document),
                 "wallet.addCurrencyOnEvent" => ExecuteAddCurrencyOnEvent(action, document, payload),
                 "challenge.lockStageSelection" => ExecuteLockStageSelection(action, document, payload),
-                "challenge.recordFailedAttempt" => ExecuteRecordStageAttempt(action, document, payload, "failed"),
                 "challenge.advanceStage" => ExecuteAdvanceStage(action, document, payload),
                 "challenge.initializeRunState" => ExecuteInitializeChallengeRun(sourceRule, action, document),
                 _ => false
@@ -795,30 +794,119 @@ internal static class RuntimeEventExecutor
     private static bool ExecuteRecordAttemptOnce(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
     {
         var stateKey = RequireStringArg(action, "stateKey");
-        var fingerprint = ResolveFingerprintArg(action, document.State, payload, "fingerprint");
+        var fingerprint = ResolveAttemptFingerprint(action, document.State, payload);
         var attempts = GetOrCreateArray(document.State, stateKey);
-        if (attempts.Any(attempt => attempt is JsonObject obj &&
+        if (!string.IsNullOrWhiteSpace(fingerprint) &&
+            attempts.Any(attempt => attempt is JsonObject obj &&
             TryReadString(obj["attemptFingerprint"], out var existing) &&
             existing.Equals(fingerprint, StringComparison.OrdinalIgnoreCase)))
         {
             return false;
         }
 
-        var attempt = new JsonObject
+        var attempt = new JsonObject();
+        if (!string.IsNullOrWhiteSpace(fingerprint))
         {
-            ["attemptFingerprint"] = fingerprint,
-            ["event"] = CloneNode(payload),
-            ["recordedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
-        };
+            attempt["attemptFingerprint"] = fingerprint;
+        }
+
+        if (ReadOptionalBoolArg(action, "includeEvent", true))
+        {
+            attempt["event"] = CloneNode(payload);
+        }
+
+        ApplyRecordAttemptFields(action, document.State, payload, attempt);
 
         if (TryGetStringArg(action, "selectionStateKey", out var selectionStateKey) &&
             TryGetPath(document.State, selectionStateKey, out var selection))
         {
             attempt["selection"] = CloneNode(selection);
         }
+        else if (TryGetStringArg(action, "selectionStateKey", out selectionStateKey) &&
+            ReadOptionalBoolArg(action, "selectionRequired", false))
+        {
+            throw new InvalidOperationException(
+                $"Action {action.Type} arg 'selectionStateKey' references missing state path '{selectionStateKey}'.");
+        }
+
+        attempt["recordedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
 
         attempts.Add(attempt);
         return true;
+    }
+
+    private static string? ResolveAttemptFingerprint(RuntimeRuleAction action, JsonObject state, JsonObject payload)
+    {
+        if (!action.Args.TryGetValue("fingerprint", out var element))
+        {
+            throw new InvalidOperationException($"Action {action.Type} requires arg 'fingerprint'.");
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return ResolveFingerprintArg(action, state, payload, "fingerprint");
+        }
+
+        var spec = JsonNode.Parse(element.GetRawText()) as JsonObject;
+        if (spec is null)
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg 'fingerprint' must be a string or object.");
+        }
+
+        if (TryGetStringProperty(spec, "explicit", out var explicitSource) &&
+            TryResolveSourceText(state, payload, explicitSource, out var explicitText) &&
+            !string.IsNullOrWhiteSpace(explicitText))
+        {
+            return "explicit:" + explicitText;
+        }
+
+        if (spec.TryGetPropertyValue("requiresAny", out var requiresAny) &&
+            !AnySourceHasText(state, payload, requiresAny))
+        {
+            return null;
+        }
+
+        if (!TryGetStringProperty(spec, "prefix", out var prefix))
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg 'fingerprint.prefix' must be a non-empty string.");
+        }
+
+        if (!spec.TryGetPropertyValue("parts", out var partsNode) || partsNode is not JsonObject partsObject)
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg 'fingerprint.parts' must be an object.");
+        }
+
+        var parts = new List<string> { prefix };
+        foreach (var part in partsObject)
+        {
+            parts.Add($"{part.Key}={ResolveFingerprintPart(state, payload, part.Value)}");
+        }
+
+        return string.Join("|", parts);
+    }
+
+    private static void ApplyRecordAttemptFields(RuntimeRuleAction action, JsonObject state, JsonObject payload, JsonObject attempt)
+    {
+        if (!action.Args.TryGetValue("fields", out var element))
+        {
+            return;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg 'fields' must be an object.");
+        }
+
+        var fields = JsonNode.Parse(element.GetRawText()) as JsonObject;
+        if (fields is null)
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg 'fields' must be an object.");
+        }
+
+        foreach (var field in fields)
+        {
+            attempt[field.Key] = ResolveFieldNode(action, state, payload, field.Value, $"fields.{field.Key}");
+        }
     }
 
     private static bool ExecuteLockSelection(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
@@ -1030,84 +1118,6 @@ internal static class RuntimeEventExecutor
         return true;
     }
 
-    private static bool ExecuteRecordStageAttempt(RuntimeRuleAction action, ModStateDocument document, JsonObject payload, string result)
-    {
-        var stateKey = RequireStringArg(action, "stateKey");
-        var stageId = ResolveRequiredArgNode(action, "stageId", document.State, payload);
-        JsonNode? selection = null;
-        if (TryGetStringArg(action, "selectionStateKey", out var selectionStateKey))
-        {
-            selection = RequirePath(document.State, selectionStateKey, "state", action, "selectionStateKey");
-        }
-
-        var attempts = GetOrCreateArray(document.State, stateKey);
-        var attemptFingerprint = BuildStageAttemptFingerprint(stageId, payload, result);
-        if (!string.IsNullOrWhiteSpace(attemptFingerprint) &&
-            attempts.Any(attempt => attempt is JsonObject attemptObject &&
-                TryReadString(attemptObject["attemptFingerprint"], out var existingFingerprint) &&
-                existingFingerprint.Equals(attemptFingerprint, StringComparison.OrdinalIgnoreCase)))
-        {
-            return false;
-        }
-
-        var attempt = new JsonObject
-        {
-            ["stageId"] = CloneNode(stageId),
-            ["result"] = result,
-            ["selection"] = CloneNode(selection),
-            ["recordedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
-        };
-
-        if (!string.IsNullOrWhiteSpace(attemptFingerprint))
-        {
-            attempt["attemptFingerprint"] = attemptFingerprint;
-        }
-
-        attempts.Add(attempt);
-        return true;
-    }
-
-    private static string? BuildStageAttemptFingerprint(JsonNode? stageId, JsonObject payload, string result)
-    {
-        if (TryGetPath(payload, "attemptFingerprint", out var explicitFingerprint) &&
-            TryReadString(explicitFingerprint, out var explicitText) &&
-            !string.IsNullOrWhiteSpace(explicitText))
-        {
-            return $"explicit:{explicitText}";
-        }
-
-        var hasAttemptIdentity = TryGetPath(payload, "observedAttemptId", out var observedAttemptId) &&
-            TryReadString(observedAttemptId, out var attemptIdText) &&
-            !string.IsNullOrWhiteSpace(attemptIdText);
-        var hasRaidRecordCount = TryGetPath(payload, "observedPartyRaidRecordCount", out var raidRecordCount) &&
-            TryReadString(raidRecordCount, out var raidRecordCountText) &&
-            !string.IsNullOrWhiteSpace(raidRecordCountText);
-
-        if (!hasAttemptIdentity && !hasRaidRecordCount)
-        {
-            return null;
-        }
-
-        var parts = new List<string>
-        {
-            "stageAttempt",
-            $"stage={ReadFingerprintValue(stageId)}",
-            $"result={result}",
-            $"attempt={ReadFingerprintValue(hasAttemptIdentity ? observedAttemptId : null)}",
-            $"partyRaidRecordCount={ReadFingerprintValue(hasRaidRecordCount ? raidRecordCount : null)}",
-            $"sourceQuestId={ReadPayloadFingerprintValue(payload, "sourceQuestId")}",
-            $"observedQuestHash={ReadPayloadFingerprintValue(payload, "observedQuestHash")}",
-            $"observedSuccess={ReadPayloadFingerprintValue(payload, "observedSuccess")}"
-        };
-
-        return string.Join("|", parts);
-    }
-
-    private static string ReadPayloadFingerprintValue(JsonObject payload, string path)
-    {
-        return TryGetPath(payload, path, out var value) ? ReadFingerprintValue(value) : string.Empty;
-    }
-
     private static string ReadFingerprintValue(JsonNode? value)
     {
         return value?.ToJsonString(JsonOptions) ?? "null";
@@ -1289,7 +1299,6 @@ internal static class RuntimeEventExecutor
             "state.transitionWhenAllCompleted" or
             "wallet.addCurrencyOnEvent" or
             "challenge.lockStageSelection" or
-            "challenge.recordFailedAttempt" or
             "challenge.advanceStage" or
             "challenge.initializeRunState";
     }
@@ -1405,6 +1414,92 @@ internal static class RuntimeEventExecutor
         {
             array.Add(CloneNode(value));
         }
+    }
+
+    private static JsonNode? ResolveFieldNode(RuntimeRuleAction action, JsonObject state, JsonObject payload, JsonNode? node, string argName)
+    {
+        if (node is JsonValue value && value.TryGetValue<string>(out var text))
+        {
+            if (text.StartsWith("event.", StringComparison.OrdinalIgnoreCase))
+            {
+                return RequirePath(payload, text["event.".Length..], "event", action, argName);
+            }
+
+            if (text.StartsWith("state.", StringComparison.OrdinalIgnoreCase))
+            {
+                return RequirePath(state, text["state.".Length..], "state", action, argName);
+            }
+        }
+
+        return CloneNode(node);
+    }
+
+    private static bool AnySourceHasText(JsonObject state, JsonObject payload, JsonNode? sources)
+    {
+        foreach (var source in AsArrayItems(sources))
+        {
+            if (TryReadString(source, out var sourceText) &&
+                TryResolveSourceText(state, payload, sourceText, out var value) &&
+                !string.IsNullOrWhiteSpace(value))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ResolveFingerprintPart(JsonObject state, JsonObject payload, JsonNode? node)
+    {
+        if (node is JsonValue value && value.TryGetValue<string>(out var text))
+        {
+            if (text.StartsWith("event.", StringComparison.OrdinalIgnoreCase) ||
+                text.StartsWith("state.", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryResolveSourceNode(state, payload, text, out var resolved)
+                    ? ReadFingerprintValue(resolved)
+                    : string.Empty;
+            }
+
+            return text;
+        }
+
+        return ReadFingerprintValue(node);
+    }
+
+    private static bool TryGetStringProperty(JsonObject obj, string name, out string value)
+    {
+        value = string.Empty;
+        return obj.TryGetPropertyValue(name, out var node) &&
+            TryReadString(node, out value) &&
+            !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryResolveSourceText(JsonObject state, JsonObject payload, string source, out string value)
+    {
+        value = string.Empty;
+        if (!TryResolveSourceNode(state, payload, source, out var node))
+        {
+            return false;
+        }
+
+        return TryReadString(node, out value);
+    }
+
+    private static bool TryResolveSourceNode(JsonObject state, JsonObject payload, string source, out JsonNode? node)
+    {
+        if (source.StartsWith("event.", StringComparison.OrdinalIgnoreCase))
+        {
+            return TryGetPath(payload, source["event.".Length..], out node);
+        }
+
+        if (source.StartsWith("state.", StringComparison.OrdinalIgnoreCase))
+        {
+            return TryGetPath(state, source["state.".Length..], out node);
+        }
+
+        node = JsonValue.Create(source);
+        return true;
     }
 
     private static JsonNode? ResolveRequiredArgNode(RuntimeRuleAction action, string argName, JsonObject state, JsonObject payload)

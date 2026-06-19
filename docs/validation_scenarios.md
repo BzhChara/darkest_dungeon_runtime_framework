@@ -186,10 +186,11 @@ action roster.filterAvailableHeroes
 action equipment.filterAvailableTrinkets
 action selection.lock
 action challenge.advanceStage
-action challenge.recordFailedAttempt
+action attempt.recordOnce
 capability state.sidecar
 capability challenge.define_stage_chain
 capability selection.lock
+capability attempt.record_once
 capability challenge.advance_stage
 capability roster.provide_fixed_hero_pool
 capability roster.filter_available_heroes
