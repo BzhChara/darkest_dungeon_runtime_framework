@@ -12,7 +12,6 @@
     "challenge.observe_stage_failed",
     "selection.lock",
     "attempt.record_once",
-    "challenge.advance_stage",
     "roster.provide_fixed_hero_pool",
     "roster.filter_available_heroes",
     "equipment.provide_fixed_trinket_pool",
@@ -437,7 +436,7 @@
       "requiresCapabilities": [
         "state.sidecar",
         "challenge.observe_stage_completed",
-        "challenge.advance_stage"
+        "attempt.record_once"
       ],
       "actions": [
         {
@@ -461,13 +460,78 @@
           }
         },
         {
-          "type": "challenge.advanceStage",
-          "capability": "challenge.advance_stage",
+          "type": "state.addUnique",
+          "capability": "state.sidecar",
           "risk": "safe",
           "required": true,
           "args": {
-            "stateKey": "challengeRun",
-            "completedStageId": "event.stageId"
+            "key": "challengeRun.completedStageIds",
+            "value": "event.stageId"
+          }
+        },
+        {
+          "type": "attempt.recordOnce",
+          "capability": "attempt.record_once",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "stateKey": "challengeRun.stageAttempts",
+            "fingerprint": {
+              "explicit": "event.attemptFingerprint",
+              "requiresAny": [
+                "event.observedAttemptId",
+                "event.observedPartyRaidRecordCount"
+              ],
+              "prefix": "stageAttempt",
+              "parts": {
+                "stage": "event.stageId",
+                "result": "completed",
+                "attempt": "event.observedAttemptId",
+                "partyRaidRecordCount": "event.observedPartyRaidRecordCount",
+                "sourceQuestId": "event.sourceQuestId",
+                "observedQuestHash": "event.observedQuestHash",
+                "observedSuccess": "event.observedSuccess"
+              }
+            },
+            "includeEvent": false,
+            "fields": {
+              "stageId": "event.stageId",
+              "result": "completed"
+            },
+            "selectionStateKey": "challengeRun.lockedStageSelection",
+            "selectionRequired": true
+          }
+        },
+        {
+          "type": "state.incrementCounter",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.currentStageIndex",
+            "amount": 1
+          }
+        },
+        {
+          "type": "state.setFromArrayIndex",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "key": "challengeRun.currentStage",
+            "arrayStateKey": "challengeRun.stages",
+            "indexStateKey": "challengeRun.currentStageIndex"
+          }
+        },
+        {
+          "type": "state.clearPaths",
+          "capability": "state.sidecar",
+          "risk": "safe",
+          "required": true,
+          "args": {
+            "paths": [
+              "challengeRun.lockedStageSelection"
+            ]
           }
         }
       ]

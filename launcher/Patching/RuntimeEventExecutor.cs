@@ -370,6 +370,7 @@ internal static class RuntimeEventExecutor
                 "state.addUniqueRange" => ExecuteAddUniqueRange(action, document, payload),
                 "state.addUnique" => ExecuteAddUnique(action, document, payload),
                 "state.incrementCounter" => ExecuteIncrementCounter(action, document),
+                "state.setFromArrayIndex" => ExecuteSetFromArrayIndex(action, document),
                 "state.mergeDefinition" => ExecuteMergeDefinition(sourceRule, action, document),
                 "attempt.recordOnce" => ExecuteRecordAttemptOnce(action, document, payload),
                 "selection.lock" => ExecuteLockSelection(action, document, payload),
@@ -379,7 +380,6 @@ internal static class RuntimeEventExecutor
                 "state.transitionWhenAllCompleted" => ExecuteTransitionWhenAllCompleted(action, document),
                 "wallet.addCurrencyOnEvent" => ExecuteAddCurrencyOnEvent(action, document, payload),
                 "challenge.lockStageSelection" => ExecuteLockStageSelection(action, document, payload),
-                "challenge.advanceStage" => ExecuteAdvanceStage(action, document, payload),
                 "challenge.initializeRunState" => ExecuteInitializeChallengeRun(sourceRule, action, document),
                 _ => false
             };
@@ -710,6 +710,34 @@ internal static class RuntimeEventExecutor
     {
         var key = RequireStringArg(action, "key");
         var value = ResolveRequiredArgNode(action, "value", document.State, payload);
+        if (TryGetPath(document.State, key, out var existing) && JsonNode.DeepEquals(existing, value))
+        {
+            return false;
+        }
+
+        SetPath(document.State, key, value);
+        return true;
+    }
+
+    private static bool ExecuteSetFromArrayIndex(RuntimeRuleAction action, ModStateDocument document)
+    {
+        var key = RequireStringArg(action, "key");
+        var arrayStateKey = RequireStringArg(action, "arrayStateKey");
+        var indexStateKey = RequireStringArg(action, "indexStateKey");
+        var arrayNode = RequirePath(document.State, arrayStateKey, "state", action, "arrayStateKey");
+        if (arrayNode is not JsonArray array)
+        {
+            throw new InvalidOperationException($"Action {action.Type} arg 'arrayStateKey' must reference a state array.");
+        }
+
+        var indexNode = RequirePath(document.State, indexStateKey, "state", action, "indexStateKey");
+        var index = ReadIntegerNode(action, indexNode, "indexStateKey");
+        var value = index >= 0 && index < array.Count
+            ? CloneNode(array[index])
+            : action.Args.ContainsKey("outOfRangeValue")
+                ? ReadRequiredArgNode(action, "outOfRangeValue")
+                : null;
+
         if (TryGetPath(document.State, key, out var existing) && JsonNode.DeepEquals(existing, value))
         {
             return false;
@@ -1162,36 +1190,6 @@ internal static class RuntimeEventExecutor
         return true;
     }
 
-    private static bool ExecuteAdvanceStage(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
-    {
-        var stateKey = RequireStringArg(action, "stateKey");
-        var runState = GetOrCreateObject(document.State, stateKey);
-        var completedStageId = ResolveRequiredArgNode(action, "completedStageId", document.State, payload);
-
-        AddUnique(GetOrCreateArray(runState, "completedStageIds"), completedStageId);
-
-        var selection = runState["lockedStageSelection"];
-        var attempt = new JsonObject
-        {
-            ["stageId"] = CloneNode(completedStageId),
-            ["result"] = "completed",
-            ["selection"] = CloneNode(selection),
-            ["recordedAtUtc"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
-        };
-        GetOrCreateArray(runState, "stageAttempts").Add(attempt);
-
-        var currentIndex = 0;
-        if (runState["currentStageIndex"] is JsonValue value && value.TryGetValue<int>(out var index))
-        {
-            currentIndex = index;
-        }
-
-        runState["currentStageIndex"] = currentIndex + 1;
-        UpdateCurrentStage(runState);
-        runState["lockedStageSelection"] = null;
-        return true;
-    }
-
     private static bool ExecuteInitializeChallengeRun(RuntimeEventRuleSource sourceRule, RuntimeRuleAction action, ModStateDocument document)
     {
         var stateKey = RequireStringArg(action, "stateKey");
@@ -1290,6 +1288,7 @@ internal static class RuntimeEventExecutor
             "state.addUniqueRange" or
             "state.addUnique" or
             "state.incrementCounter" or
+            "state.setFromArrayIndex" or
             "state.mergeDefinition" or
             "attempt.recordOnce" or
             "selection.lock" or
@@ -1299,7 +1298,6 @@ internal static class RuntimeEventExecutor
             "state.transitionWhenAllCompleted" or
             "wallet.addCurrencyOnEvent" or
             "challenge.lockStageSelection" or
-            "challenge.advanceStage" or
             "challenge.initializeRunState";
     }
 
@@ -1593,6 +1591,11 @@ internal static class RuntimeEventExecutor
     private static int ResolveIntArg(RuntimeRuleAction action, string argName, JsonObject state, JsonObject payload)
     {
         var node = ResolveRequiredArgNode(action, argName, state, payload);
+        return ReadIntegerNode(action, node, argName);
+    }
+
+    private static int ReadIntegerNode(RuntimeRuleAction action, JsonNode? node, string argName)
+    {
         if (node is JsonValue value)
         {
             if (value.TryGetValue<int>(out var intValue))
