@@ -9,6 +9,7 @@ $sessionId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $testRoot = Join-Path $projectRoot.Path "logs\runtime_event_executor_test\$sessionId"
 $stateRoot = Join-Path $projectRoot.Path "state\runtime_event_executor_test\$sessionId"
 $payloadRoot = Join-Path $testRoot "payloads"
+$bossPluginId = "validation.boss_gauntlet_campaign_contract"
 
 function Assert-True {
     param(
@@ -69,9 +70,9 @@ function Read-StateDocument {
     return $document
 }
 
-function Read-ChallengeState {
-    $document = Read-StateDocument "validation.challenge_run_contract"
-    return $document.state.challengeRun
+function Read-BossGauntletState {
+    $document = Read-StateDocument $bossPluginId
+    return $document.state.bossGauntlet
 }
 
 function Convert-ToArray {
@@ -127,31 +128,20 @@ function Read-ManagedActionArtifact {
     return $artifact
 }
 
-function Get-PlanItem {
-    param(
-        [object]$Plan,
-        [string]$Id
-    )
-
-    $items = @(Convert-ToArray $Plan.items | Where-Object { $_.id -eq $Id })
-    Assert-True ($items.Count -eq 1) "Expected exactly one plan item '$Id', found $($items.Count)."
-    return $items[0]
-}
-
 $resolvedTestRoot = [System.IO.Path]::GetFullPath($testRoot)
 $resolvedLogsRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot.Path "logs"))
 Assert-True ($resolvedTestRoot.StartsWith($resolvedLogsRoot, [System.StringComparison]::OrdinalIgnoreCase)) "Refusing to clean outside logs: $resolvedTestRoot"
 
 New-Item -ItemType Directory -Force -Path $testRoot, $payloadRoot | Out-Null
 
-$baseArgs = @(
+$bossArgs = @(
     "--config", (Resolve-ProjectPath $ConfigPath),
     "--no-inject",
     "--allow-non-atomic-state-writes",
-    "--mod-state-id", "validation.challenge_run_contract",
+    "--mod-state-id", $bossPluginId,
     "--mod-state-dir", $stateRoot
 )
-Invoke-Loader -LoaderArgs ($baseArgs + @("--init-mod-state"))
+Invoke-Loader -LoaderArgs ($bossArgs + @("--init-mod-state"))
 
 $draftArgs = @(
     "--config", (Resolve-ProjectPath $ConfigPath),
@@ -180,101 +170,85 @@ $strictArgIssue = @(Convert-ToArray $runtimeEventReport.issues | Where-Object {
 })
 Assert-True ($strictArgIssue.Count -gt 0) "Missing event payload field should fail the action instead of being treated as an empty no-op."
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.run_started"))
-$state = Read-ChallengeState
-Assert-True ((Convert-ToArray $state.heroPool).Count -eq 12) "Challenge initialization should materialize the hero pool in sidecar state."
-Assert-True ((Convert-ToArray $state.trinketPool).Count -eq 24) "Challenge initialization should materialize the trinket pool in sidecar state."
+Invoke-Loader -LoaderArgs ($bossArgs + @("--emit-event", "profile.initialization_requested"))
+$state = Read-BossGauntletState
+Assert-True ([bool]$state.initialized) "Boss gauntlet initialization should mark the profile initialized."
+Assert-True ($state.phase -eq "boss_gauntlet") "Boss gauntlet initialization should enter boss_gauntlet phase."
+Assert-True ((Convert-ToArray $state.fixedQuestIds).Count -eq 8) "Boss gauntlet initialization should load fixed boss quest ids from the definition."
+Assert-True ((Convert-ToArray $state.fixedQuestIds) -contains "plot_kill_necromancer_3") "Fixed boss quest ids should include the Necromancer fixture quest."
+Assert-True ([int]$state.wallet.gold -eq 20000) "Boss gauntlet initialization should set the starting gold."
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_started"))
 $runtimeEventReport = Read-RuntimeEventReport
-Assert-True ([int]$runtimeEventReport.plannedActionCount -eq 0) "Stage selection start should not leave managed actions as report-only plans."
-Assert-True ([int]$runtimeEventReport.materializedActionCount -eq 3) "Stage selection start should materialize three managed action artifacts."
+Assert-True ([int]$runtimeEventReport.materializedActionCount -eq 13) "Boss gauntlet initialization should materialize profile-normalization actions."
+$rosterAction = Get-ActionReport -Report $runtimeEventReport -Type "roster.ensureClassInstances"
+$rosterArtifact = Read-ManagedActionArtifact -Action $rosterAction -ExpectedType "roster.ensureClassInstances"
+Assert-True ([int]$rosterArtifact.plan.arguments.copiesPerClass -eq 2) "Roster normalization artifact should request two heroes per class."
+Assert-True ($rosterArtifact.plan.arguments.level -eq "max") "Roster normalization artifact should request max-level heroes."
+$questBoardAction = Get-ActionReport -Report $runtimeEventReport -Type "questBoard.replaceWithFixedSet"
+$questBoardArtifact = Read-ManagedActionArtifact -Action $questBoardAction -ExpectedType "questBoard.replaceWithFixedSet"
+Assert-True ((Convert-ToArray $questBoardArtifact.plan.arguments.questIds) -contains "plot_kill_necromancer_3") "Quest board artifact should include the Necromancer fixture quest."
 
-$questPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "quest.injectFixedStage"
-Assert-True ($questPlanAction.plan.stage.id -eq "stage_1_necromancer") "Quest plan should target the first challenge stage."
-$questArtifact = Read-ManagedActionArtifact -Action $questPlanAction -ExpectedType "quest.injectFixedStage"
-Assert-True ($questArtifact.plan.stage.id -eq "stage_1_necromancer") "Quest artifact should target the first challenge stage."
-
-$heroPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "roster.filterAvailableHeroes"
-Assert-True ([int]$heroPlanAction.plan.totalCount -eq 12) "Hero plan should include the full configured hero pool."
-Assert-True ([int]$heroPlanAction.plan.allowedCount -eq 12) "Initial hero plan should allow every configured hero."
-$heroArtifact = Read-ManagedActionArtifact -Action $heroPlanAction -ExpectedType "roster.filterAvailableHeroes"
-Assert-True ([int]$heroArtifact.plan.allowedCount -eq 12) "Hero artifact should include the initial allowed hero count."
-
-$trinketPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "equipment.filterAvailableTrinkets"
-Assert-True ([int]$trinketPlanAction.plan.totalCount -eq 24) "Trinket plan should include the full configured trinket pool."
-Assert-True ([int]$trinketPlanAction.plan.allowedCount -eq 24) "Initial trinket plan should allow every configured trinket."
-$trinketArtifact = Read-ManagedActionArtifact -Action $trinketPlanAction -ExpectedType "equipment.filterAvailableTrinkets"
-Assert-True ([int]$trinketArtifact.plan.allowedCount -eq 24) "Trinket artifact should include the initial allowed trinket count."
-
-$selectionPayload = [pscustomobject]@{
-    stageId = "stage_1_necromancer"
-    selectedHeroIds = @("1", "2", "7", "8")
-    selectedTrinketIds = @("berserk_mask", "immunity_mask", "fortunate_armlet", "sb_4", "sb_3", "sb_2", "sb_1", "bleeding_pendant")
-}
-$selectionPayloadPath = Write-JsonPayload "selection_confirmed.json" $selectionPayload
-
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_confirmed", "--event-payload-file", $selectionPayloadPath))
-$state = Read-ChallengeState
-Assert-True ($state.lockedStageSelection.stageId -eq "stage_1_necromancer") "Selection lock stage id was not recorded."
-Assert-True ((Convert-ToArray $state.lockedStageSelection.heroIds).Count -eq 4) "Selection lock hero count was not recorded."
-Assert-True ((Convert-ToArray $state.usedHeroIds).Count -eq 0) "Selection confirmation should not mark heroes used."
-
-$stageFailedPayloadPath = Write-JsonPayload "stage_failed_result.json" ([pscustomobject]@{
-    stageId = "stage_1_necromancer"
-    sourceQuestId = "plot_kill_necromancer_1"
-    observedQuestHash = -1493133786
-    observedSuccess = $false
-    observedPartyRaidRecordCount = 1
+$firstSelectionPayloadPath = Write-JsonPayload "boss_selection_necromancer.json" ([pscustomobject]@{
+    questId = "plot_kill_necromancer_3"
+    selectedHeroIds = @("hero_1", "hero_2", "hero_3", "hero_4")
+    selectedTrinketIds = @("trinket_1", "trinket_2")
 })
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_failed", "--event-payload-file", $stageFailedPayloadPath))
-$state = Read-ChallengeState
-Assert-True ($state.lockedStageSelection.stageId -eq "stage_1_necromancer") "Failure should keep locked selection."
-Assert-True ((Convert-ToArray $state.stageAttempts).Count -eq 1) "Failure should record one attempt."
-Assert-True ((Convert-ToArray $state.stageAttempts)[0].result -eq "failed") "Failure attempt result was not recorded."
-Assert-True (-not [string]::IsNullOrWhiteSpace((Convert-ToArray $state.stageAttempts)[0].attemptFingerprint)) "Failure attempt should record an idempotency fingerprint when event identity is available."
-Assert-True ((Convert-ToArray $state.usedHeroIds).Count -eq 0) "Failure should not mark heroes used."
+Invoke-Loader -LoaderArgs ($bossArgs + @("--emit-event", "quest.selection_confirmed", "--event-payload-file", $firstSelectionPayloadPath))
+$state = Read-BossGauntletState
+Assert-True ($state.activeSelection.questId -eq "plot_kill_necromancer_3") "Selection lock should record the active boss quest."
+Assert-True ((Convert-ToArray $state.activeSelection.heroIds).Count -eq 4) "Selection lock should record four selected heroes."
+Assert-True ((Convert-ToArray $state.activeSelection.trinketIds).Count -eq 2) "Selection lock should record selected trinkets."
+Assert-True ((Convert-ToArray $state.consumedHeroIds).Count -eq 0) "Selection confirmation should not consume heroes."
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_failed", "--event-payload-file", $stageFailedPayloadPath))
-$state = Read-ChallengeState
-Assert-True ((Convert-ToArray $state.stageAttempts).Count -eq 1) "Duplicate failure event with the same attempt identity should not record a second attempt."
-
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_started"))
-$runtimeEventReport = Read-RuntimeEventReport
-$heroPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "roster.filterAvailableHeroes"
-$lockedHero = Get-PlanItem -Plan $heroPlanAction.plan -Id "1"
-Assert-True ($lockedHero.status -eq "locked_for_retry") "Retry hero plan should keep the previously locked hero selectable."
-Assert-True ([bool]$lockedHero.allowed) "Retry locked hero should remain allowed."
-$blockedHero = Get-PlanItem -Plan $heroPlanAction.plan -Id "16"
-Assert-True (-not [bool]$blockedHero.allowed) "Retry hero plan should block heroes outside the locked selection."
-Assert-True ((Convert-ToArray $blockedHero.reasons) -contains "current_stage_selection_locked") "Retry blocked hero should explain the locked-selection reason."
-
-$stageCompletedPayloadPath = Write-JsonPayload "stage_completed_result.json" ([pscustomobject]@{
-    stageId = "stage_1_necromancer"
+$firstSuccessPayloadPath = Write-JsonPayload "boss_attempt_necromancer_success.json" ([pscustomobject]@{
+    questId = "plot_kill_necromancer_3"
+    success = $true
+    attemptId = "attempt_necromancer_success_001"
 })
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_completed", "--event-payload-file", $stageCompletedPayloadPath))
-$state = Read-ChallengeState
-Assert-True ([int]$state.currentStageIndex -eq 1) "Completion should advance currentStageIndex to 1."
-Assert-True ((Convert-ToArray $state.completedStageIds) -contains "stage_1_necromancer") "Completion should record completed stage id."
-Assert-True ((Convert-ToArray $state.usedHeroIds).Count -eq 4) "Completion should mark selected heroes used."
-Assert-True ((Convert-ToArray $state.usedTrinketIds).Count -eq 8) "Completion should mark selected trinkets used."
-Assert-True ($null -eq $state.lockedStageSelection) "Completion should clear locked selection."
-Assert-True ((Convert-ToArray $state.stageAttempts).Count -eq 2) "Completion should record a second attempt."
-Assert-True ((Convert-ToArray $state.stageAttempts)[1].result -eq "completed") "Completion attempt result was not recorded."
+Invoke-Loader -LoaderArgs ($bossArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $firstSuccessPayloadPath))
+$state = Read-BossGauntletState
+Assert-True ((Convert-ToArray $state.attempts).Count -eq 1) "Successful attempt should be recorded once."
+Assert-True ((Convert-ToArray $state.consumedHeroIds).Count -eq 4) "Successful attempt should consume selected heroes."
+Assert-True ((Convert-ToArray $state.consumedTrinketIds).Count -eq 2) "Successful attempt should consume selected trinkets."
+Assert-True ((Convert-ToArray $state.completedQuestIds) -contains "plot_kill_necromancer_3") "Successful attempt should mark the boss quest completed."
+Assert-True ([int]$state.wallet.gold -eq 30000) "Successful attempt should add the configured victory reward."
+Assert-True ($state.lastResolvedAttemptId -eq "attempt_necromancer_success_001") "Successful attempt should persist the resolved attempt id."
+Assert-True ($null -eq $state.activeSelection) "Resolved attempt should clear active selection."
 
-Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_started"))
+Invoke-Loader -LoaderArgs ($bossArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $firstSuccessPayloadPath))
+$state = Read-BossGauntletState
+Assert-True ((Convert-ToArray $state.attempts).Count -eq 1) "Duplicate successful attempt without an active selection should not record again."
+Assert-True ([int]$state.wallet.gold -eq 30000) "Duplicate successful attempt should not pay the reward again."
+
+Invoke-Loader -LoaderArgs ($bossArgs + @("--emit-event", "profile.initialization_requested"))
+$state = Read-BossGauntletState
+Assert-True ([int]$state.wallet.gold -eq 30000) "Repeated initialization must not reset changed wallet state."
+Assert-True ((Convert-ToArray $state.completedQuestIds) -contains "plot_kill_necromancer_3") "Repeated initialization must not clear completed boss quests."
 $runtimeEventReport = Read-RuntimeEventReport
-$questPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "quest.injectFixedStage"
-Assert-True ($questPlanAction.plan.stage.id -eq "stage_2_prophet") "Quest plan should advance to the second challenge stage after completion."
-$heroPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "roster.filterAvailableHeroes"
-$usedHero = Get-PlanItem -Plan $heroPlanAction.plan -Id "1"
-Assert-True (-not [bool]$usedHero.allowed) "Used hero should be unavailable after stage completion."
-Assert-True ((Convert-ToArray $usedHero.reasons) -contains "used_by_completed_stage") "Used hero should explain the completion-use reason."
-$trinketPlanAction = Get-ActionReport -Report $runtimeEventReport -Type "equipment.filterAvailableTrinkets"
-$usedTrinket = Get-PlanItem -Plan $trinketPlanAction.plan -Id "berserk_mask"
-Assert-True (-not [bool]$usedTrinket.allowed) "Used trinket should be unavailable after stage completion."
-Assert-True ((Convert-ToArray $usedTrinket.reasons) -contains "used_by_completed_stage") "Used trinket should explain the completion-use reason."
+Assert-True ([int]$runtimeEventReport.materializedActionCount -eq 0) "Repeated initialization should not materialize profile-normalization actions."
+Assert-True ([int]$runtimeEventReport.executedActionCount -eq 0) "Repeated initialization should not execute state initialization actions."
+
+$failedSelectionPayloadPath = Write-JsonPayload "boss_selection_prophet_failed.json" ([pscustomobject]@{
+    questId = "plot_kill_prophet_3"
+    selectedHeroIds = @("hero_5", "hero_6", "hero_7", "hero_8")
+    selectedTrinketIds = @("trinket_3", "trinket_4")
+})
+Invoke-Loader -LoaderArgs ($bossArgs + @("--emit-event", "quest.selection_confirmed", "--event-payload-file", $failedSelectionPayloadPath))
+
+$failedAttemptPayloadPath = Write-JsonPayload "boss_attempt_prophet_failed.json" ([pscustomobject]@{
+    questId = "plot_kill_prophet_3"
+    success = $false
+    attemptId = "attempt_prophet_failed_001"
+})
+Invoke-Loader -LoaderArgs ($bossArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $failedAttemptPayloadPath))
+$state = Read-BossGauntletState
+Assert-True ((Convert-ToArray $state.attempts).Count -eq 2) "Failed attempt should be recorded."
+Assert-True ((Convert-ToArray $state.consumedHeroIds).Count -eq 8) "Failed attempt should also consume selected heroes."
+Assert-True ((Convert-ToArray $state.consumedTrinketIds).Count -eq 4) "Failed attempt should also consume selected trinkets."
+Assert-True (-not ((Convert-ToArray $state.completedQuestIds) -contains "plot_kill_prophet_3")) "Failed attempt should not complete the boss quest."
+Assert-True ([int]$state.wallet.gold -eq 30000) "Failed attempt should not pay the victory reward."
+Assert-True ($null -eq $state.activeSelection) "Failed attempt should clear active selection."
 
 Write-Host "PASS: runtime event executor state assertions passed."
