@@ -225,7 +225,7 @@ Live game observation uses a dedicated configuration. It does not write original
 .\tools\StartLiveChallengeObserve.ps1
 ```
 
-The compatibility entry point `.\tools\StartChallengeSaveBridgeObserve.ps1` remains available and delegates to the new live observe script. The script creates a fresh sidecar state directory for each observation, initializes `validation.challenge_run_contract`, emits `challenge.run_started` and `challenge.stage_selection_started`, and then starts the game. After entering `profile_3`, choose the boss quest for the current stage. Save changes trigger the save event bridge in realtime. After exiting the game, inspect:
+The script creates a fresh sidecar state directory for each observation, initializes `validation.challenge_run_contract`, emits `challenge.run_started` and `challenge.stage_selection_started`, and then starts the game. After entering `profile_3`, choose the boss quest for the current stage. Save changes trigger the save event bridge in realtime. After exiting the game, inspect:
 
 ```text
 logs/save_sessions/<sessionId>.json
