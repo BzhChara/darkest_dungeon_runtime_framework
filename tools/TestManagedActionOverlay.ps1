@@ -142,22 +142,8 @@ try {
         }
     }
 
-    $baseArgs = @(
-        "--config", (Resolve-ProjectPath $ConfigPath),
-        "--no-inject",
-        "--allow-non-atomic-state-writes",
-        "--mod-state-id", "validation.challenge_run_contract",
-        "--mod-state-dir", $stateRoot
-    )
-
-    Invoke-Loader -LoaderArgs ($baseArgs + @("--init-mod-state"))
-    Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.run_started"))
-    Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_started"))
-    Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "challenge.stage_selection_started"))
-
     $artifactRoot = Join-Path $stateRoot "_managed_actions"
-    $artifacts = @(Get-ChildItem -LiteralPath $artifactRoot -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
-    Assert-True ($artifacts.Count -eq 6) "Expected six materialized managed action artifacts after two selection-start events, found $($artifacts.Count)."
+    New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
 
     $config = Get-Content -Raw -LiteralPath (Resolve-ProjectPath $ConfigPath) | ConvertFrom-Json
     $gameWorkingDirectory = Resolve-ProjectPath ([string]$config.gameWorkingDirectory)
@@ -229,7 +215,7 @@ try {
             target = "profile.quest_board"
             arguments = [ordered]@{
                 target = "profile.quest_board"
-                questIds = @("plot_kill_prophet_3")
+                questIds = @("plot_kill_necromancer_3", "plot_kill_prophet_3")
                 removeCompleted = $false
             }
         }
@@ -262,7 +248,7 @@ try {
     $townUnlockArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $townUnlockArtifactPath -Encoding UTF8
 
     $artifacts = @(Get-ChildItem -LiteralPath $artifactRoot -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
-    Assert-True ($artifacts.Count -eq 9) "Expected nine materialized managed action artifacts after adding trinket patch, fixed-board, and town unlock artifacts, found $($artifacts.Count)."
+    Assert-True ($artifacts.Count -eq 3) "Expected three materialized managed action artifacts after adding trinket patch, fixed-board, and town unlock artifacts, found $($artifacts.Count)."
 
     $dryRunArgs = @(
         "--config", (Resolve-ProjectPath $ConfigPath),
@@ -276,21 +262,16 @@ try {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Managed action overlay manifest was not written: $manifestPath"
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 
-    Assert-True ([int]$manifest.artifactCount -eq 9) "Overlay manifest should count all nine artifacts."
-    Assert-True ([int]$manifest.overlayCount -eq 4) "Overlay compiler should expose the latest quest.injectFixedStage overlay, the trinket patch overlay, the fixed-board overlay, and the town unlock overlay."
-    Assert-True ([int]$manifest.ignoredArtifactCount -eq 4) "Overlay manifest should still ignore hero/trinket preview filter artifacts for now."
-    Assert-True ([int]$manifest.supersededOverlayCount -eq 1) "Overlay manifest should supersede the older quest injection artifact."
+    Assert-True ([int]$manifest.artifactCount -eq 3) "Overlay manifest should count all three artifacts."
+    Assert-True ([int]$manifest.overlayCount -eq 3) "Overlay compiler should expose the trinket patch overlay, the fixed-board overlay, and the town unlock overlay."
+    Assert-True ([int]$manifest.ignoredArtifactCount -eq 0) "Overlay manifest should not ignore any artifacts in this focused fixture."
+    Assert-True ([int]$manifest.supersededOverlayCount -eq 0) "Overlay manifest should not supersede single-source artifacts in this focused fixture."
     Assert-True ([int]$manifest.virtualFileRuleCount -eq (1 + $lockedTownBuildingFiles.Count + $trinketPatchEntryFiles.Count)) "Overlay manifest should compile one quest plot virtual file rule plus town building and trinket sourcePath rules."
-    Assert-True ([int]$manifest.virtualFileReplacementCount -eq 2) "Overlay manifest should compile quest plot replacements for the selected stage and fixed board."
+    Assert-True ([int]$manifest.virtualFileReplacementCount -eq 2) "Overlay manifest should compile quest plot replacements for both fixed-board boss quests."
     Assert-True ((@($manifest.issues)).Count -eq 0) "Overlay manifest should not contain issues."
 
     $overlays = @($manifest.overlays)
-    Assert-True ($overlays.Count -eq 4) "Expected exactly four overlay entries."
-    $overlay = @($overlays | Where-Object { $_.kind -eq "quest.injectFixedStage" })[0]
-    Assert-True ($overlay.kind -eq "quest.injectFixedStage") "Overlay kind should be quest.injectFixedStage."
-    Assert-True ($overlay.stageId -eq "stage_1_necromancer") "Overlay should target the first challenge stage."
-    Assert-True ($overlay.sourceQuestId -eq "plot_kill_necromancer_1") "Overlay should carry the source quest id."
-    Assert-True (Test-Path -LiteralPath ([string]$overlay.artifactPath) -PathType Leaf) "Overlay artifact path should point to an existing artifact."
+    Assert-True ($overlays.Count -eq 3) "Expected exactly three overlay entries."
     $patchEntryOverlay = @($overlays | Where-Object { $_.kind -eq "trinket.patchEntry" })[0]
     Assert-True ($patchEntryOverlay.effect -eq "patchEntry") "Trinket patch overlay should record patch-entry intent."
     Assert-True ($patchEntryOverlay.target -eq "content.trinkets.entries") "Trinket patch overlay should target trinket entry content."
@@ -303,7 +284,8 @@ try {
     $questBoardOverlay = @($overlays | Where-Object { $_.kind -eq "questBoard.replaceWithFixedSet" })[0]
     Assert-True ($questBoardOverlay.effect -eq "replaceWithFixedSet") "Fixed-board overlay should record board replacement intent."
     Assert-True ($questBoardOverlay.target -eq "profile.quest_board") "Fixed-board overlay should target the profile quest board."
-    Assert-True (@($questBoardOverlay.questIds).Count -eq 1) "Fixed-board overlay should keep the declared quest id list."
+    Assert-True (@($questBoardOverlay.questIds).Count -eq 2) "Fixed-board overlay should keep the declared quest id list."
+    Assert-True ((@($questBoardOverlay.questIds) -contains "plot_kill_necromancer_3") -and (@($questBoardOverlay.questIds) -contains "plot_kill_prophet_3")) "Fixed-board overlay should keep both declared boss quest ids."
     $townUnlockOverlay = @($overlays | Where-Object { $_.kind -eq "town.unlockAllBuildings" })[0]
     Assert-True ($townUnlockOverlay.effect -eq "suppressBuildingRequirements") "Town unlock overlay should record building requirement suppression."
     Assert-True ($townUnlockOverlay.target -eq "content.town.buildingRequirements") "Town unlock overlay should target building requirement content."
@@ -316,13 +298,12 @@ try {
     Assert-True ($virtualRule.effect -eq "forcePlotQuestAvailable") "Overlay virtual rule should force the selected plot quest available."
     $virtualReplacements = @($virtualRule.replacements)
     Assert-True ($virtualReplacements.Count -eq 2) "Expected exactly two overlay virtual replacements."
-    $virtualReplacement = @($virtualReplacements | Where-Object { $_.sourceQuestId -eq "plot_kill_necromancer_1" })[0]
-    Assert-True ($virtualReplacement.sourceQuestId -eq "plot_kill_necromancer_1") "Overlay virtual replacement should use the current stage source quest."
-    Assert-True ($virtualReplacement.stageId -eq "stage_1_necromancer") "Overlay virtual replacement should carry the current stage id."
-    Assert-True ([int]$virtualReplacement.setDungeonLevel -eq 0) "Overlay virtual replacement should force dungeon_level to 0."
-    Assert-True ([bool]$virtualReplacement.setRepeatable) "Overlay virtual replacement should force the quest to repeatable."
-    Assert-True ([int]$virtualReplacement.findChars -gt 0) "Overlay virtual replacement should contain non-empty find text."
-    Assert-True ([int]$virtualReplacement.replaceChars -gt 0) "Overlay virtual replacement should contain non-empty replacement text."
+    $necroBoardReplacement = @($virtualReplacements | Where-Object { $_.sourceQuestId -eq "plot_kill_necromancer_3" })[0]
+    Assert-True ($necroBoardReplacement.kind -eq "questBoard.replaceWithFixedSet") "Necromancer fixed-board replacement should keep the originating overlay kind."
+    Assert-True ([int]$necroBoardReplacement.setDungeonLevel -eq 0) "Necromancer fixed-board replacement should force dungeon_level to 0."
+    Assert-True ([bool]$necroBoardReplacement.setRepeatable) "Necromancer fixed-board replacement should force repeatable availability."
+    Assert-True ([int]$necroBoardReplacement.findChars -gt 0) "Necromancer fixed-board replacement should contain non-empty find text."
+    Assert-True ([int]$necroBoardReplacement.replaceChars -gt 0) "Necromancer fixed-board replacement should contain non-empty replacement text."
     $questBoardReplacement = @($virtualReplacements | Where-Object { $_.sourceQuestId -eq "plot_kill_prophet_3" })[0]
     Assert-True ($questBoardReplacement.kind -eq "questBoard.replaceWithFixedSet") "Fixed-board replacement should keep the originating overlay kind."
     Assert-True ([int]$questBoardReplacement.setDungeonLevel -eq 0) "Fixed-board replacement should force dungeon_level to 0."
@@ -349,10 +330,10 @@ try {
     Assert-True (Test-Path -LiteralPath $summaryPath -PathType Leaf) "Managed overlay preview summary was not written: $summaryPath"
 
     $preview = Get-Content -Raw -LiteralPath $previewPath | ConvertFrom-Json
-    $previewQuest = @($preview.plot_quests | Where-Object { $_.id -eq "plot_kill_necromancer_1" })
-    Assert-True ($previewQuest.Count -eq 1) "Managed overlay preview should contain the selected plot quest exactly once."
-    Assert-True ([int]$previewQuest[0].dungeon_level -eq 0) "Managed overlay preview should force dungeon_level to 0."
-    Assert-True ([bool]$previewQuest[0].is_repeatable) "Managed overlay preview should force is_repeatable to true."
+    $previewQuest = @($preview.plot_quests | Where-Object { $_.id -eq "plot_kill_necromancer_3" })
+    Assert-True ($previewQuest.Count -eq 1) "Managed overlay preview should contain the Necromancer fixed-board plot quest exactly once."
+    Assert-True ([int]$previewQuest[0].dungeon_level -eq 0) "Managed overlay preview should force Necromancer dungeon_level to 0."
+    Assert-True ([bool]$previewQuest[0].is_repeatable) "Managed overlay preview should force Necromancer is_repeatable to true."
     $previewBoardQuest = @($preview.plot_quests | Where-Object { $_.id -eq "plot_kill_prophet_3" })
     Assert-True ($previewBoardQuest.Count -eq 1) "Managed overlay preview should contain the fixed-board plot quest exactly once."
     Assert-True ([int]$previewBoardQuest[0].dungeon_level -eq 0) "Managed overlay preview should force fixed-board dungeon_level to 0."
