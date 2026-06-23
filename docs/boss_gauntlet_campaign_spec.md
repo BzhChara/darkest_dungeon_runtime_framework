@@ -138,7 +138,7 @@ quest.attempt_resolved(success=false)
   -> clear activeSelection
 ```
 
-This intentionally differs from the early `challenge_run_contract` validation scenario. Failure is not "retry with locked selection"; failure is "attempt consumed, consequences kept, remaining pool continues."
+Failure is not "retry with locked selection"; failure is "attempt consumed, consequences kept, remaining pool continues."
 
 Required generic capabilities:
 

@@ -1,5 +1,5 @@
 param(
-    [string]$ConfigPath = "config\challenge_save_event_bridge_observe_config.json",
+    [string]$ConfigPath = "config\quest_board_profile_refresh_config.json",
     [switch]$NoBuild
 )
 

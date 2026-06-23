@@ -3,7 +3,7 @@
   "gameWorkingDirectory": "E:/Steam/steamapps/common/DarkestDungeon",
   "runtimeDllPath": "./runtime/bin/x64/Release/RuntimeHook.dll",
   "logDirectory": "./logs",
-  "modStateDirectory": "./state/challenge_save_event_bridge_observe",
+  "modStateDirectory": "./state/quest_board_profile_refresh",
   "allowNonAtomicStateWrites": false,
   "enableInjection": true,
   "killGameOnInjectionFailure": false,
