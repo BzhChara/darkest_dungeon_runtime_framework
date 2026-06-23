@@ -401,7 +401,6 @@ internal static class RuntimeEventExecutor
     {
         return type switch
         {
-            "quest.injectFixedStage" => BuildQuestInjectFixedStagePlan(action, document, payload),
             "roster.filterAvailableHeroes" => BuildAvailabilityFilterPlan(action, document, payload, "roster.heroes", "hero"),
             "equipment.filterAvailableTrinkets" => BuildAvailabilityFilterPlan(action, document, payload, "equipment.trinkets", "trinket"),
             "roster.ensureClassInstances" => BuildGenericManagedActionPlan(action, document, payload, "ensureClassInstances", "profile.roster"),
@@ -422,30 +421,6 @@ internal static class RuntimeEventExecutor
             "questBoard.replaceWithFixedSet" => BuildGenericManagedActionPlan(action, document, payload, "replaceWithFixedSet", "profile.questBoard"),
             _ => throw new InvalidOperationException($"managed action type is not plannable: {type}")
         };
-    }
-
-    private static JsonObject BuildQuestInjectFixedStagePlan(RuntimeRuleAction action, ModStateDocument document, JsonObject payload)
-    {
-        var stage = ResolveRequiredArgNode(action, "stage", document.State, payload);
-        if (stage is not JsonObject)
-        {
-            throw new InvalidOperationException($"Action {action.Type} arg 'stage' must resolve to a stage object.");
-        }
-
-        var plan = new JsonObject
-        {
-            ["kind"] = action.Type,
-            ["effect"] = "injectFixedStage",
-            ["target"] = "quest.currentStage",
-            ["stage"] = CloneNode(stage)
-        };
-
-        if (TryGetStringArg(action, "source", out var source))
-        {
-            plan["source"] = source;
-        }
-
-        return plan;
     }
 
     private static JsonObject BuildAvailabilityFilterPlan(
@@ -1260,7 +1235,6 @@ internal static class RuntimeEventExecutor
     private static bool IsSupportedManagedPlanAction(string type)
     {
         return type is
-            "quest.injectFixedStage" or
             "roster.filterAvailableHeroes" or
             "equipment.filterAvailableTrinkets" or
             "roster.ensureClassInstances" or

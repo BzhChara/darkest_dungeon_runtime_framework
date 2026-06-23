@@ -49,11 +49,7 @@ internal static partial class ManagedActionOverlayCompiler
                         continue;
                     }
 
-                    if (actionType.Equals("quest.injectFixedStage", StringComparison.OrdinalIgnoreCase))
-                    {
-                        overlayCandidates.Add(BuildQuestInjectFixedStageOverlay(artifactPath, artifact));
-                    }
-                    else if (actionType.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
+                    if (actionType.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
                     {
                         if (supersededQuestBoardArtifacts.Contains(artifactPath))
                         {
@@ -171,32 +167,6 @@ internal static partial class ManagedActionOverlayCompiler
         values["DD_RUNTIME_MANAGED_OVERLAY_COUNT"] = report.OverlayCount.ToString(CultureInfo.InvariantCulture);
         values["DD_RUNTIME_MANAGED_OVERLAY_ISSUE_COUNT"] = report.IssueCount.ToString(CultureInfo.InvariantCulture);
         AppendVirtualRules(values, report.VirtualFileRules);
-    }
-
-    private static JsonObject BuildQuestInjectFixedStageOverlay(string artifactPath, JsonObject artifact)
-    {
-        var plan = RequireObject(artifact, "plan");
-        var stage = RequireObject(plan, "stage");
-
-        return new JsonObject
-        {
-            ["kind"] = "quest.injectFixedStage",
-            ["effect"] = ReadString(plan, "effect"),
-            ["target"] = ReadString(plan, "target"),
-            ["artifactPath"] = artifactPath,
-            ["eventId"] = ReadString(artifact, "eventId"),
-            ["pluginId"] = ReadString(artifact, "pluginId"),
-            ["sourceName"] = ReadString(artifact, "sourceName"),
-            ["sourcePath"] = ReadString(artifact, "sourcePath"),
-            ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(ManagedActionProfileScopeResolver.FromArtifact(artifact)),
-            ["ruleIndex"] = ReadInt(artifact, "ruleIndex"),
-            ["ruleId"] = ReadString(artifact, "ruleId"),
-            ["actionIndex"] = ReadInt(artifact, "actionIndex"),
-            ["stageId"] = ReadString(stage, "id"),
-            ["stageName"] = ReadString(stage, "name"),
-            ["sourceQuestId"] = ReadString(stage, "sourceQuestId"),
-            ["stage"] = CloneNode(stage)
-        };
     }
 
     private static JsonObject BuildQuestBoardFixedSetOverlay(string artifactPath, JsonObject artifact)
@@ -353,26 +323,13 @@ internal static partial class ManagedActionOverlayCompiler
         LauncherLog log)
     {
         var requests = new List<QuestPlotAvailabilityRequest>();
-        var definitions = new Dictionary<string, PlotQuestDefinition>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var overlay in overlays)
         {
             var kind = ReadString(overlay, "kind");
             try
             {
-                if (kind.Equals("quest.injectFixedStage", StringComparison.OrdinalIgnoreCase) &&
-                    ReadString(overlay, "target").Equals("quest.currentStage", StringComparison.OrdinalIgnoreCase))
-                {
-                    EnsurePlotDefinitionsLoaded(config, definitions);
-                    var sourceQuestId = RequireString(overlay, "sourceQuestId");
-                    if (!definitions.TryGetValue(sourceQuestId, out var definition))
-                    {
-                        throw new InvalidOperationException($"Source quest '{sourceQuestId}' was not found in enabled plot quest content.");
-                    }
-
-                    requests.Add(BuildQuestPlotAvailabilityRequest(config, overlay, definition, "quest.injectFixedStage"));
-                }
-                else if (kind.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
+                if (kind.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
                 {
                     var artifactPath = RequireString(overlay, "artifactPath");
                     var artifact = JsonNode.Parse(File.ReadAllText(artifactPath, Encoding.UTF8)) as JsonObject
@@ -401,21 +358,6 @@ internal static partial class ManagedActionOverlayCompiler
         }
 
         return requests;
-    }
-
-    private static void EnsurePlotDefinitionsLoaded(
-        RuntimeConfig config,
-        Dictionary<string, PlotQuestDefinition> definitions)
-    {
-        if (definitions.Count > 0)
-        {
-            return;
-        }
-
-        foreach (var pair in QuestBoardContentCatalog.LoadEnabledPlotQuestDefinitions(config.GameWorkingDirectory))
-        {
-            definitions[pair.Key] = pair.Value;
-        }
     }
 
     private static QuestPlotAvailabilityRequest BuildQuestPlotAvailabilityRequest(
