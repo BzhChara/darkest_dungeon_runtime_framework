@@ -222,15 +222,6 @@ function Export-DdrtLiveSaveFacts {
     }
 }
 
-function Read-DdrtChallengeState {
-    param([string]$Root)
-
-    $path = Join-Path $Root "validation.challenge_run_contract.json"
-    Assert-DdrtTrue (Test-Path -LiteralPath $path -PathType Leaf) "Challenge sidecar state was not found: $path"
-    $document = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
-    return Get-DdrtPathValue $document "state.challengeRun"
-}
-
 function Read-DdrtSaveEventBridgeReport {
     param([string]$Path = "logs\save_event_bridge_report.json")
 
@@ -266,6 +257,5 @@ Export-ModuleMember -Function `
     Assert-DdrtNotContainsText, `
     Invoke-DdrtLoader, `
     Export-DdrtLiveSaveFacts, `
-    Read-DdrtChallengeState, `
     Read-DdrtSaveEventBridgeReport, `
     Get-DdrtExecutedEventIds

@@ -21,7 +21,7 @@ Run:
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
 ```
 
-The baseline expected result is declaration-level success: all validation rules should be listed as active by `--explain-rules`. The first safe executor can also exercise implemented sidecar state actions through `--emit-event`, and selected managed actions can now materialize observe-first artifacts. The launcher can compile fixed-stage and fixed-board quest artifacts into a runtime-visible overlay manifest, and both `quest.injectFixedStage` and `questBoard.replaceWithFixedSet` can feed the existing virtual file layer for plot quest availability. Fixed-board artifacts can also be explicitly written to a watched profile's current `persist.quest.json` through the targeted quest-board refresh path, or re-applied by the save watcher after a live `persist.quest.json` change when quest-board auto refresh is enabled. Broader managed game mutation is still incomplete.
+The baseline expected result is declaration-level success: all validation rules should be listed as active by `--explain-rules`. The first safe executor can also exercise implemented sidecar state actions through `--emit-event`, and selected managed actions can now materialize observe-first artifacts. The launcher can compile fixed-board quest artifacts into a runtime-visible overlay manifest, and `questBoard.replaceWithFixedSet` can feed the existing virtual file layer for plot quest availability. Fixed-board artifacts can also be explicitly written to a watched profile's current `persist.quest.json` through the targeted quest-board refresh path, or re-applied by the save watcher after a live `persist.quest.json` change when quest-board auto refresh is enabled. Broader managed game mutation is still incomplete.
 
 ## Scenario 1: Quest Draft Contract
 
@@ -68,7 +68,7 @@ Acceptance ladder:
 5. The framework can filter available heroes before selection.
 6. The framework can expose enough UI feedback to show why a hero is unavailable.
 
-Steps 1-2 and the safe sidecar state action path exist now. Scenario 3 refines this into a fixed-stage challenge mode with retry and trinket-lock semantics.
+Steps 1-2 and the safe sidecar state action path exist now. Scenario 3 uses the same selection and sidecar primitives in the current boss-gauntlet campaign flow.
 
 ## Scenario 2: Delayed Building Upgrades Contract
 
@@ -122,100 +122,7 @@ Acceptance ladder:
 
 Only step 1 and the manifest parsing pieces exist now.
 
-## Scenario 3: Fixed Stage Challenge Run Contract
-
-Goal:
-
-- Replace campaign growth with a self-contained challenge run.
-- Define a fixed chain of stages, initially copied from original boss quests.
-- Provide a fixed preset hero pool. Preset heroes are intended to be max-level, with full positive quirks randomized and exactly one negative quirk randomized.
-- Let the player choose 4 heroes per stage.
-- Let the player freely assign trinkets before a stage, but selected trinkets cannot be reused later.
-- If the player fails a stage, allow retrying that same stage, but keep the already selected heroes and trinkets locked for the retry.
-- If the player clears a stage, mark selected heroes and selected trinkets as used, then advance to the next stage.
-- Clearing all stages wins the challenge.
-
-This is an early validation scenario for sidecar state, save-event inference, managed action artifacts, and fixed-stage quest overlay. It is not the current target gameplay spec. The current target is Scenario 4, where failure consumes the selected heroes and trinkets instead of locking them for retry.
-
-Validation manifest and data:
-
-```text
-plugins/_validation/challenge_run_contract/patches.json
-plugins/_validation/challenge_run_contract/challenge.json
-plugins/_validation/challenge_run_contract/sample_state.json
-```
-
-Runtime validation tools:
-
-```text
-tools/TestRuntimeEventExecutor.ps1
-tools/TestSaveEventBridge.ps1
-tools/TestRealtimeSaveBridge.ps1
-tools/TestManagedActionOverlay.ps1
-```
-
-Run:
-
-```text
-.\tools\TestRuntimeEventExecutor.ps1
-.\tools\TestSaveEventBridge.ps1
-.\tools\TestRealtimeSaveBridge.ps1
-.\tools\TestManagedActionOverlay.ps1
-```
-
-Required generic primitives:
-
-```text
-facts.heroes
-facts.estate.trinkets
-event challenge.run_started
-event challenge.stage_selection_started
-event challenge.stage_selection_confirmed
-event challenge.stage_completed
-event challenge.stage_failed
-state.challengeRun.currentStageIndex
-state.challengeRun.lockedStageSelection
-state.challengeRun.usedHeroIds
-state.challengeRun.usedTrinketIds
-state.challengeRun.stageAttempts
-action state.setValue
-action state.mergeDefinition
-action state.setArrayCount
-action quest.injectFixedStage
-action roster.filterAvailableHeroes
-action equipment.filterAvailableTrinkets
-action state.addUniqueRange
-action state.addUnique
-action state.incrementCounter
-action state.setFromArrayIndex
-action state.clearPaths
-action selection.lock
-action attempt.recordOnce
-capability state.sidecar
-capability selection.lock
-capability attempt.record_once
-capability roster.provide_fixed_hero_pool
-capability roster.filter_available_heroes
-capability equipment.provide_fixed_trinket_pool
-capability equipment.filter_available_trinkets
-capability quest.inject_fixed_stage
-```
-
-Acceptance ladder:
-
-1. `--explain-rules` lists all challenge-run rules as active.
-2. The runtime executor initializes challenge sidecar state from plugin rules and `challenge.json` through generic `state.*` actions.
-3. The runtime executor materializes fixed-stage quest injection, hero filtering, and trinket filtering artifacts when stage selection starts.
-4. The runtime executor locks selected heroes/trinkets on selection confirmation through the generic `selection.lock` action.
-5. The runtime executor records failed/completed attempts, consumes selected resources on completion, and advances the current stage through generic state actions.
-6. The save-event bridge can infer stage selection confirmation and stage completion/failure from game save facts, then replay the same runtime events.
-7. The launcher-side watcher can run the save-event bridge during game execution after debounced stable `profile_*` save changes.
-8. The framework can inject or replace fixed stages through a managed quest/content primitive.
-9. The framework can materialize preset max-level heroes with randomized positive/negative quirks through verified roster/save primitives.
-
-Steps 1-7 now exist through the framework path rather than a standalone simulator: `--emit-event` initializes state, locks selection, records failed attempts, consumes selected heroes/trinkets on completion, and advances the stage in framework state. `--infer-save-events` evaluates plugin-declared `factEventRules`; the validation plugin uses those rules to map active raid party/loadout facts or structured post-task `campaignLog.partyRaidRecords` to `challenge.stage_selection_confirmed`, and last raid quest/result facts to `challenge.stage_completed` or `challenge.stage_failed` for the matching current stage. A single bridge pass can reload sidecar state between inferred events, so a post-task save report can infer selection and completion together. The launcher-side watcher can also run that bridge during game execution after debounced stable `profile_*` save changes, while keeping original saves read-only. Step 8 has an observe-first materialization path: `challenge.stage_selection_started` produces `materialized` artifacts for fixed-stage quest injection, hero filtering, and trinket filtering under `modStateDirectory/_managed_actions/`; startup and `--dry-run` compile the latest fixed-stage quest artifact into `logs/managed_action_overlay_manifest.json`, supersede older fixed-stage artifacts for the same source rule, and append one virtual file replacement for `campaign/quest/quest.plot_quests.json` that forces the selected source plot quest to early/repeatable availability. Real quest list control, roster materialization, and UI filtering still require later capabilities.
-
-## Scenario 4: Fixed Resource Boss Gauntlet Campaign
+## Scenario 3: Fixed Resource Boss Gauntlet Campaign
 
 Reference spec:
 
@@ -317,13 +224,13 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Remember used heroes | sidecar state list actions |
 | Detect selected party | `party.selection_confirmed` event payload |
 | Hide used heroes | original roster unavailable/missing/status projection |
-| Define a fixed challenge stage chain | `state.mergeDefinition`, `state.setArrayCount`, `state.setFromArrayIndex`, plus `quest.inject_fixed_stage` |
-| Lock failed-stage retry selection | `selection.lock` plus sidecar state |
-| Remember used trinkets | sidecar state list actions plus `equipment.filter_available_trinkets` |
+| Define a fixed boss quest set and finale chain | `quest_board.replace_with_fixed_set`, `quest.chain.define`, and `quest_board.policy` |
+| Track active boss selection | `selection.lock` plus sidecar state |
+| Remember consumed trinkets | sidecar state list actions plus `selection.consume_trinkets` |
 | Consume selection after any terminal attempt | `quest.attempt_resolved` plus reusable selection-consume actions |
 | Fixed simultaneous quest board | `quest_board.replace_with_fixed_set` and content-derived quest facts |
 | Stop stage coach generation | `stagecoach.suppress_recruits` |
-| Initialize only new challenge saves | `profile.detect_new_or_uninitialized` plus `profile.mark_initialized` |
+| Initialize only eligible new profiles | `profile.detect_new_or_uninitialized` plus `profile.mark_initialized` |
 | Preserve campaign attrition and unwinnable states | normal save observation; no hidden restore/recovery action |
 | Set fixed starting wallet resources | `wallet.set_currency_amounts` |
 | Add gold after selected victories | `wallet.add_currency_on_event` with idempotent attempt identity |

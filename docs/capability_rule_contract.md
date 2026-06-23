@@ -14,7 +14,7 @@ This document defines the generic runtime rule model. It is intentionally not a 
 - `factEventRules` are parsed, explained, and can be exercised through `--infer-save-events` to convert save/content/runtime facts into ordinary framework events.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
 - `--explain-rules` reports declared `eventRules` and `factEventRules`, required capabilities, action capabilities, and skip reasons.
-- The first safe action executor supports sidecar state primitives, fixed-stage challenge state primitives, and generic boss-gauntlet pressure-test primitives such as idempotent definition merge, selection locking/consumption, attempt recording, success-gated wallet rewards, successful quest completion, all-completed phase transition, and phase-gated managed action materialization. The executor also supports managed materialization for selected actions: fixed-stage quest injection, dry-run hero/trinket list previews, sidecar hero/trinket reuse state, and profile-normalization plans for roster, upgrade purchases, stagecoach, trinket inventory, wallet resource maps, campaign plot progress reset, town state, town store suppression, town event, fixed quest board, and trinket entry field patches. These actions report `materialized`, include a `plan` object, write a sidecar artifact under `modStateDirectory/_managed_actions/`, and do not mutate the game. Startup and `--dry-run` compile consumable `quest.injectFixedStage`, `questBoard.replaceWithFixedSet`, `trinket.patchEntry`, and `town.unlockAllBuildings` artifacts into `logs/managed_action_overlay_manifest.json`; quest artifacts force selected source plot quests to `dungeon_level = 0` and `is_repeatable = true`, trinket patch artifacts generate entry `sourcePath` overlays, and town unlock artifacts generate building requirement `sourcePath` overlays. `--preview-quest-board`, `--refresh-quest-board-profile`, and `questBoardAutoRefreshEnabled` cover generated quest-board inspection and targeted profile refresh. `--initialize-decoded-profile` combines sidecar initialization, `profile.initialization_requested`, quest-board preview, managed-action apply, and per-action apply details into one project-local decoded-save initialization report. `--apply-managed-actions` writes supported profile-normalization actions to decoded save copies; `trinket.patchEntry` is recognized there as a content-overlay action and does not write `persist.*`. `--apply-continuous-profile-actions` is the narrower reapply mode for settlement drift: it selects only the latest continuous stagecoach/store/town-event artifacts per source group and deliberately excludes one-time setup such as wallet, trinket inventory, generated roster, upgrades, campaign progress reset, quest-board replacement, and trinket entry overlays. Trinket inventory source resolution can exclude content rarities such as `darkest_dungeon` and `trophy`, and generated roster quirks respect content `singleton` tags across a generation pass. `tools/PrepareDecodedProfileWorkspace.ps1 -EncodeInitializedProfile` can turn an initialized decoded workspace into a project-local `encoded_profile` and roundtrip it for validation. `tools/PromoteEncodedProfileWorkspace.ps1` can dry-run or explicitly write that `encoded_profile` to a target profile with target guards, running-game protection, target snapshot backup, hash verification, and manifest-based restore. `--preview-managed-action-retention` and `--prune-managed-actions` provide explicit sidecar artifact retention reports for `_managed_actions/`; invalid artifacts are retained with warnings, and delete failures are errors rather than fallback paths. Town-event text policy still needs an original content/save consumer before it changes live game behavior; consumed hero/trinket restrictions still need original-first projection before they can stop party selection. The boss-gauntlet plugin no longer materializes `town.setBuildingLevels`; ordinary building levels are represented by verified upgrade purchases. Stage coach/store suppression and pre-finale hero/trinket reuse are not yet live-enforced after original week settlement or party UI interactions.
+- The first safe action executor supports sidecar state primitives and boss-gauntlet pressure-test primitives such as idempotent definition merge, selection locking/consumption, attempt recording, success-gated wallet rewards, successful quest completion, all-completed phase transition, and phase-gated managed action materialization. The executor also supports managed materialization for profile-normalization plans for roster, upgrade purchases, stagecoach, trinket inventory, wallet resource maps, campaign plot progress reset, town state, town store suppression, town event, fixed quest board, and trinket entry field patches. These actions report `materialized`, include a `plan` object, write a sidecar artifact under `modStateDirectory/_managed_actions/`, and do not mutate the game. Startup and `--dry-run` compile consumable `questBoard.replaceWithFixedSet`, `trinket.patchEntry`, and `town.unlockAllBuildings` artifacts into `logs/managed_action_overlay_manifest.json`; quest-board artifacts force selected source plot quests to `dungeon_level = 0` and `is_repeatable = true`, trinket patch artifacts generate entry `sourcePath` overlays, and town unlock artifacts generate building requirement `sourcePath` overlays. `--preview-quest-board`, `--refresh-quest-board-profile`, and `questBoardAutoRefreshEnabled` cover generated quest-board inspection and targeted profile refresh. `--initialize-decoded-profile` combines sidecar initialization, `profile.initialization_requested`, quest-board preview, managed-action apply, and per-action apply details into one project-local decoded-save initialization report. `--apply-managed-actions` writes supported profile-normalization actions to decoded save copies; `trinket.patchEntry` is recognized there as a content-overlay action and does not write `persist.*`. `--apply-continuous-profile-actions` is the narrower reapply mode for settlement drift: it selects only the latest continuous stagecoach/store/town-event artifacts per source group and deliberately excludes one-time setup such as wallet, trinket inventory, generated roster, upgrades, campaign progress reset, quest-board replacement, and trinket entry overlays. Trinket inventory source resolution can exclude content rarities such as `darkest_dungeon` and `trophy`, and generated roster quirks respect content `singleton` tags across a generation pass. `tools/PrepareDecodedProfileWorkspace.ps1 -EncodeInitializedProfile` can turn an initialized decoded workspace into a project-local `encoded_profile` and roundtrip it for validation. `tools/PromoteEncodedProfileWorkspace.ps1` can dry-run or explicitly write that `encoded_profile` to a target profile with target guards, running-game protection, target snapshot backup, hash verification, and manifest-based restore. `--preview-managed-action-retention` and `--prune-managed-actions` provide explicit sidecar artifact retention reports for `_managed_actions/`; invalid artifacts are retained with warnings, and delete failures are errors rather than fallback paths. Town-event text policy still needs an original content/save consumer before it changes live game behavior; consumed hero/trinket restrictions still need original-first projection before they can stop party selection. The boss-gauntlet plugin no longer materializes `town.setBuildingLevels`; ordinary building levels are represented by verified upgrade purchases. Stage coach/store suppression and pre-finale hero/trinket reuse are not yet live-enforced after original week settlement or party UI interactions.
 
 - The realtime save watcher can now run two managed reconciliation paths after the same stable save bridge: quest-board refresh and continuous profile action auto-apply. Quest-board policy materialization writes `status=empty` markers when no policy entries are currently selected, and quest-board preview/overlay compilation uses those markers to supersede stale dynamic board artifacts. Continuous profile auto-apply decodes live profile files into a project-local workspace, reuses the existing continuous managed action applier, re-encodes changed `persist.*.json` files, backs up live targets, and writes only when its running-game write guard allows it.
 - Implemented safe actions and managed plan actions validate their declared arguments strictly. Missing referenced `event.*`, `state.*`, or `challenge.*` paths, invalid explicit argument types, and missing definition files fail the action and are written to `logs/runtime_event_report.json`.
@@ -124,28 +124,33 @@ Optional rule fields:
 
 ```json
 {
-  "id": "emit_stage_completed_from_last_raid",
+  "id": "emit_boss_attempt_resolved_from_last_raid",
   "enabled": true,
-  "emit": "challenge.stage_completed",
+  "emit": "quest.attempt_resolved",
   "phase": "normal",
   "priority": 0,
   "requiresCapabilities": [
     "state.sidecar",
-    "challenge.observe_stage_completed"
+    "quest.observe_attempt_resolved"
   ],
   "when": {
     "all": [
-      { "state": "challengeRun.lockedStageSelection", "op": "exists" },
-      { "fact": "progression.lastRaidSuccess", "op": "equals", "value": true },
+      { "state": "bossGauntlet.initialized", "op": "equals", "value": true },
+      { "state": "bossGauntlet.phase", "op": "equals", "value": "boss_gauntlet" },
+      { "state": "bossGauntlet.activeSelection.questId", "op": "exists" },
       {
         "fact": "progression.lastRaidQuest.names",
         "op": "contains",
-        "valueFromState": "challengeRun.currentStage.sourceQuestId"
-      }
+        "valueFromState": "bossGauntlet.activeSelection.questId"
+      },
+      { "fact": "progression.lastRaidSuccess", "op": "exists" },
+      { "fact": "campaignLog.partyRaidRecordCount", "op": "exists" }
     ]
   },
   "payload": {
-    "stageId": { "fromState": "challengeRun.currentStage.id" },
+    "questId": { "fromState": "bossGauntlet.activeSelection.questId" },
+    "success": { "fromFact": "progression.lastRaidSuccess" },
+    "attemptId": { "fromFact": "campaignLog.partyRaidRecordCount" },
     "observedQuestNames": { "fromFact": "progression.lastRaidQuest.names" },
     "saveStateReportPath": { "fromBridge": "saveStateReportPath" }
   }
@@ -170,11 +175,11 @@ Payload source objects can also apply simple projections before the event is emi
 - `map` / `coerce`: supports `string` and `stringArray`.
 - `distinct`: removes duplicate array items after earlier projections.
 
-Attempt-recording actions are idempotent only when the emitted payload carries a stable attempt identity. `attempt.recordOnce` accepts either a direct `fingerprint` reference or a `fingerprint` object with `explicit`, `requiresAny`, `prefix`, and ordered `parts` fields. The validation challenge contract uses that generic shape to accept `attemptFingerprint`, `observedAttemptId`, or `observedPartyRaidRecordCount` and store the derived fingerprint on `stageAttempts[]`. Optional `fields`, `includeEvent`, and `selectionRequired` parameters let the rule preserve a domain-specific attempt record shape without adding a domain-specific executor action.
+Attempt-recording actions are idempotent only when the emitted payload carries a stable attempt identity. `attempt.recordOnce` accepts either a direct `fingerprint` reference or a `fingerprint` object with `explicit`, `requiresAny`, `prefix`, and ordered `parts` fields. The boss-gauntlet validation contract uses the observed party raid record count as `attemptId`, stores resolved attempts in `bossGauntlet.attempts[]`, and records `bossGauntlet.lastResolvedAttemptId` so repeated bridge passes do not duplicate attempts or rewards.
 
-`state.setArrayCount` writes the length of a state array to another state path, and `state.setFromArrayIndex` projects one element from a state array into another state path. `state.setFromArrayIndex` requires `key`, `arrayStateKey`, and `indexStateKey`; if the index is out of range, it writes `null` unless `outOfRangeValue` is provided. The validation challenge contract uses these with `state.mergeDefinition` to initialize stage metadata, then uses `state.incrementCounter` plus `state.setFromArrayIndex` to refresh `challengeRun.currentStage` from `challengeRun.stages`.
+`state.setArrayCount` writes the length of a state array to another state path, and `state.setFromArrayIndex` projects one element from a state array into another state path. `state.setFromArrayIndex` requires `key`, `arrayStateKey`, and `indexStateKey`; if the index is out of range, it writes `null` unless `outOfRangeValue` is provided. Boss-gauntlet initialization uses `state.mergeDefinition` to load scenario configuration and then ordinary state actions to persist initialization flags, phase, wallet, and selection/attempt state.
 
-If a fact event rule emits an event successfully, later fact event rules in the same bridge pass reload that plugin's sidecar state before evaluating predicates. This allows a post-task save report to infer `selection_confirmed` from structured campaign log facts, then infer `stage_completed` from progression facts without waiting for another watcher pass.
+If a fact event rule emits an event successfully, later fact event rules in the same bridge pass reload that plugin's sidecar state before evaluating predicates. This allows a post-task save report to infer `quest.selection_confirmed` from structured campaign log facts, then infer `quest.attempt_resolved` from progression facts without waiting for another watcher pass.
 
 Example:
 
@@ -241,7 +246,7 @@ Short forms such as `"fact": "campaign.inRaid"` are allowed and mean `fact:campa
 Leaf comparisons may use literal `"value"` or dynamic references:
 
 ```json
-{ "fact": "progression.lastRaidQuest.names", "op": "contains", "valueFromState": "challengeRun.currentStage.sourceQuestId" }
+{ "fact": "progression.lastRaidQuest.names", "op": "contains", "valueFromState": "bossGauntlet.activeSelection.questId" }
 ```
 
 Current dynamic reference fields are `valueFromFact`, `valueFromEvent`, and `valueFromState`.
@@ -420,14 +425,14 @@ The next code slice should stay generic:
 
 1. Parse and log `eventRules` counts. Done as a declaration carrier.
 2. Add `--explain-rules` to print declared rules, required capabilities, and skipped reasons. Done for manifest-level rule declarations.
-3. Add validation manifests for quest draft, fixed-stage challenge runs, fixed-resource boss gauntlet, and delayed building upgrades. Done as declaration-level framework acceptance scenarios.
+3. Add validation manifests for quest draft, fixed-resource boss gauntlet, and delayed building upgrades. Done as declaration-level framework acceptance scenarios.
 4. Add a capability registry document or JSON schema.
 5. Add sidecar state file read/write with no gameplay actions. Initial `--init-mod-state` / `--dump-mod-state` support is implemented.
 6. Add an observe-only event bus sourced from existing save watcher/runtime logs. Plugin-declared `factEventRules` now bridge save state reports to ordinary runtime events.
 7. Add a no-op action executor for `log.*` and `state.*`. Initial `--emit-event` support now executes implemented safe state actions against sidecar state.
-8. Materialize selected managed actions into sidecar artifacts. `quest.injectFixedStage`, `roster.filterAvailableHeroes`, `equipment.filterAvailableTrinkets`, and the boss-gauntlet profile-normalization actions now write `materialized` artifacts for later overlay/hook consumers without mutating original game state.
-9. Compile selected managed action artifacts into a runtime-visible overlay manifest. `quest.injectFixedStage`, `questBoard.replaceWithFixedSet`, `trinket.patchEntry`, and `town.unlockAllBuildings` artifacts can enter `logs/managed_action_overlay_manifest.json`; stale fixed-stage and fixed-board overlays are superseded by the latest applicable artifact, and RuntimeHook records manifest visibility through `DD_RUNTIME_MANAGED_OVERLAY_*` diagnostics.
-10. Feed selected overlay artifacts into an existing runtime consumer. `quest.injectFixedStage` and `questBoard.replaceWithFixedSet` now append virtual file replacements for the relevant plot quest files, using concrete plot quest ids as content anchors. `trinket.patchEntry` emits trinket entry overlays that apply explicit `set`/`remove` edits to selected existing ids or field selectors. Hero/trinket reuse restrictions remain sidecar facts until they can be projected through verified original roster/equipment mechanisms.
+8. Materialize selected managed actions into sidecar artifacts. Boss-gauntlet profile-normalization actions now write `materialized` artifacts for later overlay/hook consumers without mutating original game state.
+9. Compile selected managed action artifacts into a runtime-visible overlay manifest. `questBoard.replaceWithFixedSet`, `trinket.patchEntry`, and `town.unlockAllBuildings` artifacts can enter `logs/managed_action_overlay_manifest.json`; stale fixed-board overlays are superseded by the latest applicable artifact, and RuntimeHook records manifest visibility through `DD_RUNTIME_MANAGED_OVERLAY_*` diagnostics.
+10. Feed selected overlay artifacts into an existing runtime consumer. `questBoard.replaceWithFixedSet` now appends virtual file replacements for the relevant plot quest files, using concrete plot quest ids as content anchors. `trinket.patchEntry` emits trinket entry overlays that apply explicit `set`/`remove` edits to selected existing ids or field selectors. Hero/trinket reuse restrictions remain sidecar facts until they can be projected through verified original roster/equipment mechanisms.
 11. Add a targeted save-refresh consumer for generated quest boards. `--refresh-quest-board-profile <profileId>` can write the generated fixed-board `persist.quest.json` into a configured watched profile with dry-run, backup, and safety checks, so initialization can update the current board without pretending to run the entire original campaign week settlement.
 12. Add a realtime save-watch consumer for generated quest boards. When `questBoardAutoRefreshEnabled` is configured, any successfully bridged stable campaign save batch can trigger the same fixed-board writer; this covers original week-transition board regeneration without simulating the rest of week settlement.
 

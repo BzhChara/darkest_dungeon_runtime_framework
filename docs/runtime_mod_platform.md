@@ -5,7 +5,7 @@ This document defines the runtime mod platform direction for the framework. The 
 The target is to let players reshape key Darkest Dungeon gameplay loops instead of only changing numbers, replacing images, or appending text. Examples:
 
 - Keep the campaign going after the Ancestor finale by unlocking a new region, new story, and a new quest chain.
-- Replace stagecoach-based long-term roster growth with a fixed-stage boss gauntlet: a preset max-level hero pool, original boss quest chain, four heroes and trinkets selected per stage, locked retry selection on failure, and used heroes/trinkets removed from the pre-finale pool after resolved attempts.
+- Replace stagecoach-based long-term roster growth with a fixed-resource boss gauntlet: generated max-level heroes, a fixed board of original highest-difficulty boss quests, selected heroes and trinkets consumed after any terminal attempt, and a Darkest Dungeon finale unlocked only after all fixed bosses are defeated.
 - Add building upgrade wait times, parallel upgrade compensation, and cross-week completion logic.
 
 These features cannot be done with only `find -> replace`. File virtualization remains the content foundation, but the platform also needs events, state, actions, hook capabilities, and diagnostics. New gameplay should first be mapped to facts, events, predicates, actions, state, and capabilities. If it cannot be expressed, extend those reusable primitives instead of adding a special path for a single gameplay idea.
@@ -165,9 +165,9 @@ Action risk levels:
 - managed: changes results through known game APIs or verified hooks.
 - risky: memory patches, deep flow replacement, or heavy UI changes. These require explicit opt-in by default.
 
-Current managed actions still use observe-first materialization. `quest.injectFixedStage`, `roster.filterAvailableHeroes`, `equipment.filterAvailableTrinkets`, and boss-gauntlet profile-normalization actions write artifacts into `modStateDirectory/_managed_actions/`.
+Current managed actions still use observe-first materialization. Boss-gauntlet profile-normalization actions write artifacts into `modStateDirectory/_managed_actions/`.
 
-The launcher can compile `quest.injectFixedStage` and `questBoard.replaceWithFixedSet` artifacts into `logs/managed_action_overlay_manifest.json`, pass manifest path and counts to RuntimeHook for diagnostics, and append virtual replacements for related `quest.plot_quests.json` files so source plot quests become early-available and repeatable.
+The launcher can compile `questBoard.replaceWithFixedSet` artifacts into `logs/managed_action_overlay_manifest.json`, pass manifest path and counts to RuntimeHook for diagnostics, and append virtual replacements for related `quest.plot_quests.json` files so source plot quests become early-available and repeatable.
 
 `town.unlockAllBuildings` artifacts can generate town building `.building.json` `sourcePath` overlays that reduce original entrance requirements to 0. This opens buildings such as the Survivalist, Blacksmith, and Guild immediately. Building upgrade levels are still represented through `upgrade.ensurePurchases`.
 
@@ -430,7 +430,7 @@ Minimum PoC:
 6. Hook the quest board, selectable hero list, trinket list, and embark validation.
 7. Add UI hints last.
 
-The early `validation.challenge_run_contract` still preserves the "failure locks retry selection" test semantics to validate the state/event/managed-artifact pipeline. It is not the final target gameplay spec.
+The current validation path is `validation.boss_gauntlet_campaign_contract`: failures consume the selected heroes and trinkets, successful fixed boss attempts add the configured reward, and completion state drives the Darkest Dungeon finale unlock.
 
 ## Example: Delayed Building Upgrades
 
@@ -532,7 +532,7 @@ Minimum PoC:
 3. Build event probes that log only.
 4. Build sidecar mod state. The launcher already has initial `--init-mod-state` / `--dump-mod-state` read/write support.
 5. Build the smallest event rule executor. `--emit-event` already executes implemented safe sidecar state actions and can generate sidecar artifacts for selected managed actions. Real game event intake and real game mutation are still future work.
-6. Choose a PoC: the fixed-stage challenge is the best first gameplay dry-run because it validates facts, sidecar state, selection filtering, and state progression before intercepting real UI.
+6. Use the fixed-resource boss gauntlet as the gameplay dry-run because it validates facts, sidecar state, profile initialization, fixed quest-board control, selection consumption, rewards, and phase progression before adding deeper UI enforcement.
 7. Add delayed building upgrades next because they validate events, state, week progression, and UI hints.
 8. Add the post-Ancestor campaign after that.
 

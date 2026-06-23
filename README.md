@@ -216,25 +216,25 @@ The realtime bridge still only reads original saves and only writes framework si
 You can also run inference manually against one save state report:
 
 ```text
-dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --infer-save-events --save-state-report ./logs/save_states/<sessionId>.json --no-inject
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.boss_gauntlet_campaign_contract --infer-save-events --save-state-report ./logs/save_states/<sessionId>.json --no-inject
 ```
 
-Live game observation uses a dedicated configuration. It does not write original `profile_*` saves. It prepares challenge sidecar state, materializes the managed action overlay for the current stage, starts the game with RuntimeHook injected, and enables the save watcher and save event bridge:
+Live game observation uses a dedicated boss-gauntlet configuration. It prepares boss-gauntlet sidecar state, compiles the current managed action overlays, starts the game with RuntimeHook injected, and enables the save watcher and save event bridge. Original `profile_*` saves are still protected by the configured write guards:
 
 ```powershell
-.\tools\StartLiveChallengeObserve.ps1
+.\tools\StartBossGauntletLiveObserve.ps1
 ```
 
-The script creates a fresh sidecar state directory for each observation, initializes `validation.challenge_run_contract`, emits `challenge.run_started` and `challenge.stage_selection_started`, and then starts the game. After entering `profile_3`, choose the boss quest for the current stage. Save changes trigger the save event bridge in realtime. After exiting the game, inspect:
+The script creates a fresh sidecar state directory for each observation, initializes `validation.boss_gauntlet_campaign_contract`, emits `profile.initialization_requested`, and then starts the game. After entering the target profile, choosing and resolving fixed boss quests triggers the save event bridge in realtime. After exiting the game, inspect:
 
 ```text
 logs/save_sessions/<sessionId>.json
 logs/save_states/<sessionId>.json
 logs/save_event_bridge_report.json
-state/live_challenge_observe/<sessionId>/validation.challenge_run_contract.json
+state/boss_gauntlet_live_observe/<sessionId>/validation.boss_gauntlet_campaign_contract.json
 ```
 
-`factEventRules` can read `fact.*`, plugin `state.*`, and bridge context, then write fields into the emitted event payload. Payloads can declare generic array projections, such as filtering current raid party members from `facts.heroes` and expanding their `trinketIds`, or using `where` to filter `campaignLog.partyRaidRecords` for the matching stage completion record. The validation plugin currently uses these rules to emit `challenge.stage_selection_confirmed` from active raid facts or post-quest campaign log facts, and `challenge.stage_completed` / `challenge.stage_failed` from last raid quest/result facts. During the same bridge pass, after one event writes sidecar state, later rules re-read state. This lets a post-quest save first infer selection confirmation, then advance the completion event. Actual quest injection, hero UI filtering, and trinket UI filtering are not hardcoded in this bridge. They are declared by ordinary `eventRules`, first materialized as managed action artifacts, and then consumed by overlay/hook layers as capabilities mature.
+`factEventRules` can read `fact.*`, plugin `state.*`, and bridge context, then write fields into the emitted event payload. Payloads can declare generic array projections, such as filtering current raid party members from `facts.heroes` and expanding their `trinketIds`. The boss-gauntlet validation plugin uses these rules to emit `quest.selection_confirmed` from active raid facts or post-quest campaign log facts, and `quest.attempt_resolved` from last raid quest/result facts. During the same bridge pass, after one event writes sidecar state, later rules re-read state. This lets a post-quest save first infer selection confirmation, then resolve the attempt event.
 
 The watcher realtime bridge can be tested without starting the game:
 
@@ -246,22 +246,25 @@ The watcher realtime bridge can be tested without starting the game:
 {
   "factEventRules": [
     {
-      "id": "emit_stage_completed_from_last_raid",
-      "emit": "challenge.stage_completed",
-      "requiresCapabilities": ["state.sidecar", "challenge.observe_stage_completed"],
+      "id": "emit_boss_attempt_resolved_from_last_raid",
+      "emit": "quest.attempt_resolved",
+      "requiresCapabilities": ["state.sidecar", "quest.observe_attempt_resolved"],
       "when": {
         "all": [
-          { "state": "challengeRun.lockedStageSelection", "op": "exists" },
-          { "fact": "progression.lastRaidSuccess", "op": "equals", "value": true },
+          { "state": "bossGauntlet.initialized", "op": "equals", "value": true },
+          { "state": "bossGauntlet.phase", "op": "equals", "value": "boss_gauntlet" },
+          { "state": "bossGauntlet.activeSelection.questId", "op": "exists" },
           {
             "fact": "progression.lastRaidQuest.names",
             "op": "contains",
-            "valueFromState": "challengeRun.currentStage.sourceQuestId"
+            "valueFromState": "bossGauntlet.activeSelection.questId"
           }
         ]
       },
       "payload": {
-        "stageId": { "fromState": "challengeRun.currentStage.id" },
+        "questId": { "fromState": "bossGauntlet.activeSelection.questId" },
+        "success": { "fromFact": "progression.lastRaidSuccess" },
+        "attemptId": { "fromFact": "campaignLog.partyRaidRecordCount" },
         "observedQuestNames": { "fromFact": "progression.lastRaidQuest.names" },
         "saveStateReportPath": { "fromBridge": "saveStateReportPath" }
       }
@@ -288,7 +291,7 @@ State commands:
 ```text
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --init-mod-state --no-inject
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --dump-mod-state --no-inject
-dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --mod-state-id validation.challenge_run_contract --init-mod-state --dump-mod-state --no-inject
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --mod-state-id validation.boss_gauntlet_campaign_contract --init-mod-state --dump-mod-state --no-inject
 ```
 
 - `--init-mod-state`: create or merge default keys from currently enabled plugin `stateSchema` without clearing existing state.
@@ -304,10 +307,10 @@ A single plugin writes to `state/mod_state/<plugin-id>.json` by default. If mult
 `--emit-event` can simulate a framework event without starting the game. Matching safe `eventRules` are executed in the current plugin load order and results are written back to sidecar state:
 
 ```text
-dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.challenge_run_contract --emit-event challenge.stage_selection_confirmed --event-payload-file ./logs/runtime_event_executor_test/payloads/selection_confirmed.json --no-inject
+dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.boss_gauntlet_campaign_contract --emit-event profile.initialization_requested --no-inject
 ```
 
-The current executor implements safe state actions such as `state.setValue`, `state.addUniqueRange`, `state.addUnique`, `state.incrementCounter`, `state.setArrayCount`, `state.setFromArrayIndex`, `state.mergeDefinition`, `selection.lock`, and `attempt.recordOnce`. Some `managed` game-behavior actions generate auditable artifacts but still do not perform live game mutation: `quest.injectFixedStage`, `roster.filterAvailableHeroes`, and `equipment.filterAvailableTrinkets` are reported in `logs/runtime_event_report.json` with `status: "materialized"`, `materializedActionCount`, `plan`, and `artifactPath`, and the full artifact is written under `modStateDirectory/_managed_actions/`. Other unimplemented actions still fail the event if marked `required:true`. Implemented and materialized action parameters are handled strictly: missing referenced `event.xxx` or `state.xxx` paths, explicit parameter type errors, and invalid definition file paths fail the action instead of continuing with empty or default values.
+The current executor implements safe state actions such as `state.setValue`, `state.addUniqueRange`, `state.addUnique`, `state.incrementCounter`, `state.setArrayCount`, `state.setFromArrayIndex`, `state.mergeDefinition`, `selection.lock`, selection consumption, wallet rewards, quest completion, phase transition, and `attempt.recordOnce`. Managed game-behavior actions generate auditable artifacts first; boss-gauntlet initialization materializes profile-normalization actions such as fixed quest board replacement, roster setup, inventory setup, town normalization, and content overlays under `modStateDirectory/_managed_actions/`. Other unimplemented actions still fail the event if marked `required:true`. Implemented and materialized action parameters are handled strictly: missing referenced `event.xxx` or `state.xxx` paths, explicit parameter type errors, and invalid definition file paths fail the action instead of continuing with empty or default values.
 
 Before starting the game or during `--dry-run`, the launcher compiles consumable artifacts under `_managed_actions/` into:
 
@@ -315,7 +318,7 @@ Before starting the game or during `--dry-run`, the launcher compiles consumable
 logs/managed_action_overlay_manifest.json
 ```
 
-The overlay compiler consumes several artifact families. `quest.injectFixedStage` and `questBoard.replaceWithFixedSet` can produce plot quest virtual replacements, and `trinket.patchEntry` can produce trinket entry `sourcePath` overlays for explicit id or field-selector patches. `roster.enforceAvailabilityFilter` / `equipment.enforceAvailabilityFilter` are now exposed in the manifest as `availabilityPolicies`. Availability policies are deliberately manifest-only today: they are stable inputs for the next runtime/UI/save consumer, not claims that the original party UI is already blocked. RuntimeHook consumes the virtual file rules through the existing channel and logs manifest path, size, overlay count, policy count, and issue count through `DD_RUNTIME_MANAGED_OVERLAY_MANIFEST`. This is not a full quest-pool or UI takeover yet.
+The overlay compiler consumes several artifact families. `questBoard.replaceWithFixedSet` can produce plot quest virtual replacements, `trinket.patchEntry` can produce trinket entry `sourcePath` overlays for explicit id or field-selector patches, and `town.unlockAllBuildings` can suppress town building entry requirements through content overlays. Availability policies are deliberately manifest-only today: they are stable inputs for the next runtime/UI/save consumer, not claims that the original party UI is already blocked. RuntimeHook consumes the virtual file rules through the existing channel and logs manifest path, size, overlay count, policy count, and issue count through `DD_RUNTIME_MANAGED_OVERLAY_MANIFEST`. This is not a full quest-pool or UI takeover yet.
 
 ## Virtual File Prototype
 
