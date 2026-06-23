@@ -41,7 +41,7 @@ The main goal for the next conversation is not to add more gameplay features imm
 
 但有几个明显风险：
 
-- `challenge.*` 这类早期 action 还留在核心 executor 里，命名更像玩法模式而不是底层 primitive。它不一定立刻有害，但以后不应该继续扩展，应逐步收敛到 `questChain`、`selection`、`state`、`questBoard` 这类更通用的能力。
+- 早期 `challenge.*` executor action 已清理，当前应继续用 `tools/TestArchitectureRedFlags.ps1` 防止这类玩法模式分支回到核心代码。
 - 很多功能是“能 materialize / 能 save apply”，但还不是 live hard enforcement。比如文档已经承认 sidecar selection consumption 不能真正阻止 UI 选择。
 - `price: 0` 现在文档也只是称为 sale-value suppression，不是已证明的完整 UI 锁。
 - save watcher 这种“过周后再修正”的方式有可见漂移风险，文档也承认 hard UI guarantees 不能只靠它。
@@ -86,7 +86,6 @@ The main goal for the next conversation is not to add more gameplay features imm
 
    特别是：
 
-   - `challenge.*`
    - town event
    - selection consumption
    - continuous profile apply

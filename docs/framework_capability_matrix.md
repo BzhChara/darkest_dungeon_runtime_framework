@@ -70,7 +70,7 @@ This classification is part of the planning output. It prevents treating a missi
 | --- | --- | --- |
 | Fixed boss gauntlet campaign | profile initialization, roster generation, skill unlock lists, wallet/resource setup, trinket inventory setup, campaign plot progress reset, fixed quest board, selection consumption, all-objectives phase transition, phase-gated finale board materialization | launcher code that knows the boss-gauntlet stage ids |
 | Delayed building upgrades | upgrade request observation, cost handling, sidecar queue, week advance event, completion action | hardcoded blacksmith-only delay logic |
-| Fixed-stage challenge run | stage-chain state, quest injection artifact, party selection observation, completion/failure events | a single built-in challenge mode path |
+| Quest-chain board progression | ordered quest stages, generated quest-board policy entries, fixed-board artifacts, completion-gated progression | a single built-in challenge mode path or direct quest injection action |
 | Post-ending expansion | progression facts, quest/region unlocks, narration/content overlays, phase-gated quest board, fixed map topology, named encounters | hardcoded "after ancestor" script branch |
 
 These tests should continue to be concrete enough to catch real gaps, but their reusable results should be named as framework primitives.
