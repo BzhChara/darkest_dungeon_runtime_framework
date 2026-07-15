@@ -46,7 +46,7 @@ internal sealed record ManagedActionProducerContract(
 
     public string BuildIdentityKey()
     {
-        return string.Join('|',
+        return ManagedActionCompositeKey.Build(
             NormalizeIdentityPart(Kind),
             NormalizeIdentityPart(PluginId),
             NormalizeIdentityPath(SourcePath),

@@ -169,7 +169,7 @@ internal static partial class ManagedActionSaveApplier
         }
 
         var profileScope = ManagedActionProfileScopeResolver.FromArtifact(artifact);
-        return string.Join('|',
+        return ManagedActionCompositeKey.Build(
             producer.BuildIdentityKey(),
             NormalizeGroupPart(actionType),
             NormalizeGroupPart(ReadOptionalStringPath(artifact, "plan.target")),

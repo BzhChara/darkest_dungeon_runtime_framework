@@ -552,12 +552,17 @@ internal static class ManagedActionArtifactEligibility
 
     private static string BuildOwnerKey(string pluginId, string sourcePath)
     {
-        return $"{pluginId.Trim().ToLowerInvariant()}|{Path.GetFullPath(sourcePath).ToLowerInvariant()}";
+        return ManagedActionCompositeKey.Build(
+            pluginId.Trim().ToLowerInvariant(),
+            Path.GetFullPath(sourcePath).ToLowerInvariant());
     }
 
     private static string BuildPolicyKey(string pluginId, string sourcePath, int ruleIndex, string policyId)
     {
-        return $"{BuildOwnerKey(pluginId, sourcePath)}|{ruleIndex}|{policyId.Trim().ToLowerInvariant()}";
+        return ManagedActionCompositeKey.Build(
+            BuildOwnerKey(pluginId, sourcePath),
+            ruleIndex.ToString(CultureInfo.InvariantCulture),
+            policyId.Trim().ToLowerInvariant());
     }
 
     private static string ReadOptionalString(JsonObject root, string key)

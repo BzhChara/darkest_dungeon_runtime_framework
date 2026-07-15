@@ -343,6 +343,27 @@ try {
     Assert-True ([int]$identityProducers[0].ruleIndex -eq 1 -and [int]$identityProducers[1].ruleIndex -eq 2) "Identity fixture producers should differ by ruleIndex."
     $identityOld = Write-Artifact "001_rule_index_1.json" "2026-06-10T00:00:00.0000000Z" "validation.duplicate_rule_identity" "identity_profile" -ArtifactDirectory $identityArtifactRoot -Producer $identityProducers[0]
     $identityNew = Write-Artifact "002_rule_index_2.json" "2026-06-11T00:00:00.0000000Z" "validation.duplicate_rule_identity" "identity_profile" -ArtifactDirectory $identityArtifactRoot -Producer $identityProducers[1]
+    $delimiterTargetPlan = [ordered]@{
+        kind = "questBoard.replaceWithFixedSet"
+        effect = "replaceWithFixedSet"
+        target = "profile.quest_board|profile"
+        arguments = [ordered]@{
+            target = "profile.quest_board|profile"
+            questIds = @("plot_kill_prophet_3")
+        }
+    }
+    $identityDelimiterTarget = Write-Artifact "003_delimiter_target.json" "2026-06-12T00:00:00.0000000Z" "validation.duplicate_rule_identity" "delimiter_a" -ArtifactDirectory $identityArtifactRoot -Producer $identityProducers[0] -Plan $delimiterTargetPlan
+
+    $delimiterScopePlan = [ordered]@{
+        kind = "questBoard.replaceWithFixedSet"
+        effect = "replaceWithFixedSet"
+        target = "profile.quest_board"
+        arguments = [ordered]@{
+            target = "profile.quest_board"
+            questIds = @("plot_kill_prophet_3")
+        }
+    }
+    $identityDelimiterScope = Write-Artifact "004_delimiter_scope.json" "2026-06-13T00:00:00.0000000Z" "validation.duplicate_rule_identity" "profile|delimiter_a" -ArtifactDirectory $identityArtifactRoot -Producer $identityProducers[0] -Plan $delimiterScopePlan
 
     Remove-Item -LiteralPath $reportPath -Force -ErrorAction SilentlyContinue
     Invoke-Loader -LoaderArgs @(
@@ -353,8 +374,12 @@ try {
         "--no-inject"
     )
     $identityRetention = Read-RetentionReport
-    Assert-True ([int]$identityRetention.groupCount -eq 2) "Full producer identity should keep different rule indices in separate retention groups."
+    Assert-True ([int]$identityRetention.groupCount -eq 4) "Full producer, target, and profile-scope identities should remain separate retention groups."
     Assert-True ([int]$identityRetention.prunableCount -eq 0) "One producer must not make another producer's artifact prunable."
+    $identityDelimiterTargetReport = @($identityRetention.artifacts | Where-Object { $_.artifactPath -eq $identityDelimiterTarget })[0]
+    $identityDelimiterScopeReport = @($identityRetention.artifacts | Where-Object { $_.artifactPath -eq $identityDelimiterScope })[0]
+    Assert-True ([string]$identityDelimiterTargetReport.groupKey -ne [string]$identityDelimiterScopeReport.groupKey) "Delimiter-bearing target and scope tuples must not share a retention group key."
+    Assert-True ([int]$identityDelimiterTargetReport.rankInGroup -eq 1 -and [int]$identityDelimiterScopeReport.rankInGroup -eq 1) "Delimiter-bearing retention groups should each keep their own first-ranked artifact."
 
     Invoke-Loader -LoaderArgs @(
         "--config", $identityConfigPath,

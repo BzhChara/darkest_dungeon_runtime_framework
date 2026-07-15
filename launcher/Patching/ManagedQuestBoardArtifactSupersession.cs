@@ -91,7 +91,7 @@ internal static class ManagedQuestBoardArtifactSupersession
             ? profileScope.ProfileId
             : targetProfileId;
 
-        return string.Join('|',
+        return ManagedActionCompositeKey.Build(
             Normalize(ReadOptionalStringPath(artifact, "action.type")),
             Normalize(ReadOptionalStringPath(artifact, "plan.target")),
             producer.BuildIdentityKey(),

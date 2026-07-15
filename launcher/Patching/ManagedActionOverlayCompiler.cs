@@ -232,7 +232,7 @@ internal static partial class ManagedActionOverlayCompiler
             throw new InvalidDataException("eligible overlay artifact is missing a complete producer contract");
         }
 
-        var supersedeKey = string.Join('|',
+        var supersedeKey = ManagedActionCompositeKey.Build(
             producer.BuildIdentityKey(),
             ReadString(overlay, "target"));
         return new ManagedActionOverlayCandidate(overlay, supersedeKey);

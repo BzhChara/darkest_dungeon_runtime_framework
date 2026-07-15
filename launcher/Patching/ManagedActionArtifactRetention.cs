@@ -319,7 +319,7 @@ internal static class ManagedActionArtifactRetention
         string target,
         ManagedActionProfileScope profileScope)
     {
-        return string.Join('|',
+        return ManagedActionCompositeKey.Build(
             NormalizeGroupPart(actionType),
             producerIdentityKey,
             NormalizeGroupPart(target),

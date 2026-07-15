@@ -81,7 +81,8 @@ function Write-ManagedArtifact {
     param(
         [string]$Name,
         [object]$Producer,
-        [System.Collections.IDictionary]$Plan
+        [System.Collections.IDictionary]$Plan,
+        [System.Collections.IDictionary]$ProfileScope = $null
     )
 
     $artifact = [ordered]@{
@@ -89,6 +90,10 @@ function Write-ManagedArtifact {
         status = "materialized"
         plan = $Plan
     }
+    if ($null -ne $ProfileScope) {
+        $artifact.profileScope = $ProfileScope
+    }
+
     Add-ManagedActionTestProducer -Artifact $artifact -Producer $Producer | Out-Null
     $path = Join-Path $artifactRoot $Name
     Write-JsonFile -Path $path -Value $artifact
@@ -144,6 +149,16 @@ try {
             target = "profile.townEvent"
             event = [ordered]@{ mode = "paused" }
         })
+    $producerCollisionRule = New-EventRule `
+        -RuleId "alpha|beta" `
+        -EventId "gamma" `
+        -ActionType "questBoard.replaceWithFixedSet" `
+        -Capability "quest_board.replace_with_fixed_set" `
+        -Arguments ([ordered]@{
+            target = "profile.quest_board"
+            questIds = @("plot_kill_necromancer_3")
+            removeCompleted = $false
+        })
 
     Write-JsonFile -Path $pluginManifestPath -Value ([ordered]@{
         id = $pluginId
@@ -162,7 +177,8 @@ try {
             $questRuleOne,
             $questRuleTwo,
             $townEventRuleOne,
-            $townEventRuleTwo
+            $townEventRuleTwo,
+            $producerCollisionRule
         )
         factEventRules = @()
         stateSchema = [ordered]@{}
@@ -184,14 +200,21 @@ try {
     $catalog = Read-ManagedActionProducerCatalog -ProjectRoot $projectRoot
     $questProducers = @($catalog.producers | Where-Object {
         [string]$_.pluginId -eq $pluginId -and
-        [string]$_.actionType -eq "questBoard.replaceWithFixedSet"
+        [string]$_.actionType -eq "questBoard.replaceWithFixedSet" -and
+        [string]$_.ruleId -eq "duplicate_quest_board"
     } | Sort-Object -Property ruleIndex)
     $townEventProducers = @($catalog.producers | Where-Object {
         [string]$_.pluginId -eq $pluginId -and
         [string]$_.actionType -eq "townEvent.overrideCurrent"
     } | Sort-Object -Property ruleIndex)
+    $producerCollision = @($catalog.producers | Where-Object {
+        [string]$_.pluginId -eq $pluginId -and
+        [string]$_.ruleId -eq "alpha|beta" -and
+        [string]$_.eventId -eq "gamma"
+    })
     Assert-True ($questProducers.Count -eq 2) "Expected two duplicate-id quest-board producer contracts."
     Assert-True ($townEventProducers.Count -eq 2) "Expected two duplicate-id town-event producer contracts."
+    Assert-True ($producerCollision.Count -eq 1) "Expected one delimiter-bearing producer contract."
 
     $questArtifactOne = Write-ManagedArtifact `
         -Name "001_quest_rule_index_1.json" `
@@ -243,6 +266,58 @@ try {
                 event = [ordered]@{ mode = "paused" }
             }
         })
+    $collidingDeclaredProducer = $producerCollision[0] | ConvertTo-Json -Depth 20 | ConvertFrom-Json -AsHashtable
+    $collidingDeclaredProducer.ruleId = "alpha"
+    $collidingDeclaredProducer.eventId = "beta|gamma"
+    $producerCollisionArtifact = Write-ManagedArtifact `
+        -Name "005_colliding_declared_producer.json" `
+        -Producer $collidingDeclaredProducer `
+        -Plan ([ordered]@{
+            kind = "questBoard.replaceWithFixedSet"
+            effect = "replaceWithFixedSet"
+            target = "profile.quest_board"
+            arguments = [ordered]@{
+                target = "profile.quest_board"
+                questIds = @("plot_kill_necromancer_3")
+                removeCompleted = $false
+            }
+        })
+    $townEventDelimiterArtifactOne = Write-ManagedArtifact `
+        -Name "006_town_event_delimiter_target.json" `
+        -Producer $townEventProducers[0] `
+        -ProfileScope ([ordered]@{
+            kind = "scope"
+            profileId = ""
+            profileRoot = ""
+            source = "delimiter collision fixture"
+        }) `
+        -Plan ([ordered]@{
+            kind = "townEvent.overrideCurrent"
+            effect = "overrideCurrent"
+            target = "profile.townEvent|global"
+            arguments = [ordered]@{
+                target = "profile.townEvent|global"
+                event = [ordered]@{ mode = "suppress" }
+            }
+        })
+    $townEventDelimiterArtifactTwo = Write-ManagedArtifact `
+        -Name "007_town_event_delimiter_scope.json" `
+        -Producer $townEventProducers[0] `
+        -ProfileScope ([ordered]@{
+            kind = "global|scope"
+            profileId = ""
+            profileRoot = ""
+            source = "delimiter collision fixture"
+        }) `
+        -Plan ([ordered]@{
+            kind = "townEvent.overrideCurrent"
+            effect = "overrideCurrent"
+            target = "profile.townEvent"
+            arguments = [ordered]@{
+                target = "profile.townEvent"
+                event = [ordered]@{ mode = "paused" }
+            }
+        })
 
     Write-JsonFile -Path (Join-Path $saveRoot "persist.town_event.json") -Value ([ordered]@{
         base_root = [ordered]@{
@@ -264,6 +339,11 @@ try {
     $questOverlays = @($overlayReport.overlays | Where-Object { $_.kind -eq "questBoard.replaceWithFixedSet" })
     Assert-True ($questOverlays.Count -eq 2) "Overlay selection must preserve duplicate rule ids at different rule indices."
     Assert-True ((@($questOverlays.ruleIndex | Sort-Object) -join ',') -eq "1,2") "Overlay report should contain both producer rule indices."
+    Assert-True ((@($overlayReport.overlays | Where-Object { $_.artifactPath -eq $producerCollisionArtifact })).Count -eq 0) "A delimiter-colliding producer declaration must not become an overlay."
+    Assert-True ((@($overlayReport.issues | Where-Object {
+        $_.artifactPath -eq $producerCollisionArtifact -and
+        $_.code -eq "managed-artifact-producer-inactive"
+    })).Count -eq 1) "A delimiter-colliding producer declaration should be rejected as inactive."
 
     Remove-Item -LiteralPath $applyReportPath -Force -ErrorAction SilentlyContinue
     Invoke-Loader -LoaderArgs @(
@@ -276,10 +356,15 @@ try {
     Assert-True (Test-Path -LiteralPath $applyReportPath -PathType Leaf) "Managed action apply report was not written."
     $applyReport = Get-Content -Raw -LiteralPath $applyReportPath | ConvertFrom-Json
     $townEventActions = @($applyReport.actions | Where-Object { $_.actionType -eq "townEvent.overrideCurrent" })
-    $expectedTownEventPaths = @($townEventArtifactOne, $townEventArtifactTwo) | Sort-Object
-    Assert-True ($townEventActions.Count -eq 2) "Continuous-profile selection must preserve duplicate rule ids at different rule indices."
-    Assert-True ((@($townEventActions.artifactPath | Sort-Object) -join '|') -eq ($expectedTownEventPaths -join '|')) "Continuous-profile report should include both producer artifacts."
-    Assert-True ((@($townEventActions | Where-Object { $_.status -eq "dry-run" })).Count -eq 2) "Both independent town-event actions should reach the decoded-save consumer."
+    $expectedTownEventPaths = @(
+        $townEventArtifactOne,
+        $townEventArtifactTwo,
+        $townEventDelimiterArtifactOne,
+        $townEventDelimiterArtifactTwo
+    ) | Sort-Object
+    Assert-True ($townEventActions.Count -eq 4) "Continuous-profile selection must preserve distinct producer, target, and profile-scope tuples."
+    Assert-True ((@($townEventActions.artifactPath | Sort-Object) -join '|') -eq ($expectedTownEventPaths -join '|')) "Continuous-profile report should include every distinct producer, target, and profile-scope artifact."
+    Assert-True ((@($townEventActions | Where-Object { $_.status -eq "dry-run" })).Count -eq 4) "All independent town-event actions should reach the decoded-save consumer."
     Assert-True (Test-Path -LiteralPath $questArtifactOne -PathType Leaf) "Quest-board fixture artifact should remain available."
     Assert-True (Test-Path -LiteralPath $questArtifactTwo -PathType Leaf) "Quest-board fixture artifact should remain available."
 
