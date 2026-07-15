@@ -224,6 +224,9 @@ try {
     $artifact = Get-Content -Raw -LiteralPath $materialize.artifactPath | ConvertFrom-Json
     Assert-True ($artifact.action.type -eq "questBoard.replaceWithFixedSet") "Materialized artifact action type mismatch."
     Assert-True ($artifact.plan.kind -eq "questBoard.replaceWithFixedSet") "Materialized artifact plan kind mismatch."
+    Assert-True (@($artifact.owners).Count -eq 1) "Materialized policy artifact should declare its plugin owner."
+    Assert-True ($artifact.owners[0].pluginId -eq "validation.quest_board_policy_contract") "Materialized policy artifact owner plugin mismatch."
+    Assert-True ($artifact.owners[0].sourcePath -eq $artifact.plan.arguments.policies[0].sourcePath) "Materialized policy owner path should match the policy source path."
     Assert-True (-not [bool]$artifact.plan.arguments.removeCompleted) "Policy materializer should pre-filter completed quests instead of delegating removeCompleted."
     Assert-True (@($artifact.plan.arguments.questIds) -contains "plot_kill_prophet_3") "Materialized artifact should contain prophet."
 

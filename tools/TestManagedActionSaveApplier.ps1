@@ -12,6 +12,7 @@ $saveRoot = Join-Path $stateRoot "decoded_save"
 $sourceSaveRoot = Join-Path $projectRoot.Path ".research\DDSaveEditor-v0.0.70\decoded_current"
 $saveEditorJar = Join-Path $projectRoot.Path ".research\DDSaveEditor-v0.0.70\DDSaveEditor.jar"
 $pluginId = "validation.boss_gauntlet_campaign_contract"
+$pluginManifestPath = (Resolve-Path -LiteralPath (Join-Path $projectRoot.Path "plugins\_validation\boss_gauntlet_campaign_contract\patches.json")).Path
 
 function Assert-True {
     param(
@@ -169,13 +170,14 @@ function Write-ManagedActionArtifact {
     New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
     $path = Join-Path $artifactDirectory $Name
     $artifact = [ordered]@{
+        version = 1
         status = "materialized"
         generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
-        source = [ordered]@{
-            pluginId = $pluginId
-            ruleId = "test_availability_policy"
-            actionIndex = 0
-        }
+        pluginId = $pluginId
+        sourceName = "Validation - Boss Gauntlet Campaign Contract"
+        sourcePath = $pluginManifestPath
+        ruleId = "test_availability_policy"
+        actionIndex = 0
         action = [ordered]@{
             type = $ActionType
             capability = $Capability
@@ -1056,18 +1058,21 @@ Assert-True ([int]$dryRunInitializationReport.questBoardCandidateCount -eq 8) "D
 Assert-True (-not [bool]$dryRunInitializationReport.applySkipped) "Decoded profile dry-run initialization should run managed action apply."
 Assert-True ([bool]$dryRunInitializationReport.applySucceeded) "Decoded profile dry-run initialization apply should succeed."
 Assert-True ([int]$dryRunInitializationReport.applySupportedActionCount -eq 13) "Decoded profile dry-run initialization should recognize thirteen supported decoded-save/policy actions."
-Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 13) "Decoded profile dry-run initialization should dry-run thirteen supported actions."
+Assert-True ([int]$dryRunInitializationReport.applyRecognizedActionCount -eq 1) "Decoded profile dry-run initialization should recognize one content-overlay-only action."
+Assert-True ([int]$dryRunInitializationReport.applyDryRunActionCount -eq 12) "Decoded profile dry-run initialization should dry-run twelve decoded-save actions."
 Assert-True ([int]$dryRunInitializationReport.applyChangedFileCount -eq 6) "Decoded profile dry-run initialization should report six would-change decoded save files."
 Assert-True (@(Convert-ToArray $dryRunInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "dry-run" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression dry-run action details."
 $dryRunReport = Read-ApplyReport
 Assert-True ([bool]$dryRunReport.dryRun) "First apply pass should be dry-run by default."
 Assert-True ([int]$dryRunReport.artifactCount -eq 13) "Dry-run should inspect thirteen boss gauntlet initialization artifacts."
 Assert-True ([int]$dryRunReport.supportedActionCount -eq 13) "Dry-run should recognize thirteen currently supported decoded-save/policy actions."
-Assert-True ([int]$dryRunReport.dryRunActionCount -eq 13) "Dry-run should report thirteen dry-run actions."
+Assert-True ([int]$dryRunReport.recognizedActionCount -eq 1) "Dry-run should recognize one content-overlay-only action."
+Assert-True ([int]$dryRunReport.dryRunActionCount -eq 12) "Dry-run should report twelve decoded-save dry-run actions."
 Assert-True ([int]$dryRunReport.appliedActionCount -eq 0) "Dry-run should not report written actions."
 Assert-True ([int]$dryRunReport.unsupportedActionCount -eq 0) "Dry-run should not report unsupported boss gauntlet initialization actions."
 Assert-True ([int]$dryRunReport.failedActionCount -eq 0) "Dry-run should not fail on unsupported future actions."
 Assert-True ([int]$dryRunReport.changedFileCount -eq 6) "Dry-run should report six would-change decoded save files."
+Assert-True (@(Convert-ToArray $dryRunReport.actions | Where-Object { $_.actionType -eq "trinket.patchEntry" -and $_.status -eq "recognized" }).Count -eq 1) "Dry-run should report trinket.patchEntry as recognized, not applied."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq $startingGold) "Dry-run must not modify decoded save JSON."
@@ -1116,17 +1121,20 @@ Assert-True ([bool]$writeInitializationReport.stateSucceeded) "Decoded profile w
 Assert-True ([bool]$writeInitializationReport.eventSucceeded) "Decoded profile write initialization event should succeed even after initialized=true."
 Assert-True (-not [bool]$writeInitializationReport.applySkipped) "Decoded profile write initialization should run managed action apply."
 Assert-True ([bool]$writeInitializationReport.applySucceeded) "Decoded profile write initialization apply should succeed."
-Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 13) "Decoded profile write initialization should apply thirteen supported decoded-save/policy actions."
+Assert-True ([int]$writeInitializationReport.applyRecognizedActionCount -eq 1) "Decoded profile write initialization should recognize one content-overlay-only action."
+Assert-True ([int]$writeInitializationReport.applyAppliedActionCount -eq 12) "Decoded profile write initialization should apply twelve decoded-save/policy actions."
 Assert-True ([int]$writeInitializationReport.applyChangedFileCount -eq 6) "Decoded profile write initialization should write six decoded save files."
 Assert-True (@(Convert-ToArray $writeInitializationReport.applyActions | Where-Object { $_.actionType -eq "roster.setProgression" -and $_.status -eq "applied" }).Count -eq 1) "Decoded profile initialization report should include roster.setProgression applied action details."
 $writeReport = Read-ApplyReport
 Assert-True (-not [bool]$writeReport.dryRun) "Write pass should record dryRun=false."
 Assert-True ([int]$writeReport.supportedActionCount -eq 13) "Write pass should recognize thirteen currently supported decoded-save/policy actions."
+Assert-True ([int]$writeReport.recognizedActionCount -eq 1) "Write pass should recognize one content-overlay-only action."
 Assert-True ([int]$writeReport.dryRunActionCount -eq 0) "Write pass should not report dry-run actions."
-Assert-True ([int]$writeReport.appliedActionCount -eq 13) "Write pass should apply thirteen currently supported decoded-save/policy actions."
+Assert-True ([int]$writeReport.appliedActionCount -eq 12) "Write pass should apply twelve decoded-save/policy actions."
 Assert-True ([int]$writeReport.unsupportedActionCount -eq 0) "Write pass should not leave unsupported boss gauntlet initialization actions."
 Assert-True ([int]$writeReport.changedFileCount -eq 6) "Write pass should change six decoded save files."
 Assert-True (@(Convert-ToArray $writeReport.files | Where-Object { $_.written -eq $true }).Count -eq 6) "Write pass should mark six files as written."
+Assert-True (@(Convert-ToArray $writeReport.actions | Where-Object { $_.actionType -eq "trinket.patchEntry" -and $_.status -eq "recognized" }).Count -eq 1) "Write pass should not report trinket.patchEntry as decoded-save applied."
 
 $estate = Read-DecodedEstate
 Assert-True ((Get-WalletAmount -Estate $estate -Currency "gold") -eq 20000) "Write pass should set starting gold to 20000."

@@ -6,12 +6,12 @@ internal static partial class ManagedActionSaveApplier
 {
     private const string ProfilePolicyFileName = "_ddrt_profile_policy.json";
 
-    private static void ApplyTrinketPatchEntryContentOnly(ApplyContext context, string artifactPath, JsonObject artifact)
+    private static void RecognizeTrinketPatchEntryContentOnly(ApplyContext context, string artifactPath, JsonObject artifact)
     {
         context.Actions.Add(new ManagedActionApplyActionReport(
             artifactPath,
             ReadString(artifact, "action.type"),
-            context.WriteChanges ? "applied" : "dry-run",
+            "recognized",
             null,
             [
                 "trinket entry patch is a content overlay action",

@@ -9,6 +9,8 @@ $sessionId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $stateRoot = Join-Path $projectRoot.Path "state\continuous_profile_action_apply_test\$sessionId"
 $saveRoot = Join-Path $stateRoot "decoded_save"
 $artifactRoot = Join-Path $stateRoot "_managed_actions"
+$ownerPluginId = "validation.managed_action_owner_contract"
+$ownerManifestPath = (Resolve-Path -LiteralPath (Join-Path $projectRoot.Path "plugins\_validation\managed_action_owner_contract\patches.json")).Path
 $config = if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     Join-Path $projectRoot.Path "config\rule_contract_validation_config.json"
 } else {
@@ -59,7 +61,9 @@ function New-ManagedActionArtifact {
         [string]$Target,
         [string]$RuleId,
         [int]$ActionIndex,
-        [hashtable]$Arguments
+        [hashtable]$Arguments,
+        [string]$PluginId = $ownerPluginId,
+        [string]$SourcePath = $ownerManifestPath
     )
 
     Write-JsonFile -Path $Path -Value @{
@@ -67,9 +71,9 @@ function New-ManagedActionArtifact {
         generatedAtUtc = (Get-Date).ToUniversalTime().ToString("O")
         status = "materialized"
         eventId = "test.event"
-        pluginId = "validation.continuous_profile_apply"
+        pluginId = $PluginId
         sourceName = "test"
-        sourcePath = "tools/TestContinuousProfileActionApply.ps1"
+        sourcePath = $SourcePath
         loadOrder = 0
         ruleIndex = 0
         ruleId = $RuleId
@@ -201,13 +205,39 @@ New-ManagedActionArtifact `
         }
     }
 
+$inactiveOwnerArtifactPath = Join-Path $artifactRoot "005_inactive_owner_stagecoach.suppressRecruits.json"
+New-ManagedActionArtifact `
+    -Path $inactiveOwnerArtifactPath `
+    -Type "stagecoach.suppressRecruits" `
+    -Target "profile.stagecoach" `
+    -RuleId "inactive_owner_stagecoach" `
+    -ActionIndex 0 `
+    -Arguments @{ mode = "invalid_eligibility_probe" } `
+    -PluginId "validation.disabled_managed_action_owner"
+$inactiveOwnerArtifact = Read-Utf8Text -Path $inactiveOwnerArtifactPath | ConvertFrom-Json -AsHashtable
+$inactiveOwnerArtifact.Remove("status")
+$inactiveOwnerArtifact.Remove("action")
+Write-JsonFile -Path $inactiveOwnerArtifactPath -Value $inactiveOwnerArtifact
+
+New-ManagedActionArtifact `
+    -Path (Join-Path $artifactRoot "006_source_mismatch_town.suppressStoreItems.json") `
+    -Type "town.suppressStoreItems" `
+    -Target "profile.town.stores" `
+    -RuleId "source_mismatch_store" `
+    -ActionIndex 0 `
+    -Arguments @{ mode = "invalid_eligibility_probe"; buildingIds = @("nomad_wagon"); sections = @("generated") } `
+    -SourcePath (Join-Path $projectRoot.Path "tools\TestContinuousProfileActionApply.ps1")
+
 $baseArgs = @("--config", $config, "--mod-state-dir", $stateRoot, "--apply-continuous-profile-actions", "--managed-action-save-dir", $saveRoot, "--no-inject")
 
 Invoke-Loader -LoaderArgs $baseArgs
 $dryRunReport = Read-ApplyReport
 Assert-True ($dryRunReport.applyMode -eq "continuousProfile") "Dry-run report should use continuousProfile apply mode."
-Assert-True ($dryRunReport.artifactCount -eq 3) "Dry-run should select only the three continuous artifacts."
+Assert-True ($dryRunReport.artifactCount -eq 5) "Dry-run should inspect three eligible continuous artifacts and two ineligible probes."
 Assert-True ($dryRunReport.actions.actionType -notcontains "wallet.setCurrencyAmounts") "Dry-run should not apply one-shot wallet artifacts."
+Assert-True ((@($dryRunReport.actions | Where-Object { $_.status -eq "skipped" })).Count -eq 2) "Dry-run should skip both ineligible artifacts."
+Assert-True ((@($dryRunReport.issues | Where-Object { $_.code -eq "managed-artifact-owner-inactive" })).Count -eq 1) "Dry-run should report the inactive owner."
+Assert-True ((@($dryRunReport.issues | Where-Object { $_.code -eq "managed-artifact-owner-source-mismatch" })).Count -eq 1) "Dry-run should report the same-id source mismatch."
 
 $town = Read-Utf8Text -Path (Join-Path $saveRoot "persist.town.json") | ConvertFrom-Json
 Assert-True ((Count-ObjectProperties $town.base_root.buildings.stage_coach.store."0".generated) -eq 2) "Dry-run should not clear stagecoach recruits."
@@ -218,6 +248,7 @@ $writeReport = Read-ApplyReport
 Assert-True ($writeReport.applyMode -eq "continuousProfile") "Write report should use continuousProfile apply mode."
 Assert-True ($writeReport.appliedActionCount -eq 3) "Write pass should apply three continuous artifacts."
 Assert-True ($writeReport.actions.actionType -notcontains "wallet.setCurrencyAmounts") "Write pass should not apply one-shot wallet artifacts."
+Assert-True ((@($writeReport.actions | Where-Object { $_.status -eq "skipped" })).Count -eq 2) "Write pass should skip both ineligible artifacts."
 
 $town = Read-Utf8Text -Path (Join-Path $saveRoot "persist.town.json") | ConvertFrom-Json
 Assert-True ((Count-ObjectProperties $town.base_root.buildings.stage_coach.store."0".generated) -eq 0) "Write pass should clear stagecoach recruits."

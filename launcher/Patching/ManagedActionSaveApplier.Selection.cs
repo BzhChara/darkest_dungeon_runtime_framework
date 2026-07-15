@@ -19,6 +19,7 @@ internal static partial class ManagedActionSaveApplier
 
     private static IReadOnlyList<string> SelectArtifactPaths(
         string artifactDirectory,
+        PatchPlan patchPlan,
         ManagedActionApplyMode applyMode,
         string? targetProfileId,
         LauncherLog log)
@@ -44,7 +45,13 @@ internal static partial class ManagedActionSaveApplier
         var normalizedTargetProfileId = ManagedActionProfileScopeResolver.NormalizeTargetProfileId(targetProfileId);
         foreach (var path in allPaths)
         {
-            if (!TryReadContinuousProfileCandidate(path, normalizedTargetProfileId, log, out var candidate, out var profileSkipped))
+            if (!TryReadContinuousProfileCandidate(
+                    path,
+                    patchPlan,
+                    normalizedTargetProfileId,
+                    log,
+                    out var candidate,
+                    out var profileSkipped))
             {
                 invalidPaths.Add(path);
                 continue;
@@ -88,6 +95,7 @@ internal static partial class ManagedActionSaveApplier
 
     private static bool TryReadContinuousProfileCandidate(
         string artifactPath,
+        PatchPlan patchPlan,
         string targetProfileId,
         LauncherLog log,
         out ContinuousProfileArtifactCandidate? candidate,
@@ -110,6 +118,15 @@ internal static partial class ManagedActionSaveApplier
 
         try
         {
+            var eligibility = ManagedActionArtifactEligibility.Evaluate(patchPlan, artifact);
+            if (!eligibility.Eligible)
+            {
+                log.Warn(
+                    $"managed-action-apply continuous-profile ineligible artifact " +
+                    $"code={eligibility.Code} path={Quote(artifactPath)} message={Quote(eligibility.Message)}");
+                return false;
+            }
+
             var actionType = ReadOptionalStringPath(artifact, "action.type");
             if (!ContinuousProfileActionTypes.Contains(actionType))
             {

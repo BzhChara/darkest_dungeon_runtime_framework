@@ -68,6 +68,30 @@ internal static class RuntimeEventExecutor
             for (var actionIndex = 0; actionIndex < sourceRule.Rule.Actions.Length; actionIndex++)
             {
                 var action = sourceRule.Rule.Actions[actionIndex];
+                if (sourceRule.OptionalActionSkipReasons.TryGetValue(actionIndex, out var skipReason))
+                {
+                    var type = action.Type.Trim();
+                    var message = $"optional action contract is invalid: {skipReason}";
+                    actionReports.Add(new RuntimeEventActionExecutionReport(
+                        type,
+                        action.Capability,
+                        action.Risk,
+                        action.Required,
+                        "skipped",
+                        message,
+                        null,
+                        null));
+                    issues.Add(new RuntimeEventExecutionIssue(
+                        "warning",
+                        "optional-action-contract-invalid",
+                        sourceRule.PluginId,
+                        sourceRule.Rule.Id,
+                        type,
+                        message));
+                    continue;
+                }
+
+                var actionIssues = new List<RuntimeEventExecutionIssue>();
                 var actionReport = ExecuteAction(
                     sourceRule,
                     actionIndex,
@@ -77,7 +101,11 @@ internal static class RuntimeEventExecutor
                     changedStatePaths,
                     config,
                     patchPlan,
-                    issues);
+                    actionIssues);
+                issues.AddRange(actionIssues.Select(issue =>
+                    !action.Required && issue.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)
+                        ? issue with { Severity = "warning" }
+                        : issue));
                 actionReports.Add(actionReport);
 
                 if (actionReport.Status == "executed")
@@ -308,7 +336,7 @@ internal static class RuntimeEventExecutor
         List<RuntimeEventExecutionIssue> issues)
     {
         var type = action.Type.Trim();
-        if (IsSupportedManagedPlanAction(type))
+        if (FrameworkCapabilityRegistry.IsManagedArtifactAction(type))
         {
             var managedDocument = GetStateDocument(sourceRule, stateDocuments, config, patchPlan, issues);
             if (managedDocument is null)
@@ -345,10 +373,13 @@ internal static class RuntimeEventExecutor
             }
         }
 
-        if (!IsSupportedSafeAction(type))
+        if (!FrameworkCapabilityRegistry.IsSidecarAction(type))
         {
             var severity = action.Required ? "error" : "warning";
-            var message = $"action type is not implemented by the safe event executor: {type}";
+            var registryStatus = FrameworkCapabilityRegistry.TryGetAction(type, out var definition)
+                ? $"registered status={definition.Status} available={definition.Available}"
+                : "not registered";
+            var message = $"action type is not executable by the runtime event executor: {type} ({registryStatus})";
             issues.Add(new RuntimeEventExecutionIssue(severity, "unsupported-action", sourceRule.PluginId, sourceRule.Rule.Id, type, message));
             return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, action.Required ? "failed" : "skipped", message, null, null);
         }
@@ -363,29 +394,32 @@ internal static class RuntimeEventExecutor
 
         try
         {
+            var workingDocument = CloneStateDocument(document);
             var changed = type switch
             {
-                "state.setValue" => ExecuteSetValue(action, document, payload),
-                "state.clearPaths" => ExecuteClearPaths(action, document),
-                "state.addUniqueRange" => ExecuteAddUniqueRange(action, document, payload),
-                "state.addUnique" => ExecuteAddUnique(action, document, payload),
-                "state.incrementCounter" => ExecuteIncrementCounter(action, document),
-                "state.setFromArrayIndex" => ExecuteSetFromArrayIndex(action, document),
-                "state.setArrayCount" => ExecuteSetArrayCount(action, document),
-                "state.mergeDefinition" => ExecuteMergeDefinition(sourceRule, action, document),
-                "attempt.recordOnce" => ExecuteRecordAttemptOnce(action, document, payload),
-                "selection.lock" => ExecuteLockSelection(action, document, payload),
-                "selection.consumeHeroes" => ExecuteConsumeSelectionArray(action, document, "heroIds"),
-                "selection.consumeTrinkets" => ExecuteConsumeSelectionArray(action, document, "trinketIds"),
-                "quest.markCompletedIfSuccessful" => ExecuteMarkCompletedIfSuccessful(action, document, payload),
-                "state.transitionWhenAllCompleted" => ExecuteTransitionWhenAllCompleted(action, document),
-                "wallet.addCurrencyOnEvent" => ExecuteAddCurrencyOnEvent(action, document, payload),
-                _ => false
+                "state.setValue" => ExecuteSetValue(action, workingDocument, payload),
+                "state.clearPaths" => ExecuteClearPaths(action, workingDocument),
+                "state.addUniqueRange" => ExecuteAddUniqueRange(action, workingDocument, payload),
+                "state.addUnique" => ExecuteAddUnique(action, workingDocument, payload),
+                "state.incrementCounter" => ExecuteIncrementCounter(action, workingDocument),
+                "state.setFromArrayIndex" => ExecuteSetFromArrayIndex(action, workingDocument),
+                "state.setArrayCount" => ExecuteSetArrayCount(action, workingDocument),
+                "state.mergeDefinition" => ExecuteMergeDefinition(sourceRule, action, workingDocument),
+                "attempt.recordOnce" => ExecuteRecordAttemptOnce(action, workingDocument, payload),
+                "selection.lock" => ExecuteLockSelection(action, workingDocument, payload),
+                "selection.consumeHeroes" => ExecuteConsumeSelectionArray(action, workingDocument, "heroIds"),
+                "selection.consumeTrinkets" => ExecuteConsumeSelectionArray(action, workingDocument, "trinketIds"),
+                "quest.markCompletedIfSuccessful" => ExecuteMarkCompletedIfSuccessful(action, workingDocument, payload),
+                "state.transitionWhenAllCompleted" => ExecuteTransitionWhenAllCompleted(action, workingDocument),
+                "wallet.addCurrencyOnEvent" => ExecuteAddCurrencyOnEvent(action, workingDocument, payload),
+                _ => throw new InvalidOperationException(
+                    $"Capability registry declares runtime-event-executor support for {type}, but no handler exists.")
             };
 
             if (changed)
             {
-                changedStatePaths.Add(document.StatePath);
+                stateDocuments[sourceRule.SourcePath] = workingDocument;
+                changedStatePaths.Add(workingDocument.StatePath);
             }
 
             return new RuntimeEventActionExecutionReport(type, action.Capability, action.Risk, action.Required, "executed", changed ? "state changed" : "no state change", null, null);
@@ -1212,49 +1246,6 @@ internal static class RuntimeEventExecutor
         return true;
     }
 
-    private static bool IsSupportedSafeAction(string type)
-    {
-        return type is
-            "state.setValue" or
-            "state.clearPaths" or
-            "state.addUniqueRange" or
-            "state.addUnique" or
-            "state.incrementCounter" or
-            "state.setFromArrayIndex" or
-            "state.setArrayCount" or
-            "state.mergeDefinition" or
-            "attempt.recordOnce" or
-            "selection.lock" or
-            "selection.consumeHeroes" or
-            "selection.consumeTrinkets" or
-            "quest.markCompletedIfSuccessful" or
-            "state.transitionWhenAllCompleted" or
-            "wallet.addCurrencyOnEvent";
-    }
-
-    private static bool IsSupportedManagedPlanAction(string type)
-    {
-        return type is
-            "roster.filterAvailableHeroes" or
-            "equipment.filterAvailableTrinkets" or
-            "roster.ensureClassInstances" or
-            "roster.setProgression" or
-            "roster.setSkillUnlocks" or
-            "upgrade.ensurePurchases" or
-            "stagecoach.suppressRecruits" or
-            "estate.ensureInventoryCounts" or
-            "estate.removeInventoryItems" or
-            "wallet.setCurrencyAmount" or
-            "wallet.setCurrencyAmounts" or
-            "trinket.patchEntry" or
-            "campaign.resetPlotProgress" or
-            "town.unlockAllBuildings" or
-            "town.setBuildingLevels" or
-            "town.suppressStoreItems" or
-            "townEvent.overrideCurrent" or
-            "questBoard.replaceWithFixedSet";
-    }
-
     private static ModStateDocument? GetStateDocument(
         RuntimeEventRuleSource sourceRule,
         Dictionary<string, ModStateDocument> stateDocuments,
@@ -1289,6 +1280,15 @@ internal static class RuntimeEventExecutor
 
         stateDocuments[sourceRule.SourcePath] = document;
         return document;
+    }
+
+    private static ModStateDocument CloneStateDocument(ModStateDocument document)
+    {
+        var root = JsonNode.Parse(document.Root.ToJsonString()) as JsonObject
+            ?? throw new InvalidOperationException("Sidecar state document root could not be cloned.");
+        var state = root["state"] as JsonObject
+            ?? throw new InvalidOperationException("Sidecar state document clone does not contain a state object.");
+        return document with { Root = root, State = state };
     }
 
     private static JsonArray GetOrCreateArray(JsonObject root, string path)

@@ -14,10 +14,11 @@ This document defines the generic runtime rule model. It is intentionally not a 
 - `factEventRules` are parsed, explained, and can be exercised through `--infer-save-events` to convert save/content/runtime facts into ordinary framework events.
 - `stateSchema` is parsed from enabled plugins and can be initialized/read as sidecar state through `--init-mod-state` and `--dump-mod-state`.
 - `--explain-rules` reports declared `eventRules` and `factEventRules`, required capabilities, action capabilities, and skip reasons.
+- `FrameworkCapabilityRegistry` is the framework-owned source of truth for capability availability and runtime action contracts. Plugin declarations still drive `when.capabilitiesPresent` / `when.capabilitiesAbsent`, but declarations do not create framework support. An event or fact rule is active only when its required capabilities are declared by that same plugin and registered as available. Runtime actions additionally validate registered type, capability mapping, and risk before the rule becomes active.
 - The first safe action executor supports sidecar state primitives and boss-gauntlet pressure-test primitives such as idempotent definition merge, selection locking/consumption, attempt recording, success-gated wallet rewards, successful quest completion, all-completed phase transition, and phase-gated managed action materialization. The executor also supports managed materialization for profile-normalization plans for roster, upgrade purchases, stagecoach, trinket inventory, wallet resource maps, campaign plot progress reset, town state, town store suppression, town event, fixed quest board, and trinket entry field patches. These actions report `materialized`, include a `plan` object, write a sidecar artifact under `modStateDirectory/_managed_actions/`, and do not mutate the game. Startup and `--dry-run` compile consumable `questBoard.replaceWithFixedSet`, `trinket.patchEntry`, and `town.unlockAllBuildings` artifacts into `logs/managed_action_overlay_manifest.json`; quest-board artifacts force selected source plot quests to `dungeon_level = 0` and `is_repeatable = true`, trinket patch artifacts generate entry `sourcePath` overlays, and town unlock artifacts generate building requirement `sourcePath` overlays. `--preview-quest-board`, `--refresh-quest-board-profile`, and `questBoardAutoRefreshEnabled` cover generated quest-board inspection and targeted profile refresh. `--initialize-decoded-profile` combines sidecar initialization, `profile.initialization_requested`, quest-board preview, managed-action apply, and per-action apply details into one project-local decoded-save initialization report. `--apply-managed-actions` writes supported profile-normalization actions to decoded save copies; `trinket.patchEntry` is recognized there as a content-overlay action and does not write `persist.*`. `--apply-continuous-profile-actions` is the narrower reapply mode for settlement drift: it selects only the latest continuous stagecoach/store/town-event artifacts per source group and deliberately excludes one-time setup such as wallet, trinket inventory, generated roster, upgrades, campaign progress reset, quest-board replacement, and trinket entry overlays. Trinket inventory source resolution can exclude content rarities such as `darkest_dungeon` and `trophy`, and generated roster quirks respect content `singleton` tags across a generation pass. `tools/PrepareDecodedProfileWorkspace.ps1 -EncodeInitializedProfile` can turn an initialized decoded workspace into a project-local `encoded_profile` and roundtrip it for validation. `tools/PromoteEncodedProfileWorkspace.ps1` can dry-run or explicitly write that `encoded_profile` to a target profile with target guards, running-game protection, target snapshot backup, hash verification, and manifest-based restore. `--preview-managed-action-retention` and `--prune-managed-actions` provide explicit sidecar artifact retention reports for `_managed_actions/`; invalid artifacts are retained with warnings, and delete failures are errors rather than fallback paths. Town-event text policy still needs an original content/save consumer before it changes live game behavior; consumed hero/trinket restrictions still need original-first projection before they can stop party selection. The boss-gauntlet plugin no longer materializes `town.setBuildingLevels`; ordinary building levels are represented by verified upgrade purchases. Stage coach/store suppression and pre-finale hero/trinket reuse are not yet live-enforced after original week settlement or party UI interactions.
 
 - The realtime save watcher can now run two managed reconciliation paths after the same stable save bridge: quest-board refresh and continuous profile action auto-apply. Quest-board policy materialization writes `status=empty` markers when no policy entries are currently selected, and quest-board preview/overlay compilation uses those markers to supersede stale dynamic board artifacts. Continuous profile auto-apply decodes live profile files into a project-local workspace, reuses the existing continuous managed action applier, re-encodes changed `persist.*.json` files, backs up live targets, and writes only when its running-game write guard allows it.
-- Implemented safe actions and managed plan actions validate their declared arguments strictly. Missing referenced `event.*` or `state.*` paths, invalid explicit argument types, and missing definition files fail the action and are written to `logs/runtime_event_report.json`.
+- Each sidecar action executes against an isolated in-memory state document. Only a successful state-changing handler replaces the executor's current document; failed and no-change handlers discard their copies. After all matching rules run, the latest accepted document is persisted once, and a write failure remains an event error. A required action failure stops the remaining actions in that rule; an optional failure is reported as a warning and later actions can continue. Sidecar arguments are validated during event execution. Managed plans resolve referenced `event.*` and `state.*` values during materialization; consumer-specific modes and save/content shapes are validated when the overlay or decoded-save consumer reads the artifact.
 - Save facts are exported from original-game persist files and documented in `docs/save_field_map.md`.
 - `--infer-save-events` evaluates active plugin `factEventRules` against a save state report and emits matching framework events through the same `eventRules` executor.
 - Runtime hooks are currently observe-first. Intercepting game flow remains capability-gated work.
@@ -36,7 +37,7 @@ capability  named framework power required to observe or mutate something
 The rule engine should evaluate rules in this order:
 
 1. Build active plugin load order.
-2. Build active capability set.
+2. Build the enabled-plugin declaration set, then resolve each rule against the framework capability/action registry.
 3. Load sidecar state.
 4. Listen for a framework event.
 5. Evaluate matching `eventRules`.
@@ -179,7 +180,7 @@ Attempt-recording actions are idempotent only when the emitted payload carries a
 
 `state.setArrayCount` writes the length of a state array to another state path, and `state.setFromArrayIndex` projects one element from a state array into another state path. `state.setFromArrayIndex` requires `key`, `arrayStateKey`, and `indexStateKey`; if the index is out of range, it writes `null` unless `outOfRangeValue` is provided. Boss-gauntlet initialization uses `state.mergeDefinition` to load scenario configuration and then ordinary state actions to persist initialization flags, phase, wallet, and selection/attempt state.
 
-If a fact event rule emits an event successfully, later fact event rules in the same bridge pass reload that plugin's sidecar state before evaluating predicates. This allows a post-task save report to infer `quest.selection_confirmed` from structured campaign log facts, then infer `quest.attempt_resolved` from progression facts without waiting for another watcher pass.
+If an emitted event successfully writes any sidecar state (`StateWriteCount > 0`), the bridge clears its sidecar cache before evaluating the next fact rule, even when a later required action makes the event fail overall. Later fact rules therefore reload current state from disk. This allows a post-task save report to infer `quest.selection_confirmed` from structured campaign log facts, then infer `quest.attempt_resolved` from progression facts without waiting for another watcher pass.
 
 Example:
 
@@ -327,9 +328,9 @@ Sidecar state rules:
 
 ## Capability Contract
 
-Capabilities describe what the framework can safely observe or change. A mod declares capabilities it needs; a rule action names the capability it uses.
+Capabilities describe what the framework can safely observe or change. A mod declares capabilities it needs; a rule action names the capability it uses. A declaration is an opt-in requirement, not a provider registration and not proof that the capability exists.
 
-Capability fields for future registry entries:
+Capability registry entries are implemented in `launcher/Patching/FrameworkCapabilityRegistry.cs`. Current enforcement uses `id`, `status`, `risk`, `source`, `effectScope`, `available`, `liveEnforced`, and `failurePolicy`. Executable-hash gates, structured log fields, and minimum-test metadata remain registry extensions for native capabilities; the target provenance shape is:
 
 ```json
 {
@@ -379,6 +380,14 @@ failLaunch
 ```
 
 Default policy should prefer `disableCapability` or `skipRule` unless a plugin marks an action as required and the user enabled strict behavior.
+
+Registry resolution rules:
+
+1. `when.capabilitiesPresent` and `when.capabilitiesAbsent` inspect the normalized union of declarations from enabled plugins. They answer whether a plugin set declares a dependency; they do not answer whether the framework implements it.
+2. `eventRules[].requiresCapabilities` and `factEventRules[].requiresCapabilities` are resolved per plugin. Another plugin cannot grant the requirement, and an unknown or `planned` capability skips the rule with a reason during patch-plan construction.
+3. Every runtime action type has registered allowed capabilities, expected risk, execution kind, status, and consumers. Action type ids are case-sensitive. A required unknown/planned action, capability mismatch, or risk mismatch skips the rule before an event can execute. An invalid optional action remains visible in diagnostics but is disabled before execution. If a valid optional action later fails parameter handling or materialization, the failure remains visible but is downgraded to a warning so the event can continue.
+4. `materialized` means the event executor can write an artifact. The action's `consumers` and `liveEnforced` fields separately state whether an overlay, decoded-save applier, continuous reconciler, or live interception path exists. Artifact creation alone is never reported as live enforcement.
+5. A decoded-save apply request treats a missing consumer for `required: true` as an error (`managed-action-required-consumer-missing`). The same gap for `required: false` remains a warning with status `unsupported`. Content-only actions such as `trinket.patchEntry` use a separate decoded-save recognition consumer and report `recognized`; they are not counted as decoded-save `applied` or `dry-run` effects.
 
 ## General Gap Handling
 

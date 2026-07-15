@@ -8,6 +8,8 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
 $sessionId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $stateRoot = Join-Path $projectRoot.Path "state\managed_action_overlay_test\$sessionId"
+$ownerPluginId = "validation.managed_action_owner_contract"
+$ownerManifestPath = (Resolve-Path -LiteralPath (Join-Path $projectRoot.Path "plugins\_validation\managed_action_owner_contract\patches.json")).Path
 
 function Assert-True {
     param(
@@ -157,9 +159,9 @@ try {
         version = 1
         status = "materialized"
         eventId = "manual.overlay-test"
-        pluginId = "validation.managed_action_overlay_test"
+        pluginId = $ownerPluginId
         sourceName = "Validation - Managed Action Overlay Test"
-        sourcePath = "tools/TestManagedActionOverlay.ps1"
+        sourcePath = $ownerManifestPath
         ruleIndex = 2
         ruleId = "manual_trinket_patch_entry"
         actionIndex = 0
@@ -200,9 +202,9 @@ try {
         version = 1
         status = "materialized"
         eventId = "manual.overlay-test"
-        pluginId = "validation.managed_action_overlay_test"
+        pluginId = $ownerPluginId
         sourceName = "Validation - Managed Action Overlay Test"
-        sourcePath = "tools/TestManagedActionOverlay.ps1"
+        sourcePath = $ownerManifestPath
         ruleIndex = 4
         ruleId = "manual_fixed_board"
         actionIndex = 0
@@ -227,9 +229,9 @@ try {
         version = 1
         status = "materialized"
         eventId = "manual.overlay-test"
-        pluginId = "validation.managed_action_overlay_test"
+        pluginId = $ownerPluginId
         sourceName = "Validation - Managed Action Overlay Test"
-        sourcePath = "tools/TestManagedActionOverlay.ps1"
+        sourcePath = $ownerManifestPath
         ruleIndex = 5
         ruleId = "manual_town_unlock"
         actionIndex = 0
@@ -247,8 +249,24 @@ try {
     }
     $townUnlockArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $townUnlockArtifactPath -Encoding UTF8
 
+    $inactiveOwnerArtifact = $questBoardArtifact | ConvertTo-Json -Depth 10 | ConvertFrom-Json -AsHashtable
+    $inactiveOwnerArtifact.pluginId = "validation.disabled_managed_action_owner"
+    $inactiveOwnerArtifact.ruleId = "inactive_owner_fixed_board"
+    $inactiveOwnerArtifact.plan.arguments.questIds = @("plot_darkest_dungeon_3")
+    $inactiveOwnerArtifact.Remove("status")
+    $inactiveOwnerArtifact.Remove("action")
+    $inactiveOwnerArtifactPath = Join-Path $artifactRoot "manual_inactive_owner_questBoard.replaceWithFixedSet.json"
+    $inactiveOwnerArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $inactiveOwnerArtifactPath -Encoding UTF8
+
+    $sourceMismatchArtifact = $questBoardArtifact | ConvertTo-Json -Depth 10 | ConvertFrom-Json -AsHashtable
+    $sourceMismatchArtifact.sourcePath = Join-Path $projectRoot.Path "tools\TestManagedActionOverlay.ps1"
+    $sourceMismatchArtifact.ruleId = "source_mismatch_fixed_board"
+    $sourceMismatchArtifact.plan.arguments.questIds = @("plot_darkest_dungeon_4")
+    $sourceMismatchArtifactPath = Join-Path $artifactRoot "manual_source_mismatch_questBoard.replaceWithFixedSet.json"
+    $sourceMismatchArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $sourceMismatchArtifactPath -Encoding UTF8
+
     $artifacts = @(Get-ChildItem -LiteralPath $artifactRoot -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
-    Assert-True ($artifacts.Count -eq 3) "Expected three materialized managed action artifacts after adding trinket patch, fixed-board, and town unlock artifacts, found $($artifacts.Count)."
+    Assert-True ($artifacts.Count -eq 5) "Expected three eligible and two ineligible managed action artifacts, found $($artifacts.Count)."
 
     $dryRunArgs = @(
         "--config", (Resolve-ProjectPath $ConfigPath),
@@ -262,13 +280,23 @@ try {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Managed action overlay manifest was not written: $manifestPath"
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 
-    Assert-True ([int]$manifest.artifactCount -eq 3) "Overlay manifest should count all three artifacts."
+    Assert-True ([int]$manifest.artifactCount -eq 5) "Overlay manifest should count all five artifacts."
     Assert-True ([int]$manifest.overlayCount -eq 3) "Overlay compiler should expose the trinket patch overlay, the fixed-board overlay, and the town unlock overlay."
-    Assert-True ([int]$manifest.ignoredArtifactCount -eq 0) "Overlay manifest should not ignore any artifacts in this focused fixture."
+    Assert-True ([int]$manifest.ignoredArtifactCount -eq 2) "Overlay manifest should ignore both ineligible artifacts."
     Assert-True ([int]$manifest.supersededOverlayCount -eq 0) "Overlay manifest should not supersede single-source artifacts in this focused fixture."
     Assert-True ([int]$manifest.virtualFileRuleCount -eq (1 + $lockedTownBuildingFiles.Count + $trinketPatchEntryFiles.Count)) "Overlay manifest should compile one quest plot virtual file rule plus town building and trinket sourcePath rules."
     Assert-True ([int]$manifest.virtualFileReplacementCount -eq 2) "Overlay manifest should compile quest plot replacements for both fixed-board boss quests."
-    Assert-True ((@($manifest.issues)).Count -eq 0) "Overlay manifest should not contain issues."
+    Assert-True ((@($manifest.issues)).Count -eq 2) "Overlay manifest should report both ineligible artifacts."
+    Assert-True ((@($manifest.issues | Where-Object { $_.code -eq "managed-artifact-owner-inactive" })).Count -eq 1) "Overlay manifest should report the inactive owner."
+    Assert-True ((@($manifest.issues | Where-Object { $_.code -eq "managed-artifact-owner-source-mismatch" })).Count -eq 1) "Overlay manifest should report the same-id source mismatch."
+
+    $questBoardPreviewPath = Join-Path $projectRoot.Path "logs\quest_board_preview_report.json"
+    Assert-True (Test-Path -LiteralPath $questBoardPreviewPath -PathType Leaf) "Quest board preview report was not written: $questBoardPreviewPath"
+    $questBoardPreview = Get-Content -Raw -LiteralPath $questBoardPreviewPath | ConvertFrom-Json
+    Assert-True ([int]$questBoardPreview.wouldApplyArtifactCount -eq 1) "Quest board preview should accept only the eligible fixed-board artifact."
+    Assert-True ((@($questBoardPreview.artifacts | Where-Object { $_.status -eq "ineligible" })).Count -eq 2) "Quest board preview should mark both invalid-owner artifacts ineligible."
+    Assert-True ((@($questBoardPreview.issues | Where-Object { $_.code -eq "managed-artifact-owner-inactive" })).Count -eq 1) "Quest board preview should report the inactive owner."
+    Assert-True ((@($questBoardPreview.issues | Where-Object { $_.code -eq "managed-artifact-owner-source-mismatch" })).Count -eq 1) "Quest board preview should report the same-id source mismatch."
 
     $overlays = @($manifest.overlays)
     Assert-True ($overlays.Count -eq 3) "Expected exactly three overlay entries."

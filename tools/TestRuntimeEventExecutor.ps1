@@ -251,4 +251,31 @@ Assert-True (-not ((Convert-ToArray $state.completedQuestIds) -contains "plot_ki
 Assert-True ([int]$state.wallet.gold -eq 30000) "Failed attempt should not pay the victory reward."
 Assert-True ($null -eq $state.activeSelection) "Failed attempt should clear active selection."
 
+$bossStatePath = Join-Path $stateRoot "$bossPluginId.json"
+$bossStateDocument = Get-Content -Raw -LiteralPath $bossStatePath | ConvertFrom-Json
+$bossStateDocument.state.bossGauntlet.victoryGold = "invalid-transaction-probe"
+$bossStateDocument | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $bossStatePath -Encoding UTF8
+
+$rollbackSelectionPayloadPath = Write-JsonPayload "boss_selection_hag_atomic_rollback.json" ([pscustomobject]@{
+    questId = "plot_kill_hag_3"
+    selectedHeroIds = @("hero_9", "hero_10", "hero_11", "hero_12")
+    selectedTrinketIds = @("trinket_5", "trinket_6")
+})
+Invoke-Loader -LoaderArgs ($bossArgs + @("--emit-event", "quest.selection_confirmed", "--event-payload-file", $rollbackSelectionPayloadPath))
+
+$rollbackAttemptId = "attempt_hag_atomic_rollback_001"
+$rollbackAttemptPayloadPath = Write-JsonPayload "boss_attempt_hag_atomic_rollback.json" ([pscustomobject]@{
+    questId = "plot_kill_hag_3"
+    success = $true
+    attemptId = $rollbackAttemptId
+})
+Invoke-LoaderExpectFailure -LoaderArgs ($bossArgs + @("--emit-event", "quest.attempt_resolved", "--event-payload-file", $rollbackAttemptPayloadPath))
+$state = Read-BossGauntletState
+Assert-True ((Convert-ToArray $state.attempts).Count -eq 3) "Actions completed before the failed reward should still be committed."
+Assert-True ([int]$state.wallet.gold -eq 30000) "A failed reward action must not change sidecar wallet state."
+Assert-True (-not ((Convert-ToArray $state.rewardedAttemptFingerprints) -contains $rollbackAttemptId)) "A failed reward action must discard its partially written reward fingerprint."
+$runtimeEventReport = Read-RuntimeEventReport
+$failedRewardAction = Get-ActionReport -Report $runtimeEventReport -Type "wallet.addCurrencyOnEvent"
+Assert-True ($failedRewardAction.status -eq "failed") "The invalid reward action should remain visible as failed."
+
 Write-Host "PASS: runtime event executor state assertions passed."

@@ -1,0 +1,14 @@
+{
+  "id": "validation.managed_action_owner_contract",
+  "name": "Validation - Managed Action Owner Contract",
+  "version": "0.1.0",
+  "enabled": true,
+  "capabilities": [],
+  "virtualFileRules": [],
+  "mapTemplates": [],
+  "mapLayoutTemplates": [],
+  "questChains": [],
+  "eventRules": [],
+  "factEventRules": [],
+  "stateSchema": {}
+}

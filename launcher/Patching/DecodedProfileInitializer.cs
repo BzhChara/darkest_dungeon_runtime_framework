@@ -67,7 +67,7 @@ internal static class DecodedProfileInitializer
 
         if (stateReport.Succeeded && eventReport?.Succeeded == true)
         {
-            questBoardPreview = QuestBoardPreviewReporter.Write(config, log);
+            questBoardPreview = QuestBoardPreviewReporter.Write(config, patchPlan, log);
             AddQuestBoardPreviewIssues(issues, questBoardPreview.Issues);
             if (!questBoardPreview.Succeeded)
             {
@@ -82,7 +82,7 @@ internal static class DecodedProfileInitializer
 
         if (stateReport.Succeeded && eventReport?.Succeeded == true && questBoardPreview?.Succeeded == true)
         {
-            applyReport = ManagedActionSaveApplier.Apply(config, log, projectRoot, saveDirectory, writeChanges);
+            applyReport = ManagedActionSaveApplier.Apply(config, patchPlan, log, projectRoot, saveDirectory, writeChanges);
             AddManagedActionApplyIssues(issues, applyReport.Issues);
             if (!applyReport.Succeeded)
             {
@@ -121,6 +121,7 @@ internal static class DecodedProfileInitializer
             applyReport?.SaveDirectory ?? string.Empty,
             applyReport?.ArtifactCount ?? 0,
             applyReport?.SupportedActionCount ?? 0,
+            applyReport?.RecognizedActionCount ?? 0,
             applyReport?.DryRunActionCount ?? 0,
             applyReport?.AppliedActionCount ?? 0,
             applyReport?.UnsupportedActionCount ?? 0,
@@ -139,6 +140,7 @@ internal static class DecodedProfileInitializer
             $"materializedActions={report.MaterializedActionCount} questBoardCandidates={report.QuestBoardCandidateCount} " +
             $"applySkipped={report.ApplySkipped} applySucceeded={report.ApplySucceeded} " +
             $"applyArtifacts={report.ApplyArtifactCount} supported={report.ApplySupportedActionCount} " +
+            $"recognized={report.ApplyRecognizedActionCount} " +
             $"applied={report.ApplyAppliedActionCount} dryRunActions={report.ApplyDryRunActionCount} " +
             $"unsupported={report.ApplyUnsupportedActionCount} failed={report.ApplyFailedActionCount} " +
             $"changedFiles={report.ApplyChangedFileCount} warnings={report.WarningCount} errors={report.ErrorCount}");
@@ -294,6 +296,7 @@ internal sealed record DecodedProfileInitializationReport(
     string ResolvedSaveDirectory,
     int ApplyArtifactCount,
     int ApplySupportedActionCount,
+    int ApplyRecognizedActionCount,
     int ApplyDryRunActionCount,
     int ApplyAppliedActionCount,
     int ApplyUnsupportedActionCount,

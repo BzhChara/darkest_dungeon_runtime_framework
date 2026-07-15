@@ -150,9 +150,10 @@ internal static class SaveEventBridge
             null,
             projectRoot,
             sourceRule.PluginId);
-        if (executionReport.Succeeded)
+        if (executionReport.StateWriteCount > 0)
         {
-            stateDocuments.Remove(sourceRule.SourcePath);
+            // The report exposes a write count, not the written source paths.
+            stateDocuments.Clear();
         }
 
         return new SaveEventBridgePluginReport(

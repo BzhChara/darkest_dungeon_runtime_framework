@@ -13,7 +13,11 @@ internal static class QuestBoardPreviewReporter
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public static QuestBoardPreviewReport Write(RuntimeConfig config, LauncherLog log, string? targetProfileId = null)
+    public static QuestBoardPreviewReport Write(
+        RuntimeConfig config,
+        PatchPlan patchPlan,
+        LauncherLog log,
+        string? targetProfileId = null)
     {
         var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
         var reportPath = Path.Combine(config.LogDirectory, "quest_board_preview_report.json");
@@ -25,6 +29,7 @@ internal static class QuestBoardPreviewReporter
         IReadOnlyList<QuestBoardPreviewQuestReport> finalActiveQuests = [];
         var supersededArtifacts = ManagedQuestBoardArtifactSupersession.FindSupersededArtifacts(
             artifactDirectory,
+            patchPlan,
             targetProfileId,
             log);
 
@@ -37,6 +42,7 @@ internal static class QuestBoardPreviewReporter
                 context.ArtifactCount++;
                 var artifactReport = BuildArtifactReport(
                     context,
+                    patchPlan,
                     artifactPath,
                     supersededArtifacts.Contains(artifactPath),
                     log);
@@ -76,6 +82,7 @@ internal static class QuestBoardPreviewReporter
 
     private static QuestBoardPreviewArtifactReport BuildArtifactReport(
         PreviewContext context,
+        PatchPlan patchPlan,
         string artifactPath,
         bool superseded,
         LauncherLog log)
@@ -84,6 +91,37 @@ internal static class QuestBoardPreviewReporter
         {
             var artifact = JsonNode.Parse(File.ReadAllText(artifactPath, Encoding.UTF8)) as JsonObject
                 ?? throw new InvalidDataException("artifact root must be a JSON object");
+            var eligibility = ManagedActionArtifactEligibility.Evaluate(patchPlan, artifact);
+            if (!eligibility.Eligible)
+            {
+                var ineligibleProfileScope = ManagedActionProfileScopeResolver.FromArtifact(artifact);
+                context.Issues.Add(new QuestBoardPreviewIssue(
+                    "warning",
+                    eligibility.Code,
+                    artifactPath,
+                    eligibility.Message));
+                log.Warn(
+                    $"quest-board-preview issue code={eligibility.Code} " +
+                    $"path={Quote(artifactPath)} message={Quote(eligibility.Message)}");
+                return new QuestBoardPreviewArtifactReport(
+                    artifactPath,
+                    ReadOptionalString(artifact["action"] as JsonObject, "type"),
+                    ReadOptionalString(artifact, "status"),
+                    "ineligible",
+                    ReadOptionalString(artifact, "pluginId"),
+                    ReadOptionalString(artifact, "ruleId"),
+                    ineligibleProfileScope.Kind,
+                    ineligibleProfileScope.ProfileId,
+                    ineligibleProfileScope.ProfileRoot,
+                    false,
+                    0,
+                    0,
+                    0,
+                    [],
+                    [],
+                    [eligibility.Message]);
+            }
+
             var actionType = ReadString(artifact, "action.type");
             var status = ReadString(artifact, "status");
             var profileScope = ManagedActionProfileScopeResolver.FromArtifact(artifact);
@@ -391,9 +429,11 @@ internal static class QuestBoardPreviewReporter
             ?? throw new InvalidDataException($"{path} must be a string.");
     }
 
-    private static string ReadOptionalString(JsonObject root, string key)
+    private static string ReadOptionalString(JsonObject? root, string key)
     {
-        return root[key]?.GetValue<string>() ?? string.Empty;
+        return root?[key] is JsonValue value && value.TryGetValue<string>(out var result)
+            ? result
+            : string.Empty;
     }
 
     private static int? ReadOptionalInt(JsonObject root, string key)

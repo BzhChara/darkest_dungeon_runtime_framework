@@ -108,7 +108,7 @@ internal static class Program
             var modStateSucceeded = true;
             if (options.PreviewQuestBoard)
             {
-                modStateSucceeded &= QuestBoardPreviewReporter.Write(config, log, options.QuestBoardProfileScope).Succeeded;
+                modStateSucceeded &= QuestBoardPreviewReporter.Write(config, patchPlan, log, options.QuestBoardProfileScope).Succeeded;
             }
 
             if (options.PreviewQuestBoardPolicies)
@@ -195,6 +195,7 @@ internal static class Program
 
                 modStateSucceeded &= ManagedActionSaveApplier.Apply(
                     config,
+                    patchPlan,
                     log,
                     projectRoot,
                     options.ManagedActionSaveDirectory,
@@ -210,6 +211,7 @@ internal static class Program
 
                 modStateSucceeded &= ManagedActionSaveApplier.Apply(
                     config,
+                    patchPlan,
                     log,
                     projectRoot,
                     options.ManagedActionSaveDirectory,
@@ -283,7 +285,7 @@ internal static class Program
 
             if (!string.IsNullOrWhiteSpace(options.RefreshQuestBoardProfile))
             {
-                var refreshQuestBoardPreview = QuestBoardPreviewReporter.Write(config, log, options.RefreshQuestBoardProfile);
+                var refreshQuestBoardPreview = QuestBoardPreviewReporter.Write(config, patchPlan, log, options.RefreshQuestBoardProfile);
                 var refreshQuestBoardRuntimeOverlay = QuestBoardRuntimeOverlayCompiler.Compile(config, log, refreshQuestBoardPreview);
                 modStateSucceeded &= QuestBoardProfileRefreshWriter.Write(
                     config,
@@ -338,8 +340,8 @@ internal static class Program
                 return modStateSucceeded ? 0 : 3;
             }
 
-            var managedOverlay = ManagedActionOverlayCompiler.Compile(config, log);
-            var questBoardPreview = QuestBoardPreviewReporter.Write(config, log);
+            var managedOverlay = ManagedActionOverlayCompiler.Compile(config, patchPlan, log);
+            var questBoardPreview = QuestBoardPreviewReporter.Write(config, patchPlan, log);
             var questBoardRuntimeOverlay = QuestBoardRuntimeOverlayCompiler.Compile(config, log, questBoardPreview);
             var questBoardLaunchPreflight = QuestBoardLaunchPreflightReporter.Write(
                 config,

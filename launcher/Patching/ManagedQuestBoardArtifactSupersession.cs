@@ -6,6 +6,7 @@ internal static class ManagedQuestBoardArtifactSupersession
 {
     public static HashSet<string> FindSupersededArtifacts(
         string artifactDirectory,
+        PatchPlan patchPlan,
         string? targetProfileId,
         LauncherLog log)
     {
@@ -26,8 +27,18 @@ internal static class ManagedQuestBoardArtifactSupersession
             {
                 var artifact = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8)) as JsonObject
                     ?? throw new InvalidDataException("artifact root must be a JSON object");
+                if (!ManagedActionArtifactEligibility.Evaluate(patchPlan, artifact).Eligible)
+                {
+                    continue;
+                }
+
                 var actionType = ReadOptionalStringPath(artifact, "action.type");
                 if (!actionType.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!ManagedActionArtifactEligibility.CanSupersedeQuestBoardArtifact(artifact))
                 {
                     continue;
                 }

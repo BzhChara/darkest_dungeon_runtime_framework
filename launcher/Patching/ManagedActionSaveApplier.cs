@@ -15,6 +15,7 @@ internal static partial class ManagedActionSaveApplier
 
     public static ManagedActionApplyReport Apply(
         RuntimeConfig config,
+        PatchPlan patchPlan,
         LauncherLog log,
         string projectRoot,
         string saveDirectory,
@@ -32,10 +33,10 @@ internal static partial class ManagedActionSaveApplier
         var context = new ApplyContext(config.GameWorkingDirectory, config.ModStateDirectory, resolvedSaveDirectory, writeChanges);
         if (Directory.Exists(artifactDirectory))
         {
-            foreach (var artifactPath in SelectArtifactPaths(artifactDirectory, applyMode, targetProfileId, log))
+            foreach (var artifactPath in SelectArtifactPaths(artifactDirectory, patchPlan, applyMode, targetProfileId, log))
             {
                 context.ArtifactCount++;
-                ApplyArtifact(context, artifactPath, log);
+                ApplyArtifact(context, patchPlan, artifactPath, log);
             }
         }
 
@@ -55,7 +56,8 @@ internal static partial class ManagedActionSaveApplier
             !writeChanges,
             GetApplyModeReportName(applyMode),
             context.ArtifactCount,
-            context.Actions.Count(action => action.Status is "applied" or "dry-run"),
+            context.Actions.Count(action => action.Status is "applied" or "dry-run" or "recognized"),
+            context.Actions.Count(action => action.Status == "recognized"),
             context.Actions.Count(action => action.Status == "dry-run"),
             context.Actions.Count(action => action.Status == "applied"),
             context.Actions.Count(action => action.Status == "unsupported"),
@@ -69,14 +71,41 @@ internal static partial class ManagedActionSaveApplier
         return report;
     }
 
-    private static void ApplyArtifact(ApplyContext context, string artifactPath, LauncherLog log)
+    private static void ApplyArtifact(
+        ApplyContext context,
+        PatchPlan patchPlan,
+        string artifactPath,
+        LauncherLog log)
     {
         try
         {
             var artifact = JsonNode.Parse(File.ReadAllText(artifactPath, Encoding.UTF8)) as JsonObject
                 ?? throw new InvalidDataException("artifact root must be a JSON object");
+            var eligibility = ManagedActionArtifactEligibility.Evaluate(patchPlan, artifact);
+            if (!eligibility.Eligible)
+            {
+                var ineligibleActionType = ReadOptionalStringPath(artifact, "action.type");
+                context.Issues.Add(new ManagedActionApplyIssue(
+                    "warning",
+                    eligibility.Code,
+                    artifactPath,
+                    eligibility.Message));
+                context.Actions.Add(new ManagedActionApplyActionReport(
+                    artifactPath,
+                    ineligibleActionType,
+                    "skipped",
+                    null,
+                    [],
+                    [eligibility.Message]));
+                log.Warn(
+                    $"managed-action-apply issue code={eligibility.Code} " +
+                    $"path={Quote(artifactPath)} message={Quote(eligibility.Message)}");
+                return;
+            }
+
             var status = ReadString(artifact, "status");
             var actionType = ReadString(artifact, "action.type");
+
             if (!status.Equals("materialized", StringComparison.OrdinalIgnoreCase))
             {
                 context.Actions.Add(new ManagedActionApplyActionReport(
@@ -86,6 +115,18 @@ internal static partial class ManagedActionSaveApplier
                     null,
                     [],
                     [$"artifact status is {status}"]));
+                return;
+            }
+
+            var hasDecodedSaveConsumer = FrameworkCapabilityRegistry.HasConsumer(
+                actionType,
+                FrameworkCapabilityRegistry.DecodedSaveConsumer);
+            var hasDecodedSaveRecognitionConsumer = FrameworkCapabilityRegistry.HasConsumer(
+                actionType,
+                FrameworkCapabilityRegistry.DecodedSaveRecognitionConsumer);
+            if (!hasDecodedSaveConsumer && !hasDecodedSaveRecognitionConsumer)
+            {
+                AddUnsupportedAction(context, artifactPath, artifact, actionType);
                 return;
             }
 
@@ -104,7 +145,7 @@ internal static partial class ManagedActionSaveApplier
                     ApplyEstateRemoveInventoryItems(context, artifactPath, artifact);
                     break;
                 case "trinket.patchEntry":
-                    ApplyTrinketPatchEntryContentOnly(context, artifactPath, artifact);
+                    RecognizeTrinketPatchEntryContentOnly(context, artifactPath, artifact);
                     break;
                 case "campaign.resetPlotProgress":
                     ApplyCampaignResetPlotProgress(context, artifactPath, artifact);
@@ -137,8 +178,9 @@ internal static partial class ManagedActionSaveApplier
                     ApplyQuestBoardReplaceWithFixedSet(context, artifactPath, artifact);
                     break;
                 default:
-                    AddUnsupportedAction(context, artifactPath, artifact, actionType);
-                    break;
+                    throw new InvalidOperationException(
+                        $"Capability registry declares {FrameworkCapabilityRegistry.DecodedSaveConsumer} " +
+                        $"for {actionType}, but no apply handler exists.");
             }
         }
         catch (Exception ex)
@@ -650,6 +692,7 @@ internal static partial class ManagedActionSaveApplier
         JsonObject artifact,
         string actionType)
     {
+        var required = ReadBool(ReadNode(artifact, "action.required"), "action.required");
         var targetFile = actionType switch
         {
             "roster.ensureClassInstances" or "roster.setSkillUnlocks" => "persist.roster.json",
@@ -662,12 +705,21 @@ internal static partial class ManagedActionSaveApplier
             _ => null
         };
 
-        var message = $"managed action applier does not implement {actionType} yet";
-        context.Issues.Add(new ManagedActionApplyIssue("warning", "managed-action-applier-not-implemented", artifactPath, message));
+        var consumers = FrameworkCapabilityRegistry.TryGetAction(actionType, out var definition)
+            ? string.Join(',', definition.Consumers)
+            : "unregistered";
+        var message =
+            $"decoded-save applier does not implement {actionType}; " +
+            $"required={required} registeredConsumers={consumers}";
+        context.Issues.Add(new ManagedActionApplyIssue(
+            required ? "error" : "warning",
+            required ? "managed-action-required-consumer-missing" : "managed-action-applier-not-implemented",
+            artifactPath,
+            message));
         context.Actions.Add(new ManagedActionApplyActionReport(
             artifactPath,
             actionType,
-            "unsupported",
+            required ? "failed" : "unsupported",
             targetFile is null ? null : Path.Combine(context.SaveDirectory, targetFile),
             [ReadString(artifact, "plan.effect")],
             [message]));
@@ -863,7 +915,8 @@ internal static partial class ManagedActionSaveApplier
         File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions), Encoding.UTF8);
         log.Info(
             $"managed-action-apply report path={Quote(reportPath)} mode={Quote(report.ApplyMode)} artifacts={report.ArtifactCount} " +
-            $"dryRun={report.DryRun} supported={report.SupportedActionCount} dryRunActions={report.DryRunActionCount} " +
+            $"dryRun={report.DryRun} supported={report.SupportedActionCount} recognized={report.RecognizedActionCount} " +
+            $"dryRunActions={report.DryRunActionCount} " +
             $"applied={report.AppliedActionCount} unsupported={report.UnsupportedActionCount} " +
             $"failed={report.FailedActionCount} changedFiles={report.ChangedFileCount} issues={report.Issues.Count}");
     }
@@ -953,6 +1006,7 @@ internal sealed record ManagedActionApplyReport(
     string ApplyMode,
     int ArtifactCount,
     int SupportedActionCount,
+    int RecognizedActionCount,
     int DryRunActionCount,
     int AppliedActionCount,
     int UnsupportedActionCount,

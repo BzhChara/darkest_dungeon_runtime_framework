@@ -504,6 +504,135 @@ Assert-True ([int]$bridgeReport.inferredEventCount -eq 0) "Uninitialized boss ga
 $bridgeErrors = @(Convert-ToArray $bridgeReport.issues | Where-Object { $_.severity -eq "error" })
 Assert-True ($bridgeErrors.Count -eq 0) "Uninitialized boss gauntlet state should not produce save bridge errors."
 
+$refreshTestRoot = Join-Path $testRoot "state_refresh_after_failed_event"
+$refreshPluginRoot = Join-Path $refreshTestRoot "plugin"
+$refreshLogRoot = Join-Path $refreshTestRoot "runtime_logs"
+$refreshStateRoot = Join-Path $stateRoot "state_refresh_after_failed_event"
+$refreshConfigPath = Join-Path $refreshTestRoot "config.json"
+$refreshPluginId = "validation.save_event_bridge_state_refresh"
+New-Item -ItemType Directory -Force -Path $refreshPluginRoot, $refreshLogRoot, $refreshStateRoot | Out-Null
+
+$refreshManifest = [ordered]@{
+    id = $refreshPluginId
+    name = "Validation - Save Event Bridge State Refresh"
+    version = "0.1.0"
+    enabled = $true
+    capabilities = @("save.observe_write", "state.sidecar")
+    factEventRules = @(
+        [ordered]@{
+            id = "emit_partial_failure"
+            enabled = $true
+            emit = "validation.partial_failure"
+            priority = 0
+            requiresCapabilities = @("save.observe_write", "state.sidecar")
+            when = [ordered]@{ fact = "probe.run"; op = "equals"; value = $true }
+            payload = [ordered]@{}
+        },
+        [ordered]@{
+            id = "observe_state_written_by_failed_event"
+            enabled = $true
+            emit = "validation.followup"
+            priority = 10
+            requiresCapabilities = @("save.observe_write", "state.sidecar")
+            when = [ordered]@{ state = "probe.firstApplied"; op = "equals"; value = $true }
+            payload = [ordered]@{}
+        }
+    )
+    eventRules = @(
+        [ordered]@{
+            id = "write_then_fail"
+            enabled = $true
+            on = "validation.partial_failure"
+            requiresCapabilities = @("state.sidecar")
+            actions = @(
+                [ordered]@{
+                    type = "state.setValue"
+                    capability = "state.sidecar"
+                    risk = "safe"
+                    required = $true
+                    args = [ordered]@{ key = "probe.firstApplied"; value = $true }
+                },
+                [ordered]@{
+                    type = "state.setArrayCount"
+                    capability = "state.sidecar"
+                    risk = "safe"
+                    required = $true
+                    args = [ordered]@{ key = "probe.invalidCount"; arrayStateKey = "probe.firstApplied" }
+                }
+            )
+        },
+        [ordered]@{
+            id = "record_followup"
+            enabled = $true
+            on = "validation.followup"
+            requiresCapabilities = @("state.sidecar")
+            actions = @(
+                [ordered]@{
+                    type = "state.incrementCounter"
+                    capability = "state.sidecar"
+                    risk = "safe"
+                    required = $true
+                    args = [ordered]@{ key = "probe.followupCount"; amount = 1 }
+                }
+            )
+        }
+    )
+    stateSchema = [ordered]@{
+        probe = [ordered]@{
+            type = "object"
+            default = [ordered]@{
+                firstApplied = $false
+                followupCount = 0
+            }
+        }
+    }
+}
+$refreshManifest | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath (Join-Path $refreshPluginRoot "patches.json") -Encoding UTF8
+
+$refreshConfig = Get-Content -Raw -LiteralPath (Resolve-ProjectPath $ConfigPath) | ConvertFrom-Json
+$refreshConfig.pluginDirectories = @($refreshPluginRoot)
+$refreshConfig.logDirectory = $refreshLogRoot
+$refreshConfig.modStateDirectory = $refreshStateRoot
+$refreshConfig.allowNonAtomicStateWrites = $true
+$refreshConfig.enableInjection = $false
+$refreshConfig | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $refreshConfigPath -Encoding UTF8
+
+$refreshSaveReportPath = Write-JsonPayload "save_state_report_state_refresh.json" ([pscustomobject]@{
+    version = 1
+    sessionId = "save_event_bridge_state_refresh_test"
+    generatedAt = [DateTimeOffset]::Now
+    parseStatus = "fixture"
+    facts = [pscustomobject]@{
+        probe = [pscustomobject]@{ run = $true }
+    }
+})
+$refreshArgs = @(
+    "--config", $refreshConfigPath,
+    "--no-inject",
+    "--allow-non-atomic-state-writes",
+    "--mod-state-id", $refreshPluginId,
+    "--mod-state-dir", $refreshStateRoot
+)
+Invoke-Loader -LoaderArgs ($refreshArgs + @("--init-mod-state"))
+Invoke-LoaderExpectExit -ExpectedExitCode 3 -LoaderArgs ($refreshArgs + @(
+    "--infer-save-events",
+    "--save-state-report", $refreshSaveReportPath
+))
+
+$refreshStatePath = Join-Path $refreshStateRoot "$refreshPluginId.json"
+$refreshStateDocument = Get-Content -Raw -LiteralPath $refreshStatePath | ConvertFrom-Json
+$refreshState = $refreshStateDocument.state.probe
+Assert-True ([bool]$refreshState.firstApplied) "The successful action before a required failure should still be persisted."
+Assert-True ([int]$refreshState.followupCount -eq 1) "A later fact rule should reload and observe state written by a failed event."
+
+$refreshBridgeReportPath = Join-Path $refreshLogRoot "save_event_bridge_report.json"
+$refreshBridgeReport = Get-Content -Raw -LiteralPath $refreshBridgeReportPath | ConvertFrom-Json
+$partialFailureRule = @(Convert-ToArray $refreshBridgeReport.plugins | Where-Object { $_.ruleId -eq "emit_partial_failure" })
+$followupRule = @(Convert-ToArray $refreshBridgeReport.plugins | Where-Object { $_.ruleId -eq "observe_state_written_by_failed_event" })
+Assert-True ($partialFailureRule.Count -eq 1 -and $partialFailureRule[0].status -eq "event-failed") "The first inferred event should remain reported as failed."
+Assert-True ([int]$partialFailureRule[0].executionReport.stateWriteCount -eq 1) "The failed event should report its successful preceding state write."
+Assert-True ($followupRule.Count -eq 1 -and $followupRule[0].status -eq "event-executed") "The later fact rule should execute after the bridge refreshes its state cache."
+
 $badStateRoot = Join-Path $stateRoot "bad_fact_event_predicate"
 New-Item -ItemType Directory -Force -Path $badStateRoot | Out-Null
 

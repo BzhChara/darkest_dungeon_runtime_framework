@@ -310,7 +310,7 @@ A single plugin writes to `state/mod_state/<plugin-id>.json` by default. If mult
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --mod-state-id validation.boss_gauntlet_campaign_contract --emit-event profile.initialization_requested --no-inject
 ```
 
-The current executor implements safe state actions such as `state.setValue`, `state.addUniqueRange`, `state.addUnique`, `state.incrementCounter`, `state.setArrayCount`, `state.setFromArrayIndex`, `state.mergeDefinition`, `selection.lock`, selection consumption, wallet rewards, quest completion, phase transition, and `attempt.recordOnce`. Managed game-behavior actions generate auditable artifacts first; boss-gauntlet initialization materializes profile-normalization actions such as fixed quest board replacement, roster setup, inventory setup, town normalization, and content overlays under `modStateDirectory/_managed_actions/`. Other unimplemented actions still fail the event if marked `required:true`. Implemented and materialized action parameters are handled strictly: missing referenced `event.xxx` or `state.xxx` paths, explicit parameter type errors, and invalid definition file paths fail the action instead of continuing with empty or default values.
+The current executor implements safe state actions such as `state.setValue`, `state.addUniqueRange`, `state.addUnique`, `state.incrementCounter`, `state.setArrayCount`, `state.setFromArrayIndex`, `state.mergeDefinition`, `selection.lock`, selection consumption, wallet rewards, quest completion, phase transition, and `attempt.recordOnce`. Each sidecar action runs against an isolated in-memory state document. Only a successful state-changing handler replaces the executor's current document; failed and no-change handlers discard their copies. The executor writes the latest accepted document once after all matching rules have run, so persistence still depends on that final write succeeding. A failed required action stops the remaining actions in its rule, while an optional failure is reported as a warning and later actions can continue. Managed game-behavior actions generate auditable artifacts first; boss-gauntlet initialization materializes profile-normalization actions such as fixed quest board replacement, roster setup, inventory setup, town normalization, and content overlays under `modStateDirectory/_managed_actions/`. A required unknown, planned, or metadata-invalid action skips its whole rule while building the patch plan. An invalid optional action remains visible as a skipped warning and cannot execute. Sidecar action arguments are validated during event execution. Managed actions resolve referenced `event.xxx` and `state.xxx` values during materialization, while consumer-specific modes and save/content shapes are validated later by the overlay or decoded-save consumer.
 
 Before starting the game or during `--dry-run`, the launcher compiles consumable artifacts under `_managed_actions/` into:
 
@@ -411,7 +411,7 @@ Load relationship rules:
 - Lower `priority` values load earlier. The default is `0`.
 - Duplicate `id` values, declared conflicts, and ordering cycles log warnings by default instead of blocking startup.
 
-Capability declarations describe what a plugin intends to use or provide:
+Capability declarations describe what a plugin needs. They do not register a provider and cannot make an unknown or `planned` capability executable. Use `--explain-rules` to inspect the framework-owned registry resolution:
 
 ```json
 "capabilities": [
@@ -422,7 +422,7 @@ Capability declarations describe what a plugin intends to use or provide:
 ]
 ```
 
-First suggested capability names:
+Authoring examples below are not an availability list:
 
 - `file.virtualize`: virtualize file reads through RuntimeHook.
 - `content.patch`: modify game data text.

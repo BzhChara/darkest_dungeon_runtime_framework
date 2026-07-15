@@ -19,6 +19,13 @@ internal sealed class PatchPlan
         IReadOnlyList<PatchCompileIssue> compileIssues)
     {
         Manifests = manifests;
+        ActivePluginManifests = manifests
+            .Where(manifest =>
+                manifest.Enabled &&
+                manifest.Status.Equals("enabled", StringComparison.OrdinalIgnoreCase) &&
+                manifest.LoadOrder >= 0)
+            .OrderBy(manifest => manifest.LoadOrder)
+            .ToArray();
         LoadRules = loadRules;
         LoadDiagnostics = loadDiagnostics;
         StateSchemas = stateSchemas;
@@ -35,6 +42,7 @@ internal sealed class PatchPlan
     }
 
     public IReadOnlyList<PatchManifestInfo> Manifests { get; }
+    public IReadOnlyList<PatchManifestInfo> ActivePluginManifests { get; }
     public IReadOnlyList<PluginLoadRule> LoadRules { get; }
     public IReadOnlyList<PluginLoadDiagnostic> LoadDiagnostics { get; }
     public IReadOnlyList<PluginStateSchemaSource> StateSchemas { get; }
@@ -255,6 +263,7 @@ internal sealed class PatchPlan
 
     public void LogRuleExplanation(LauncherLog log)
     {
+        LogCapabilityRegistry(log);
         log.Info(
             $"Runtime rule explanation started. activeRules={SourceRuntimeEventRules.Count} " +
             $"skippedRules={SkippedRuntimeEventRules.Count}");
@@ -271,7 +280,7 @@ internal sealed class PatchPlan
                 $"id={QuoteLogValue(source.Rule.Id)} on={source.Rule.On} phase={source.Rule.Phase} " +
                 $"priority={source.Rule.Priority} requires={FormatLogList(source.RequiredCapabilities)} " +
                 $"actions={source.Rule.Actions.Length} actionCapabilities={FormatLogList(source.ActionCapabilities)} " +
-                $"missingOptionalActionCapabilities={FormatLogList(source.MissingOptionalActionCapabilities)} " +
+                $"optionalActionDiagnostics={FormatLogList(source.OptionalActionSkipReasons.Select(result => $"action[{result.Key}] {result.Value}"))} " +
                 $"reason={QuoteLogValue(source.Reason)} path={source.SourcePath}");
 
             for (var actionIndex = 0; actionIndex < source.Rule.Actions.Length; actionIndex++)
@@ -295,6 +304,50 @@ internal sealed class PatchPlan
         }
 
         log.Info("Runtime rule explanation completed.");
+    }
+
+    private void LogCapabilityRegistry(LauncherLog log)
+    {
+        log.Info(
+            $"Framework capability registry started. capabilities={FrameworkCapabilityRegistry.Capabilities.Count} " +
+            $"available={FrameworkCapabilityRegistry.Capabilities.Count(capability => capability.Available)} " +
+            $"actions={FrameworkCapabilityRegistry.Actions.Count} " +
+            $"executableActions={FrameworkCapabilityRegistry.Actions.Count(action => action.Available)}");
+
+        foreach (var capability in FrameworkCapabilityRegistry.Capabilities)
+        {
+            log.Info(
+                $"framework-capability id={capability.Id} status={capability.Status} risk={capability.Risk} " +
+                $"available={capability.Available} source={capability.Source} effectScope={capability.EffectScope} " +
+                $"liveEnforced={capability.LiveEnforced} failurePolicy={capability.FailurePolicy}");
+        }
+
+        foreach (var action in FrameworkCapabilityRegistry.Actions)
+        {
+            log.Info(
+                $"framework-action type={action.Type} status={action.Status} risk={action.Risk} " +
+                $"available={action.Available} execution={action.ExecutionKind} " +
+                $"capabilities={FormatLogList(action.Capabilities)} consumers={FormatLogList(action.Consumers)} " +
+                $"liveEnforced={action.LiveEnforced}");
+        }
+
+        foreach (var manifest in ActivePluginManifests)
+        {
+            foreach (var declaredCapability in manifest.Capabilities
+                         .Where(capability => !string.IsNullOrWhiteSpace(capability))
+                         .Select(capability => capability.Trim())
+                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                         .OrderBy(capability => capability, StringComparer.OrdinalIgnoreCase))
+            {
+                var resolution = FrameworkCapabilityRegistry.ResolveCapability(declaredCapability);
+                log.Info(
+                    $"plugin-capability plugin={manifest.Id} id={resolution.Id} status={resolution.Status} " +
+                    $"available={resolution.Available} source={resolution.Source} effectScope={resolution.EffectScope} " +
+                    $"liveEnforced={resolution.LiveEnforced}");
+            }
+        }
+
+        log.Info("Framework capability registry completed.");
     }
 
     public void LogFactEventRuleExplanation(LauncherLog log)
@@ -492,7 +545,7 @@ internal sealed record RuntimeEventRuleSource(
     RuntimeEventRule Rule,
     IReadOnlyList<string> RequiredCapabilities,
     IReadOnlyList<string> ActionCapabilities,
-    IReadOnlyList<string> MissingOptionalActionCapabilities,
+    IReadOnlyDictionary<int, string> OptionalActionSkipReasons,
     string Reason);
 
 internal sealed record RuntimeEventRuleSkip(

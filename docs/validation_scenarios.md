@@ -21,7 +21,7 @@ Run:
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --config config/rule_contract_validation_config.json --explain-rules --no-inject
 ```
 
-The baseline expected result is declaration-level success: all validation rules should be listed as active by `--explain-rules`. The first safe executor can also exercise implemented sidecar state actions through `--emit-event`, and selected managed actions can now materialize observe-first artifacts. The launcher can compile fixed-board quest artifacts into a runtime-visible overlay manifest, and `questBoard.replaceWithFixedSet` can feed the existing virtual file layer for plot quest availability. Fixed-board artifacts can also be explicitly written to a watched profile's current `persist.quest.json` through the targeted quest-board refresh path, or re-applied by the save watcher after a live `persist.quest.json` change when quest-board auto refresh is enabled. Broader managed game mutation is still incomplete.
+The baseline expected result is registry resolution, not declaration-level success. `--explain-rules` must list implemented rules as active and must list rules that require unknown or `planned` capabilities as skipped with a concrete registry reason. A validation manifest cannot grant itself an unimplemented capability by declaring it. The safe executor can exercise implemented sidecar state actions through `--emit-event`, and selected managed actions can materialize artifacts. Artifact consumers and live enforcement remain separate registry fields. The launcher can compile fixed-board quest artifacts into a runtime-visible overlay manifest, and `questBoard.replaceWithFixedSet` can feed the existing virtual file layer for plot quest availability. Fixed-board artifacts can also be explicitly written to a watched profile's current `persist.quest.json` through the targeted quest-board refresh path, or re-applied by the save watcher after a stable save bridge when quest-board auto refresh is enabled. Broader managed game mutation is still incomplete.
 
 ## Scenario 1: Quest Draft Contract
 
@@ -61,14 +61,14 @@ capability state.sidecar
 
 Acceptance ladder:
 
-1. `--explain-rules` lists both rules as active.
-2. Sidecar state can store `usedHeroIds`.
-3. The framework can observe party selection start and confirmation.
-4. The framework can read selected hero ids from the confirmation event.
-5. The framework can filter available heroes before selection.
+1. `--explain-rules` lists `remember_selected_heroes` as active and `prepare_draft_pool` as skipped because the selection-start observer and draft unlock capabilities are `planned`.
+2. Sidecar state can store `usedHeroIds` and the confirmation event can add selected hero ids.
+3. The framework can observe party selection start without a manual event.
+4. The framework can unlock the draft roster and equipment pools.
+5. The framework can filter the original available-hero list before selection.
 6. The framework can expose enough UI feedback to show why a hero is unavailable.
 
-Steps 1-2 and the safe sidecar state action path exist now. Scenario 3 uses the same selection and sidecar primitives in the current boss-gauntlet campaign flow.
+Steps 1-2 exist now. `roster.filterAvailableHeroes` can only materialize an artifact and has no original UI/save consumer; steps 3-6 remain missing framework capabilities.
 
 ## Scenario 2: Delayed Building Upgrades Contract
 
@@ -111,16 +111,16 @@ capability state.sidecar
 
 Acceptance ladder:
 
-1. `--explain-rules` lists both rules as active.
-2. Sidecar state can store `pendingUpgrades`.
-3. The framework can observe week advancement.
+1. `--explain-rules` lists both rules as skipped and names their `planned` capabilities/actions.
+2. Sidecar state schema can represent `pendingUpgrades`.
+3. The framework can observe week advancement without a manual event.
 4. The framework can observe building upgrade requests.
 5. The framework can intercept upgrade requests and cancel original completion.
 6. The framework can spend the original cost through a verified primitive.
 7. The framework can apply a queued upgrade through a verified primitive.
 8. The framework can expose pending upgrade status in diagnostics, and later in UI or overlay.
 
-Only step 1 and the manifest parsing pieces exist now.
+Only steps 1-2 and manifest parsing exist now. The registry deliberately blocks the two rules until steps 3-7 have real providers and consumers.
 
 ## Scenario 3: Fixed Resource Boss Gauntlet Campaign
 
@@ -243,9 +243,9 @@ Progress should be measured by reusable primitives, not by special-case code:
 | Put fixed content in a specific map cell | `map.place_cell_content` and `map.place_named_encounter` |
 | Define exact enemy quantity, type, and order | `encounter.define_mash` |
 | Queue upgrades | sidecar state object-list actions |
-| Move time forward | `campaign.week_advanced` event |
-| Stop original upgrade | `building.intercept_upgrade_request` capability |
-| Apply queued upgrade | verified `upgrade.apply_completed` action |
+| Move time forward | planned `campaign.week_advanced` observation |
+| Stop original upgrade | planned `building.intercept_upgrade_request` capability |
+| Apply queued upgrade | planned verified `upgrade.apply_completed` action |
 
 When these scenarios can run through the same rule engine without scenario-specific branches, the framework has a meaningful initial runtime capability.
 

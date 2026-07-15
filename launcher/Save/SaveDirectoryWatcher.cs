@@ -568,7 +568,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
                 $"changes={profile.ChangeCount} lastPath={Quote(profile.LastRelativePath)} " +
                 $"containsPersistQuest={profile.ContainsLivePersistQuest}");
 
-            var preview = QuestBoardPreviewReporter.Write(_config, _log, profile.Profile);
+            var preview = QuestBoardPreviewReporter.Write(_config, _patchPlan, _log, profile.Profile);
             var runtimeOverlay = QuestBoardRuntimeOverlayCompiler.Compile(_config, _log, preview);
             var refreshReport = QuestBoardProfileRefreshWriter.Write(
                 _config,
@@ -619,6 +619,7 @@ internal sealed partial class SaveDirectoryWatcher : IDisposable
 
             var report = ContinuousProfileActionRefreshWriter.Write(
                 _config,
+                _patchPlan,
                 _log,
                 _projectRoot,
                 profile.Profile,

@@ -10,7 +10,7 @@ internal sealed partial class RuntimeConfig
         string sourceName,
         string sourcePath,
         int loadOrder,
-        IReadOnlySet<string> activeCapabilities)
+        IReadOnlySet<string> pluginDeclaredCapabilities)
     {
         var index = 0;
         foreach (var rule in input ?? [])
@@ -36,10 +36,10 @@ internal sealed partial class RuntimeConfig
             }
 
             var requiredCapabilities = CleanCapabilityReferences(rule.RequiresCapabilities).ToArray();
-            var missingRequiredCapabilities = requiredCapabilities
-                .Where(capability => !activeCapabilities.Contains(NormalizeCapability(capability)))
+            var undeclaredRequiredCapabilities = requiredCapabilities
+                .Where(capability => !pluginDeclaredCapabilities.Contains(NormalizeCapability(capability)))
                 .ToArray();
-            if (missingRequiredCapabilities.Length > 0)
+            if (undeclaredRequiredCapabilities.Length > 0)
             {
                 skipped.Add(new RuntimeEventRuleSkip(
                     pluginId,
@@ -49,37 +49,64 @@ internal sealed partial class RuntimeConfig
                     index,
                     rule.Id,
                     rule.On,
-                    "required capabilities missing: " + string.Join(",", missingRequiredCapabilities)));
+                    "required capabilities not declared by plugin: " + string.Join(",", undeclaredRequiredCapabilities)));
                 continue;
             }
 
+            var unavailableRequiredCapabilities = requiredCapabilities
+                .Select(FrameworkCapabilityRegistry.ResolveCapability)
+                .Where(capability => !capability.Available)
+                .ToArray();
+            if (unavailableRequiredCapabilities.Length > 0)
+            {
+                skipped.Add(new RuntimeEventRuleSkip(
+                    pluginId,
+                    sourceName,
+                    sourcePath,
+                    loadOrder,
+                    index,
+                    rule.Id,
+                    rule.On,
+                    "required capabilities unavailable: " + FormatCapabilityResolutions(unavailableRequiredCapabilities)));
+                continue;
+            }
+
+            var requiredActionDiagnostics = actions
+                .SelectMany((action, actionIndex) => action.Required
+                    ? FrameworkCapabilityRegistry.ValidateAction(action, pluginDeclaredCapabilities)
+                        .Select(issue => $"action[{actionIndex}] {issue}")
+                    : [])
+                .ToArray();
+            if (requiredActionDiagnostics.Length > 0)
+            {
+                skipped.Add(new RuntimeEventRuleSkip(
+                    pluginId,
+                    sourceName,
+                    sourcePath,
+                    loadOrder,
+                    index,
+                    rule.Id,
+                    rule.On,
+                    "required actions unavailable: " + string.Join("; ", requiredActionDiagnostics)));
+                continue;
+            }
+
+            var optionalActionSkipReasons = actions
+                .Select((action, actionIndex) => new
+                {
+                    ActionIndex = actionIndex,
+                    Issues = action.Required
+                        ? []
+                        : FrameworkCapabilityRegistry.ValidateAction(action, pluginDeclaredCapabilities)
+                })
+                .Where(result => result.Issues.Count > 0)
+                .ToDictionary(
+                    result => result.ActionIndex,
+                    result => string.Join("; ", result.Issues));
+            var optionalActionDiagnostics = optionalActionSkipReasons
+                .Select(result => $"action[{result.Key}] {result.Value}")
+                .ToArray();
             var actionCapabilities = CleanCapabilityReferences(actions.Select(action => action.Capability)).ToArray();
-            var missingRequiredActionCapabilities = CleanCapabilityReferences(
-                    actions
-                        .Where(action => action.Required)
-                        .Select(action => action.Capability))
-                .Where(capability => !activeCapabilities.Contains(NormalizeCapability(capability)))
-                .ToArray();
-            if (missingRequiredActionCapabilities.Length > 0)
-            {
-                skipped.Add(new RuntimeEventRuleSkip(
-                    pluginId,
-                    sourceName,
-                    sourcePath,
-                    loadOrder,
-                    index,
-                    rule.Id,
-                    rule.On,
-                    "required action capabilities missing: " + string.Join(",", missingRequiredActionCapabilities)));
-                continue;
-            }
-
-            var missingOptionalActionCapabilities = CleanCapabilityReferences(
-                    actions
-                        .Where(action => !action.Required)
-                        .Select(action => action.Capability))
-                .Where(capability => !activeCapabilities.Contains(NormalizeCapability(capability)))
-                .ToArray();
 
             output.Add(new RuntimeEventRuleSource(
                 pluginId,
@@ -90,10 +117,10 @@ internal sealed partial class RuntimeConfig
                 rule,
                 requiredCapabilities,
                 actionCapabilities,
-                missingOptionalActionCapabilities,
-                missingOptionalActionCapabilities.Length == 0
+                optionalActionSkipReasons,
+                optionalActionDiagnostics.Length == 0
                     ? "capabilities satisfied"
-                    : "optional action capabilities missing: " + string.Join(",", missingOptionalActionCapabilities)));
+                    : "optional action diagnostics: " + string.Join("; ", optionalActionDiagnostics)));
         }
     }
 
@@ -105,7 +132,7 @@ internal sealed partial class RuntimeConfig
         string sourceName,
         string sourcePath,
         int loadOrder,
-        IReadOnlySet<string> activeCapabilities)
+        IReadOnlySet<string> pluginDeclaredCapabilities)
     {
         var index = 0;
         foreach (var rule in input ?? [])
@@ -124,10 +151,10 @@ internal sealed partial class RuntimeConfig
             }
 
             var requiredCapabilities = CleanCapabilityReferences(rule.RequiresCapabilities).ToArray();
-            var missingRequiredCapabilities = requiredCapabilities
-                .Where(capability => !activeCapabilities.Contains(NormalizeCapability(capability)))
+            var undeclaredRequiredCapabilities = requiredCapabilities
+                .Where(capability => !pluginDeclaredCapabilities.Contains(NormalizeCapability(capability)))
                 .ToArray();
-            if (missingRequiredCapabilities.Length > 0)
+            if (undeclaredRequiredCapabilities.Length > 0)
             {
                 skipped.Add(new FactEventRuleSkip(
                     pluginId,
@@ -137,7 +164,25 @@ internal sealed partial class RuntimeConfig
                     index,
                     rule.Id,
                     rule.Emit,
-                    "required capabilities missing: " + string.Join(",", missingRequiredCapabilities)));
+                    "required capabilities not declared by plugin: " + string.Join(",", undeclaredRequiredCapabilities)));
+                continue;
+            }
+
+            var unavailableRequiredCapabilities = requiredCapabilities
+                .Select(FrameworkCapabilityRegistry.ResolveCapability)
+                .Where(capability => !capability.Available)
+                .ToArray();
+            if (unavailableRequiredCapabilities.Length > 0)
+            {
+                skipped.Add(new FactEventRuleSkip(
+                    pluginId,
+                    sourceName,
+                    sourcePath,
+                    loadOrder,
+                    index,
+                    rule.Id,
+                    rule.Emit,
+                    "required capabilities unavailable: " + FormatCapabilityResolutions(unavailableRequiredCapabilities)));
                 continue;
             }
 
@@ -151,5 +196,14 @@ internal sealed partial class RuntimeConfig
                 requiredCapabilities,
                 "capabilities satisfied"));
         }
+    }
+
+    private static string FormatCapabilityResolutions(
+        IEnumerable<FrameworkCapabilityResolution> resolutions)
+    {
+        return string.Join(
+            ",",
+            resolutions.Select(capability =>
+                $"{capability.Id}(status={capability.Status},source={capability.Source})"));
     }
 }

@@ -19,7 +19,7 @@ internal sealed partial class RuntimeConfig
         var activePluginIds = loadPlan.OrderedEnabledPlugins
             .Select(plugin => NormalizePluginId(plugin.Id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var activeCapabilities = loadPlan.OrderedEnabledPlugins
+        var declaredCapabilities = loadPlan.OrderedEnabledPlugins
             .SelectMany(plugin => CleanCapabilityReferences(plugin.Manifest.Capabilities))
             .Select(NormalizeCapability)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -30,7 +30,7 @@ internal sealed partial class RuntimeConfig
             log);
         compileIssues.AddRange(contentReferenceValidation.Issues);
 
-        AddVirtualRules(sourceRules, skippedRules, VirtualFileRules, "config virtualFileRules", string.Empty, activePluginIds, activeCapabilities);
+        AddVirtualRules(sourceRules, skippedRules, VirtualFileRules, "config virtualFileRules", string.Empty, activePluginIds, declaredCapabilities);
 
         if (sourceRules.Count == 0 && !string.IsNullOrWhiteSpace(VirtualFileTarget) && !string.IsNullOrEmpty(VirtualFileFind))
         {
@@ -54,11 +54,14 @@ internal sealed partial class RuntimeConfig
                 "config legacy virtualFileTarget",
                 string.Empty,
                 activePluginIds,
-                activeCapabilities);
+                declaredCapabilities);
         }
 
         foreach (var plugin in loadPlan.OrderedEnabledPlugins)
         {
+            var pluginDeclaredCapabilities = CleanCapabilityReferences(plugin.Manifest.Capabilities)
+                .Select(NormalizeCapability)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             log.Info(
                 $"Plugin patch manifest enabled: order={plugin.LoadOrder} id={plugin.Id} " +
                 $"name={plugin.Name} phase={NormalizePhase(plugin.Manifest.Phase)} " +
@@ -72,14 +75,14 @@ internal sealed partial class RuntimeConfig
                 compileIssues,
                 plugin,
                 activePluginIds,
-                activeCapabilities,
+                declaredCapabilities,
                 log);
             AddQuestBoardPolicyReports(
                 questBoardPolicyReports,
                 compileIssues,
                 plugin,
                 activePluginIds,
-                activeCapabilities,
+                declaredCapabilities,
                 log);
             AddMapTemplateVirtualRules(
                 projectRoot,
@@ -88,7 +91,7 @@ internal sealed partial class RuntimeConfig
                 compileIssues,
                 plugin,
                 activePluginIds,
-                activeCapabilities,
+                declaredCapabilities,
                 log);
             AddMapLayoutTemplateVirtualRules(
                 projectRoot,
@@ -96,9 +99,9 @@ internal sealed partial class RuntimeConfig
                 compileIssues,
                 plugin,
                 activePluginIds,
-                activeCapabilities,
+                declaredCapabilities,
                 log);
-            AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds, activeCapabilities);
+            AddVirtualRules(sourceRules, skippedRules, plugin.Manifest.VirtualFileRules, plugin.SourceName, plugin.Path, activePluginIds, declaredCapabilities);
             AddRuntimeEventRules(
                 sourceRuntimeRules,
                 skippedRuntimeRules,
@@ -107,7 +110,7 @@ internal sealed partial class RuntimeConfig
                 plugin.SourceName,
                 plugin.Path,
                 plugin.LoadOrder,
-                activeCapabilities);
+                pluginDeclaredCapabilities);
             AddFactEventRules(
                 sourceFactEventRules,
                 skippedFactEventRules,
@@ -116,7 +119,7 @@ internal sealed partial class RuntimeConfig
                 plugin.SourceName,
                 plugin.Path,
                 plugin.LoadOrder,
-                activeCapabilities);
+                pluginDeclaredCapabilities);
             if (plugin.Manifest.StateSchema.Count > 0)
             {
                 stateSchemas.Add(new PluginStateSchemaSource(

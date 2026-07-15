@@ -231,7 +231,7 @@ Note: `modules.contentRefs`, `encounters`, `spawnPools`, `lootPolicies`, and sim
 - `questBoardPolicyAutoMaterializeEnabled=true` lets `SaveEventBridge` run the same materialization logic after reading a save-state report and write status into `logs/save_event_bridge_report.json` under `questBoardPolicyMaterialization`. If the save-state report exposes `activeProfile.profile`, generated artifacts carry `profileScope`. `--preview-quest-board --quest-board-profile-scope <profileId>`, `--refresh-quest-board-profile <profileId>`, and the realtime watcher consume only global or matching-profile artifacts. With `questBoardAutoRefreshEnabled=true`, the realtime watcher can generate the latest policy artifact after original live `persist.quest.json` writes, then use the existing fixed-board refresh writer.
 - Detailed schema lives in `docs/quest_board_policies.md`.
 
-First capability names:
+Capability declaration examples (not an availability list; `--explain-rules` reports registry status):
 
 - `file.virtualize`
 - `content.patch`
@@ -243,7 +243,7 @@ First capability names:
 - `content.localization`
 - `asset.replace`
 - `state.sidecar`
-- `campaign.observe_week_advance`
+- `campaign.observe_week_advance` (`planned`)
 - `quest.observe_completion`
 - `save.observe_write`
 

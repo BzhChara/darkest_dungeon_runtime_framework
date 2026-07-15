@@ -24,6 +24,7 @@ internal static class ContinuousProfileActionRefreshWriter
 
     public static ContinuousProfileActionRefreshReport Write(
         RuntimeConfig config,
+        PatchPlan patchPlan,
         LauncherLog log,
         string projectRoot,
         string profileId,
@@ -112,6 +113,7 @@ internal static class ContinuousProfileActionRefreshWriter
         {
             applyReport = ManagedActionSaveApplier.Apply(
                 config,
+                patchPlan,
                 log,
                 projectRoot,
                 decodedSaveDirectory,

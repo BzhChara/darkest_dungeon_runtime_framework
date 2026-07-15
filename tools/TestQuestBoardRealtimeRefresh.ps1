@@ -9,6 +9,7 @@ Import-Module (Join-Path $PSScriptRoot "TestSupport.psm1") -Force
 
 $pluginId = "validation.boss_gauntlet_campaign_contract"
 $projectRoot = Get-DdrtProjectRoot
+$pluginManifestPath = (Resolve-Path -LiteralPath (Join-Path $projectRoot "plugins\_validation\boss_gauntlet_campaign_contract\patches.json")).Path
 $sessionId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $testRoot = Join-Path $projectRoot "logs\quest_board_realtime_refresh_test\$sessionId"
 $stateRoot = Join-Path $projectRoot "state\quest_board_realtime_refresh_test\$sessionId"
@@ -256,6 +257,12 @@ function Write-StaleDd4PolicyArtifact {
         pluginId = "framework.quest_board_policy_materializer"
         sourceName = "Quest Board Policy Materializer"
         sourcePath = $resolveReportPath
+        owners = @(
+            [ordered]@{
+                pluginId = $pluginId
+                sourcePath = $pluginManifestPath
+            }
+        )
         profileScope = [ordered]@{
             kind = "profile"
             profileId = $profileId
@@ -296,7 +303,16 @@ function Write-StaleDd4PolicyArtifact {
                 selectionMode = "policyModeAwareWeightedPools"
                 seed = 0
                 slotLimit = $null
-                policies = @()
+                policies = @(
+                    [ordered]@{
+                        pluginId = $pluginId
+                        sourcePath = $pluginManifestPath
+                        policyId = "boss_gauntlet_darkest_finale_chain.linear_progression"
+                        mode = "linearProgression"
+                        status = "selected"
+                        selectedQuestIds = @("plot_darkest_dungeon_4")
+                    }
+                )
             }
         }
     }

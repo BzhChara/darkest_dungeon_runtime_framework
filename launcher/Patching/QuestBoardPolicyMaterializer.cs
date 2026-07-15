@@ -490,6 +490,7 @@ internal static class QuestBoardPolicyMaterializer
             ["pluginId"] = "framework.quest_board_policy_materializer",
             ["sourceName"] = "Quest Board Policy Materializer",
             ["sourcePath"] = resolve.ReportPath,
+            ["owners"] = BuildOwnerRows(selection.Policies.Select(policy => (policy.PluginId, policy.ManifestPath))),
             ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(profileScope),
             ["loadOrder"] = int.MaxValue,
             ["ruleIndex"] = 0,
@@ -542,7 +543,7 @@ internal static class QuestBoardPolicyMaterializer
             ["selectionMode"] = SelectionMode,
             ["seed"] = seed,
             ["slotLimit"] = slotLimit,
-            ["policies"] = new JsonArray()
+            ["policies"] = BuildResolvePolicyRows(resolve.Policies)
         };
 
         return new JsonObject
@@ -554,6 +555,7 @@ internal static class QuestBoardPolicyMaterializer
             ["pluginId"] = "framework.quest_board_policy_materializer",
             ["sourceName"] = "Quest Board Policy Materializer",
             ["sourcePath"] = resolve.ReportPath,
+            ["owners"] = BuildOwnerRows(resolve.Policies.Select(policy => (policy.PluginId, policy.ManifestPath))),
             ["profileScope"] = ManagedActionProfileScopeResolver.ToJson(profileScope),
             ["loadOrder"] = int.MaxValue,
             ["ruleIndex"] = 0,
@@ -603,10 +605,48 @@ internal static class QuestBoardPolicyMaterializer
             rows.Add(new JsonObject
             {
                 ["pluginId"] = policy.PluginId,
+                ["sourcePath"] = policy.ManifestPath,
                 ["policyId"] = policy.Id,
                 ["mode"] = policy.Mode,
                 ["status"] = policy.Status,
                 ["selectedQuestIds"] = selectedQuestIds
+            });
+        }
+
+        return rows;
+    }
+
+    private static JsonArray BuildResolvePolicyRows(IReadOnlyList<QuestBoardPolicyResolvePolicyReport> policies)
+    {
+        var rows = new JsonArray();
+        foreach (var policy in policies)
+        {
+            rows.Add(new JsonObject
+            {
+                ["pluginId"] = policy.PluginId,
+                ["sourcePath"] = policy.ManifestPath,
+                ["policyId"] = policy.Id,
+                ["mode"] = policy.Mode,
+                ["status"] = policy.Status,
+                ["selectedQuestIds"] = new JsonArray()
+            });
+        }
+
+        return rows;
+    }
+
+    private static JsonArray BuildOwnerRows(IEnumerable<(string PluginId, string SourcePath)> owners)
+    {
+        var rows = new JsonArray();
+        foreach (var owner in owners
+                     .Distinct()
+                     .OrderBy(owner => owner.PluginId, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(owner => owner.SourcePath, StringComparer.OrdinalIgnoreCase))
+        {
+            rows.Add(new JsonObject
+            {
+                ["pluginId"] = owner.PluginId,
+                ["sourcePath"] = owner.SourcePath
             });
         }
 

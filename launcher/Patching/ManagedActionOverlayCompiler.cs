@@ -17,7 +17,7 @@ internal static partial class ManagedActionOverlayCompiler
     };
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
-    public static ManagedActionOverlayReport Compile(RuntimeConfig config, LauncherLog log)
+    public static ManagedActionOverlayReport Compile(RuntimeConfig config, PatchPlan patchPlan, LauncherLog log)
     {
         var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
         var overlayCandidates = new List<JsonObject>();
@@ -26,6 +26,7 @@ internal static partial class ManagedActionOverlayCompiler
         var ignoredArtifactCount = 0;
         var supersededQuestBoardArtifacts = ManagedQuestBoardArtifactSupersession.FindSupersededArtifacts(
             artifactDirectory,
+            patchPlan,
             null,
             log);
 
@@ -40,10 +41,32 @@ internal static partial class ManagedActionOverlayCompiler
                 {
                     var artifact = JsonNode.Parse(File.ReadAllText(artifactPath, Encoding.UTF8)) as JsonObject
                         ?? throw new InvalidOperationException("artifact root must be a JSON object");
+                    var eligibility = ManagedActionArtifactEligibility.Evaluate(patchPlan, artifact);
+                    if (!eligibility.Eligible)
+                    {
+                        ignoredArtifactCount++;
+                        AddIssue(
+                            issues,
+                            log,
+                            "warning",
+                            eligibility.Code,
+                            artifactPath,
+                            eligibility.Message);
+                        continue;
+                    }
+
                     var actionType = ReadString(artifact, "action.type");
                     var status = ReadString(artifact, "status");
 
                     if (!status.Equals("materialized", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ignoredArtifactCount++;
+                        continue;
+                    }
+
+                    if (!actionType.Equals("questBoard.replaceWithFixedSet", StringComparison.OrdinalIgnoreCase) &&
+                        !actionType.Equals("trinket.patchEntry", StringComparison.OrdinalIgnoreCase) &&
+                        !actionType.Equals("town.unlockAllBuildings", StringComparison.OrdinalIgnoreCase))
                     {
                         ignoredArtifactCount++;
                         continue;

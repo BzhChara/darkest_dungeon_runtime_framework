@@ -238,7 +238,7 @@ cancelOriginal
 
 Hooks should not be exposed as arbitrary function addresses. They should be wrapped as capabilities.
 
-Example capabilities:
+Example capability ids (examples are not evidence of registry availability):
 
 ```text
 file.virtualize
@@ -435,6 +435,8 @@ The current validation path is `validation.boss_gauntlet_campaign_contract`: fai
 ## Example: Delayed Building Upgrades
 
 Goal: building upgrades no longer complete immediately. They complete after several weeks; higher levels take longer; multiple simultaneous upgrades get time compensation.
+
+Current status: design pressure test only. The capability registry marks week-advance observation, upgrade-request interception, original-cost spending, queueing, and queued-upgrade application as `planned`, so its validation rules are skipped rather than treated as executable.
 
 Required capabilities:
 
