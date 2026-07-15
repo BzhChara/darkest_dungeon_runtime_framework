@@ -39,17 +39,23 @@ try {
     $autoMaterializeStateRoot = Join-Path $projectRoot.Path "state\quest_board_policy_contract_auto_materialize"
     $fixtureDir = Join-Path $projectRoot.Path "logs\quest_board_policy_contract_test"
     $policyOnlyConfigPath = Join-Path $fixtureDir "policy_only_config.json"
+    $alternateLogRoot = Join-Path $fixtureDir "alternate_logs"
+    $alternatePolicyOnlyConfigPath = Join-Path $fixtureDir "policy_only_alternate_log_config.json"
     Remove-Item -LiteralPath $previewReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $resolveReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $materializeReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $questBoardPreviewReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $saveEventBridgeReportPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $alternateLogRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $materializeStateRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $autoMaterializeStateRoot -Recurse -Force -ErrorAction SilentlyContinue
 
     $policyOnlyConfig = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
     $policyOnlyConfig.pluginDirectories = @("./plugins/_validation/quest_board_policy_contract")
     Write-JsonPayload $policyOnlyConfigPath $policyOnlyConfig
+    $alternatePolicyOnlyConfig = $policyOnlyConfig | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+    $alternatePolicyOnlyConfig.logDirectory = $alternateLogRoot
+    Write-JsonPayload $alternatePolicyOnlyConfigPath $alternatePolicyOnlyConfig
 
     & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $policyOnlyConfigPath --validate-only --explain-patches --preview-quest-board-policies --no-inject
     if ($LASTEXITCODE -ne 0) {
@@ -222,11 +228,16 @@ try {
     Assert-True (Test-Path -LiteralPath $materialize.artifactPath -PathType Leaf) "Materialized quest-board artifact was not written: $($materialize.artifactPath)"
 
     $artifact = Get-Content -Raw -LiteralPath $materialize.artifactPath | ConvertFrom-Json
+    Assert-True ([int]$artifact.version -eq 2) "Materialized policy artifact should use version 2."
     Assert-True ($artifact.action.type -eq "questBoard.replaceWithFixedSet") "Materialized artifact action type mismatch."
     Assert-True ($artifact.plan.kind -eq "questBoard.replaceWithFixedSet") "Materialized artifact plan kind mismatch."
+    Assert-True ($artifact.producer.kind -eq "questBoardPolicySet") "Materialized policy artifact producer kind mismatch."
+    Assert-True ($artifact.producer.pluginId -eq "framework.quest_board_policy_materializer") "Materialized policy artifact producer plugin mismatch."
+    Assert-True ([string]$artifact.producer.definitionSha256 -match '^[0-9a-f]{64}$') "Materialized policy artifact producer hash should be a lowercase SHA-256 value."
     Assert-True (@($artifact.owners).Count -eq 1) "Materialized policy artifact should declare its plugin owner."
     Assert-True ($artifact.owners[0].pluginId -eq "validation.quest_board_policy_contract") "Materialized policy artifact owner plugin mismatch."
     Assert-True ($artifact.owners[0].sourcePath -eq $artifact.plan.arguments.policies[0].sourcePath) "Materialized policy owner path should match the policy source path."
+    Assert-True ([int]$artifact.plan.arguments.policies[0].ruleIndex -eq 1) "Materialized policy identity should include its active rule index."
     Assert-True (-not [bool]$artifact.plan.arguments.removeCompleted) "Policy materializer should pre-filter completed quests instead of delegating removeCompleted."
     Assert-True (@($artifact.plan.arguments.questIds) -contains "plot_kill_prophet_3") "Materialized artifact should contain prophet."
 
@@ -243,6 +254,46 @@ try {
     Assert-True ($policyPreviewArtifact.status -eq "wouldApply") "Materialized policy artifact should be consumable by quest board preview."
     Assert-True ([int]$policyPreviewArtifact.activeQuestCount -eq 1) "Materialized policy artifact should expose one active quest."
     Assert-True (@($policyPreviewArtifact.activeQuests.questId) -contains "plot_kill_prophet_3") "Materialized policy artifact should expose prophet."
+
+    $firstMaterializedArtifactPath = [string]$materialize.artifactPath
+    $firstMaterializedArtifact = $artifact
+    Start-Sleep -Milliseconds 50
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $alternatePolicyOnlyConfigPath --materialize-quest-board-policies --save-state-report $afterNecromancerReportPath --quest-board-policy-slots 1 --quest-board-policy-seed 42 --mod-state-dir $materializeStateRoot --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader policy materialize with alternate log directory failed with exit code $LASTEXITCODE"
+    }
+
+    $alternateMaterializeReportPath = Join-Path $alternateLogRoot "quest_board_policy_materialize_report.json"
+    Assert-True (Test-Path -LiteralPath $alternateMaterializeReportPath -PathType Leaf) "Alternate policy materialize report was not created: $alternateMaterializeReportPath"
+    $alternateMaterialize = Get-Content -Raw -LiteralPath $alternateMaterializeReportPath | ConvertFrom-Json
+    Assert-True ([bool]$alternateMaterialize.succeeded) "Policy materialization with an alternate log directory should succeed."
+    $secondMaterializedArtifactPath = [string]$alternateMaterialize.artifactPath
+    Assert-True ($secondMaterializedArtifactPath -ne $firstMaterializedArtifactPath) "Alternate materialization should write a distinct artifact."
+    $secondMaterializedArtifact = Get-Content -Raw -LiteralPath $secondMaterializedArtifactPath | ConvertFrom-Json
+    Assert-True ($secondMaterializedArtifact.sourcePath -ne $firstMaterializedArtifact.sourcePath) "Policy artifact sourcePath should reflect the changed resolve-report directory."
+    Assert-True ($secondMaterializedArtifact.producer.definitionSha256 -eq $firstMaterializedArtifact.producer.definitionSha256) "Changing logDirectory must not change the policy producer definition."
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $alternatePolicyOnlyConfigPath --preview-quest-board --mod-state-dir $materializeStateRoot --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader quest board preview with alternate log directory failed with exit code $LASTEXITCODE"
+    }
+
+    $alternateQuestBoardPreviewReportPath = Join-Path $alternateLogRoot "quest_board_preview_report.json"
+    $alternateQuestBoardPreview = Get-Content -Raw -LiteralPath $alternateQuestBoardPreviewReportPath | ConvertFrom-Json
+    $firstAlternatePreview = @($alternateQuestBoardPreview.artifacts | Where-Object { $_.artifactPath -eq $firstMaterializedArtifactPath })[0]
+    $secondAlternatePreview = @($alternateQuestBoardPreview.artifacts | Where-Object { $_.artifactPath -eq $secondMaterializedArtifactPath })[0]
+    Assert-True ($firstAlternatePreview.status -eq "ignored") "A newer policy artifact should supersede the older artifact even when logDirectory changed."
+    Assert-True ($secondAlternatePreview.status -eq "wouldApply") "The newest policy artifact should remain consumable after logDirectory changed."
+
+    & dotnet run --project "launcher/DDRuntimeLoader.csproj" -c Release --no-build -- --config $alternatePolicyOnlyConfigPath --preview-managed-action-retention --managed-action-retention-keep 1 --mod-state-dir $materializeStateRoot --no-inject
+    if ($LASTEXITCODE -ne 0) {
+        throw "DDRuntimeLoader retention preview with alternate log directory failed with exit code $LASTEXITCODE"
+    }
+
+    $alternateRetentionReportPath = Join-Path $alternateLogRoot "managed_action_retention_report.json"
+    $alternateRetention = Get-Content -Raw -LiteralPath $alternateRetentionReportPath | ConvertFrom-Json
+    Assert-True ([int]$alternateRetention.groupCount -eq 1) "Policy artifacts from different log directories should share one producer retention group."
+    Assert-True ([int]$alternateRetention.prunableCount -eq 1) "Retention should identify the older policy artifact in the shared producer group."
 
     Remove-Item -LiteralPath $materializeReportPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $questBoardPreviewReportPath -Force -ErrorAction SilentlyContinue

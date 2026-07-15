@@ -79,6 +79,11 @@ internal static class ManagedQuestBoardArtifactSupersession
         string targetProfileId,
         ManagedActionProfileScope profileScope)
     {
+        if (!ManagedActionArtifactEligibility.TryReadProducerContract(artifact, out var producer))
+        {
+            throw new InvalidDataException("eligible quest board artifact is missing a complete producer contract");
+        }
+
         var effectiveProfileKind = string.IsNullOrWhiteSpace(targetProfileId)
             ? (profileScope.IsGlobal ? "global" : profileScope.Kind)
             : "profile";
@@ -89,10 +94,7 @@ internal static class ManagedQuestBoardArtifactSupersession
         return string.Join('|',
             Normalize(ReadOptionalStringPath(artifact, "action.type")),
             Normalize(ReadOptionalStringPath(artifact, "plan.target")),
-            Normalize(ReadOptionalStringPath(artifact, "pluginId")),
-            Normalize(ReadOptionalStringPath(artifact, "sourcePath")),
-            Normalize(ReadOptionalStringPath(artifact, "ruleId")),
-            ReadOptionalIntPath(artifact, "actionIndex")?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            producer.BuildIdentityKey(),
             Normalize(effectiveProfileKind),
             Normalize(effectiveProfileId));
     }
@@ -104,15 +106,6 @@ internal static class ManagedQuestBoardArtifactSupersession
             value.TryGetValue<string>(out var result)
             ? result
             : string.Empty;
-    }
-
-    private static int? ReadOptionalIntPath(JsonObject root, string path)
-    {
-        return TryReadOptionalPath(root, path, out var node) &&
-            node is JsonValue value &&
-            value.TryGetValue<int>(out var result)
-            ? result
-            : null;
     }
 
     private static bool TryReadOptionalPath(JsonObject root, string path, out JsonNode? node)

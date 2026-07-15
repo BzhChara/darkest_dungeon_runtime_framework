@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "ManagedActionProducerTestHelpers.ps1")
 
 $projectRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
 $sessionId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
@@ -147,6 +148,16 @@ try {
     $artifactRoot = Join-Path $stateRoot "_managed_actions"
     New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
 
+    Invoke-Loader -LoaderArgs @(
+        "--config", (Resolve-ProjectPath $ConfigPath),
+        "--mod-state-dir", $stateRoot,
+        "--validate-only",
+        "--no-inject"
+    )
+    $patchEntryProducer = Get-ManagedActionTestProducer -ProjectRoot $projectRoot.Path -ActionType "trinket.patchEntry"
+    $questBoardProducer = Get-ManagedActionTestProducer -ProjectRoot $projectRoot.Path -ActionType "questBoard.replaceWithFixedSet"
+    $townUnlockProducer = Get-ManagedActionTestProducer -ProjectRoot $projectRoot.Path -ActionType "town.unlockAllBuildings"
+
     $config = Get-Content -Raw -LiteralPath (Resolve-ProjectPath $ConfigPath) | ConvertFrom-Json
     $gameWorkingDirectory = Resolve-ProjectPath ([string]$config.gameWorkingDirectory)
     $lockedTownBuildingFiles = @(Get-TownBuildingFilesWithPositiveRequirements -GameWorkingDirectory $gameWorkingDirectory)
@@ -156,7 +167,7 @@ try {
 
     $patchEntryArtifactPath = Join-Path $artifactRoot "manual_trinket.patchEntry.json"
     $patchEntryArtifact = [ordered]@{
-        version = 1
+        version = 2
         status = "materialized"
         eventId = "manual.overlay-test"
         pluginId = $ownerPluginId
@@ -169,6 +180,7 @@ try {
             type = "trinket.patchEntry"
         }
         plan = [ordered]@{
+            kind = "trinket.patchEntry"
             effect = "patchEntry"
             target = "content.trinkets.entries"
             arguments = [ordered]@{
@@ -195,11 +207,12 @@ try {
             }
         }
     }
+    Add-ManagedActionTestProducer -Artifact $patchEntryArtifact -Producer $patchEntryProducer | Out-Null
     $patchEntryArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $patchEntryArtifactPath -Encoding UTF8
 
     $questBoardArtifactPath = Join-Path $artifactRoot "manual_questBoard.replaceWithFixedSet.json"
     $questBoardArtifact = [ordered]@{
-        version = 1
+        version = 2
         status = "materialized"
         eventId = "manual.overlay-test"
         pluginId = $ownerPluginId
@@ -222,11 +235,12 @@ try {
             }
         }
     }
+    Add-ManagedActionTestProducer -Artifact $questBoardArtifact -Producer $questBoardProducer | Out-Null
     $questBoardArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $questBoardArtifactPath -Encoding UTF8
 
     $townUnlockArtifactPath = Join-Path $artifactRoot "manual_town.unlockAllBuildings.json"
     $townUnlockArtifact = [ordered]@{
-        version = 1
+        version = 2
         status = "materialized"
         eventId = "manual.overlay-test"
         pluginId = $ownerPluginId
@@ -239,6 +253,7 @@ try {
             type = "town.unlockAllBuildings"
         }
         plan = [ordered]@{
+            kind = "town.unlockAllBuildings"
             effect = "unlockAllBuildings"
             target = "profile.town"
             arguments = [ordered]@{
@@ -247,20 +262,19 @@ try {
             }
         }
     }
+    Add-ManagedActionTestProducer -Artifact $townUnlockArtifact -Producer $townUnlockProducer | Out-Null
     $townUnlockArtifact | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $townUnlockArtifactPath -Encoding UTF8
 
     $inactiveOwnerArtifact = $questBoardArtifact | ConvertTo-Json -Depth 10 | ConvertFrom-Json -AsHashtable
     $inactiveOwnerArtifact.pluginId = "validation.disabled_managed_action_owner"
-    $inactiveOwnerArtifact.ruleId = "inactive_owner_fixed_board"
+    $inactiveOwnerArtifact.producer.pluginId = "validation.disabled_managed_action_owner"
     $inactiveOwnerArtifact.plan.arguments.questIds = @("plot_darkest_dungeon_3")
-    $inactiveOwnerArtifact.Remove("status")
-    $inactiveOwnerArtifact.Remove("action")
     $inactiveOwnerArtifactPath = Join-Path $artifactRoot "manual_inactive_owner_questBoard.replaceWithFixedSet.json"
     $inactiveOwnerArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $inactiveOwnerArtifactPath -Encoding UTF8
 
     $sourceMismatchArtifact = $questBoardArtifact | ConvertTo-Json -Depth 10 | ConvertFrom-Json -AsHashtable
     $sourceMismatchArtifact.sourcePath = Join-Path $projectRoot.Path "tools\TestManagedActionOverlay.ps1"
-    $sourceMismatchArtifact.ruleId = "source_mismatch_fixed_board"
+    $sourceMismatchArtifact.producer.sourcePath = $sourceMismatchArtifact.sourcePath
     $sourceMismatchArtifact.plan.arguments.questIds = @("plot_darkest_dungeon_4")
     $sourceMismatchArtifactPath = Join-Path $artifactRoot "manual_source_mismatch_questBoard.replaceWithFixedSet.json"
     $sourceMismatchArtifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $sourceMismatchArtifactPath -Encoding UTF8

@@ -6,10 +6,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 Import-Module (Join-Path $PSScriptRoot "TestSupport.psm1") -Force
+. (Join-Path $PSScriptRoot "ManagedActionProducerTestHelpers.ps1")
 
 $pluginId = "validation.boss_gauntlet_campaign_contract"
 $projectRoot = Get-DdrtProjectRoot
-$pluginManifestPath = (Resolve-Path -LiteralPath (Join-Path $projectRoot "plugins\_validation\boss_gauntlet_campaign_contract\patches.json")).Path
 $sessionId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $testRoot = Join-Path $projectRoot "logs\quest_board_realtime_refresh_test\$sessionId"
 $stateRoot = Join-Path $projectRoot "state\quest_board_realtime_refresh_test\$sessionId"
@@ -244,46 +244,19 @@ function Set-CompletedBossState {
     $stateDocument | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $statePath -Encoding UTF8
 }
 
-function Write-StaleDd4PolicyArtifact {
+function Write-StaleDd4ManagedArtifact {
     $artifactRoot = Join-Path $stateRoot "_managed_actions"
     New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
-    $resolveReportPath = Join-Path $projectRoot "logs\quest_board_policy_resolve_report.json"
     $staleProfileRoot = Join-Path $profileRoot "stale_root_that_should_not_split_supersession"
     $artifact = [ordered]@{
-        version = 1
         generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
         status = "materialized"
-        eventId = "quest.board.policies.materialized"
-        pluginId = "framework.quest_board_policy_materializer"
-        sourceName = "Quest Board Policy Materializer"
-        sourcePath = $resolveReportPath
-        owners = @(
-            [ordered]@{
-                pluginId = $pluginId
-                sourcePath = $pluginManifestPath
-            }
-        )
         profileScope = [ordered]@{
             kind = "profile"
             profileId = $profileId
             profileRoot = $staleProfileRoot
             source = "test.staleArtifact"
         }
-        loadOrder = 2147483647
-        ruleIndex = 0
-        ruleId = "questBoardPolicies.materialized"
-        actionIndex = 0
-        action = [ordered]@{
-            type = "questBoard.replaceWithFixedSet"
-            capability = "quest_board.replace_with_fixed_set"
-            risk = "managed"
-            required = $false
-        }
-        payload = [ordered]@{
-            source = "questBoardPolicies"
-            selectedQuestCount = 1
-        }
-        issues = @()
         plan = [ordered]@{
             kind = "questBoard.replaceWithFixedSet"
             effect = "replaceWithFixedSet"
@@ -303,19 +276,16 @@ function Write-StaleDd4PolicyArtifact {
                 selectionMode = "policyModeAwareWeightedPools"
                 seed = 0
                 slotLimit = $null
-                policies = @(
-                    [ordered]@{
-                        pluginId = $pluginId
-                        sourcePath = $pluginManifestPath
-                        policyId = "boss_gauntlet_darkest_finale_chain.linear_progression"
-                        mode = "linearProgression"
-                        status = "selected"
-                        selectedQuestIds = @("plot_darkest_dungeon_4")
-                    }
-                )
             }
         }
     }
+
+    $producer = Get-ManagedActionTestProducer `
+        -ProjectRoot $projectRoot `
+        -ActionType "questBoard.replaceWithFixedSet" `
+        -PluginId $pluginId
+    Add-ManagedActionTestProducer -Artifact $artifact -Producer $producer | Out-Null
+    $artifact.producer.definitionSha256 = "0" * 64
 
     $artifactPath = Join-Path $artifactRoot "manual_stale_dd4_questBoard.replaceWithFixedSet.json"
     $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $artifactPath -Encoding UTF8
@@ -325,28 +295,13 @@ function Write-ForeignProfileContinuousArtifact {
     $artifactRoot = Join-Path $stateRoot "_managed_actions"
     New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
     $artifact = [ordered]@{
-        version = 1
         generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
         status = "materialized"
-        eventId = "test.foreign_profile"
-        pluginId = "validation.foreign_profile_probe"
-        sourceName = "Foreign Profile Probe"
-        sourcePath = "tools/TestQuestBoardRealtimeRefresh.ps1"
         profileScope = [ordered]@{
             kind = "profile"
             profileId = "profile_0"
             profileRoot = (Join-Path $remoteRoot "profile_0")
             source = "test.foreignProfile"
-        }
-        loadOrder = 0
-        ruleIndex = 0
-        ruleId = "foreign_profile_store_probe"
-        actionIndex = 0
-        action = [ordered]@{
-            type = "town.suppressStoreItems"
-            capability = "town.suppress_store_items"
-            risk = "managed"
-            required = $true
         }
         plan = [ordered]@{
             kind = "town.suppressStoreItems"
@@ -359,6 +314,12 @@ function Write-ForeignProfileContinuousArtifact {
             }
         }
     }
+
+    $producer = Get-ManagedActionTestProducer `
+        -ProjectRoot $projectRoot `
+        -ActionType "town.suppressStoreItems" `
+        -PluginId $pluginId
+    Add-ManagedActionTestProducer -Artifact $artifact -Producer $producer | Out-Null
 
     $artifactPath = Join-Path $artifactRoot "manual_foreign_profile_town.suppressStoreItems.json"
     $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $artifactPath -Encoding UTF8
@@ -394,7 +355,7 @@ try {
     Invoke-Loader -LoaderArgs ($baseArgs + @("--init-mod-state"))
     Invoke-Loader -LoaderArgs ($baseArgs + @("--emit-event", "profile.initialization_requested"))
     Set-CompletedBossState
-    Write-StaleDd4PolicyArtifact
+    Write-StaleDd4ManagedArtifact
     Write-ForeignProfileContinuousArtifact
 
     $startedAt = Get-Date

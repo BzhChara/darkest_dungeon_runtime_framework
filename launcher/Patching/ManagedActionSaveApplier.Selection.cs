@@ -163,16 +163,18 @@ internal static partial class ManagedActionSaveApplier
 
     private static string BuildContinuousProfileGroupKey(JsonObject artifact, string actionType)
     {
+        if (!ManagedActionArtifactEligibility.TryReadProducerContract(artifact, out var producer))
+        {
+            throw new InvalidDataException("eligible continuous-profile artifact is missing a complete producer contract");
+        }
+
         var profileScope = ManagedActionProfileScopeResolver.FromArtifact(artifact);
         return string.Join('|',
+            producer.BuildIdentityKey(),
             NormalizeGroupPart(actionType),
-            NormalizeGroupPart(ReadOptionalStringPath(artifact, "pluginId")),
-            NormalizeGroupPart(ReadOptionalStringPath(artifact, "ruleId")),
-            ReadOptionalIntPath(artifact, "actionIndex")?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
             NormalizeGroupPart(ReadOptionalStringPath(artifact, "plan.target")),
             NormalizeGroupPart(profileScope.Kind),
-            NormalizeGroupPart(profileScope.ProfileId),
-            NormalizeGroupPart(ReadOptionalStringPath(artifact, "sourcePath")));
+            NormalizeGroupPart(profileScope.ProfileId));
     }
 
     private static string GetApplyModeReportName(ManagedActionApplyMode applyMode)
@@ -183,15 +185,6 @@ internal static partial class ManagedActionSaveApplier
             ManagedActionApplyMode.ContinuousProfile => "continuousProfile",
             _ => throw new InvalidOperationException($"Unsupported managed action apply mode: {applyMode}")
         };
-    }
-
-    private static int? ReadOptionalIntPath(JsonObject root, string path)
-    {
-        return TryReadOptionalPath(root, path, out var node) &&
-            node is JsonValue value &&
-            value.TryGetValue<int>(out var result)
-            ? result
-            : null;
     }
 
     private static bool TryReadOptionalPath(JsonObject root, string path, out JsonNode? node)

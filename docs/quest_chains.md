@@ -104,9 +104,9 @@ The generated policy makes the first stage available when the unlock predicate m
 When `questBoard.enabled=true`, the loader writes two sidecar files:
 
 - `_quest_chains/<plugin-id>/<chain>.managed.quest_board.json`: materialization report.
-- `_managed_actions/static_<plugin-id>_<chain>_questBoard.replaceWithFixedSet.json`: deterministic managed action artifact.
+- `_managed_actions/static_<plugin-id>_<chain>_questBoard.replaceWithFixedSet.json`: deterministic version 2 managed action artifact with a `questChainStaticBoard` producer contract.
 
-The artifact uses the existing `questBoard.replaceWithFixedSet` action shape, so the startup overlay compiler can force active plot quests to early/repeatable availability and the managed-action applier can dry-run it against a project-local decoded `persist.quest.json` copy. It intentionally uses `sourceQuestId` as the concrete quest id because the current writer resolves only existing plot quest definitions. `targetQuestId` remains metadata for future custom quest writers.
+The artifact uses the existing `questBoard.replaceWithFixedSet` action shape, so the startup overlay compiler can force active plot quests to early/repeatable availability and the managed-action applier can dry-run it against a project-local decoded `persist.quest.json` copy. Consumers require the exact static chain producer and definition hash from the current patch plan plus the shared fixed-board plan structure; a missing, empty, or malformed `questIds` array is ineligible and cannot supersede or age-prune a valid artifact. Disabling the chain, changing its board mode, unlock metadata, or ordered stages makes the old deterministic file ineligible until it is explicitly pruned. It intentionally uses `sourceQuestId` as the concrete quest id because the current writer resolves only existing plot quest definitions. `targetQuestId` remains metadata for future custom quest writers.
 
 `linearProgression` does not write this static artifact. Instead, the loader writes a generated policy report under `_quest_board_policies/<plugin-id>/`. The existing policy materializer can then produce a current one-stage `questBoard.replaceWithFixedSet` artifact from save facts and sidecar state. This keeps the chain shorthand small while reusing the same quest-board preview, profile refresh, realtime refresh, and content-overlay consumers.
 

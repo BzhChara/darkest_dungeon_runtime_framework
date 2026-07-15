@@ -158,10 +158,10 @@ The materializer:
 - treats `random` policies as weighted pools, drawing one from the whole policy when no explicit pool is declared;
 - deduplicates quest ids by first winner instead of failing the whole board;
 - applies the optional slot limit after policy order and pool draws;
-- writes a `questBoard.replaceWithFixedSet` managed action artifact into `modStateDirectory/_managed_actions/`;
+- writes a version 2 `questBoard.replaceWithFixedSet` managed action artifact with a `questBoardPolicySet` producer contract into `modStateDirectory/_managed_actions/`;
 - writes `logs/quest_board_policy_materialize_report.json` with selected, skipped-duplicate, skipped-slot-limit, and not-drawn diagnostics.
 
-The artifact pre-filters completed quests during policy resolution and sets `removeCompleted=false`. Existing fixed-board consumers can then read the artifact without learning about `questBoardPolicies`.
+The artifact pre-filters completed quests during policy resolution and sets `removeCompleted=false`. Existing fixed-board consumers can then read it without learning policy scheduling details, but only while its owner set, policy identities, aggregate policy definition hash, and fixed-board plan structure exactly match the active patch plan and consumer contract. A materialized artifact with a missing, empty, or malformed `questIds` array is ineligible and cannot supersede an older valid artifact; a validated `status=empty` policy marker must carry an empty array. Supersession, retention, and downstream overlay selection group these aggregate policy artifacts by the full stable `questBoardPolicySet` producer identity and profile scope. The outer `sourcePath` remains diagnostic provenance for the resolve report, so changing `logDirectory` does not split one policy producer into unrelated groups.
 
 ## Automatic Materialization
 
@@ -190,7 +190,7 @@ When the save-state report has `activeProfile.profile`, automatic and explicit m
 dotnet run --project launcher/DDRuntimeLoader.csproj -c Release --no-build -- --preview-quest-board --quest-board-profile-scope profile_3 --no-inject
 ```
 
-Without a target profile, `--preview-quest-board` and startup launch preflight only consume global artifacts. This prevents a policy artifact produced from one save from silently replacing another profile's task board. Older artifacts without `profileScope` are treated as global for compatibility.
+Without a target profile, `--preview-quest-board` and startup launch preflight only consume eligible version 2 global artifacts. A valid version 2 artifact without `profileScope` is global; version 1 artifacts are rejected rather than treated as compatibility input. This prevents a policy artifact produced from one save from silently replacing another profile's task board.
 
 Automatic materialization does not itself mutate a live save. In realtime use, pair it with the existing fixed-board refresh path:
 
@@ -216,4 +216,4 @@ The two schemas can coexist. A chain can define stage order, while a policy can 
 
 Regression coverage:
 
-- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, resolves week/completed-quest gated candidates from save facts, materializes a fixed-board managed action artifact, auto-materializes profile-scoped artifacts from `--infer-save-events`, ignores mismatched profile artifacts by default, and feeds matching artifacts back through the existing quest-board preview consumer.
+- `tools/TestQuestBoardPolicyContract.ps1` proves `questBoardPolicies` parses, validates, writes structured policy facts, appears in patch explanation output, expands into a content-backed candidate preview report, resolves week/completed-quest gated candidates from save facts, materializes a fixed-board managed action artifact, groups repeated materializations across different log directories by the same producer identity, auto-materializes profile-scoped artifacts from `--infer-save-events`, ignores mismatched profile artifacts by default, and feeds matching artifacts back through the existing quest-board preview consumer.

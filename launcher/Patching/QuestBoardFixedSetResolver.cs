@@ -6,17 +6,11 @@ internal static class QuestBoardFixedSetResolver
 {
     public static QuestBoardFixedSetPlan Resolve(string gameWorkingDirectory, string modStateDirectory, JsonObject artifact)
     {
-        var questIds = ReadStringArray(ReadNode(artifact, "plan.arguments.questIds"), "plan.arguments.questIds");
-        if (questIds.Count == 0)
-        {
-            throw new InvalidDataException("plan.arguments.questIds must contain at least one quest id.");
-        }
-
-        var removeCompleted = ReadOptionalBool(RequireObject(artifact, "plan.arguments"), "removeCompleted") == true;
-        var completedQuestIds = removeCompleted
+        var shape = ReadArtifactShape(artifact, QuestBoardQuestIdSetRequirement.NonEmpty);
+        var completedQuestIds = shape.RemoveCompleted
             ? QuestBoardArtifactStateResolver.ResolveCompletedQuestIds(modStateDirectory, artifact)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var distinctQuestIds = questIds
+        var distinctQuestIds = shape.QuestIds
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         var activeQuestIds = distinctQuestIds
@@ -43,12 +37,37 @@ internal static class QuestBoardFixedSetResolver
         }
 
         return new QuestBoardFixedSetPlan(
-            questIds,
+            shape.QuestIds,
             distinctQuestIds,
             activeQuestIds,
             completedFilteredQuestIds,
-            removeCompleted,
+            shape.RemoveCompleted,
             definitions);
+    }
+
+    public static QuestBoardFixedSetArtifactShape ReadArtifactShape(
+        JsonObject artifact,
+        QuestBoardQuestIdSetRequirement questIdSetRequirement)
+    {
+        var arguments = RequireObject(artifact, "plan.arguments");
+        var questIds = ReadStringArray(arguments["questIds"], "plan.arguments.questIds");
+        if (questIdSetRequirement == QuestBoardQuestIdSetRequirement.NonEmpty && questIds.Count == 0)
+        {
+            throw new InvalidDataException("plan.arguments.questIds must contain at least one quest id.");
+        }
+
+        if (questIdSetRequirement == QuestBoardQuestIdSetRequirement.Empty && questIds.Count != 0)
+        {
+            throw new InvalidDataException("plan.arguments.questIds must be empty for an empty quest-board marker.");
+        }
+
+        var removeCompleted = ReadOptionalBool(arguments, "removeCompleted");
+        if (removeCompleted && string.IsNullOrWhiteSpace(ReadOptionalString(arguments, "completedStateKey")))
+        {
+            throw new InvalidDataException("plan.arguments.completedStateKey is required when removeCompleted is true.");
+        }
+
+        return new QuestBoardFixedSetArtifactShape(questIds, removeCompleted);
     }
 
     public static JsonObject BuildQuestEntries(
@@ -110,11 +129,26 @@ internal static class QuestBoardFixedSetResolver
         throw new InvalidDataException($"{path} is missing.");
     }
 
-    private static bool? ReadOptionalBool(JsonObject root, string key)
+    private static bool ReadOptionalBool(JsonObject root, string key)
     {
-        return root[key] is JsonValue value && value.TryGetValue<bool>(out var result)
+        if (!root.TryGetPropertyValue(key, out var node) || node is null)
+        {
+            return false;
+        }
+
+        if (node is JsonValue value && value.TryGetValue<bool>(out var result))
+        {
+            return result;
+        }
+
+        throw new InvalidDataException($"plan.arguments.{key} must be a boolean when present.");
+    }
+
+    private static string ReadOptionalString(JsonObject root, string key)
+    {
+        return root[key] is JsonValue value && value.TryGetValue<string>(out var result)
             ? result
-            : null;
+            : string.Empty;
     }
 
     private static bool TryGetPath(JsonObject root, string path, out JsonNode? value)
@@ -131,6 +165,16 @@ internal static class QuestBoardFixedSetResolver
 
         return true;
     }
+}
+
+internal sealed record QuestBoardFixedSetArtifactShape(
+    IReadOnlyList<string> QuestIds,
+    bool RemoveCompleted);
+
+internal enum QuestBoardQuestIdSetRequirement
+{
+    NonEmpty,
+    Empty
 }
 
 internal sealed record QuestBoardFixedSetPlan(

@@ -4,7 +4,7 @@ namespace DDRuntimeLoader;
 
 internal static class ManagedActionArtifactRetention
 {
-    private const int ReportVersion = 1;
+    private const int ReportVersion = 2;
     private const string ReportFileName = "managed_action_retention_report.json";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -16,6 +16,7 @@ internal static class ManagedActionArtifactRetention
 
     public static ManagedActionRetentionReport Write(
         RuntimeConfig config,
+        PatchPlan patchPlan,
         LauncherLog log,
         bool apply,
         int keepLatestPerGroup)
@@ -30,18 +31,24 @@ internal static class ManagedActionArtifactRetention
         var issues = new List<ManagedActionRetentionIssue>();
         var artifacts = new List<RetentionArtifact>();
 
-        if (Directory.Exists(artifactDirectory))
+        if (Directory.Exists(artifactDirectory) && CanInspectArtifactDirectory(artifactDirectory, issues))
         {
             foreach (var artifactPath in Directory.EnumerateFiles(artifactDirectory, "*.json")
                          .OrderBy(path => File.GetLastWriteTimeUtc(path))
                          .ThenBy(path => path, StringComparer.OrdinalIgnoreCase))
             {
-                artifacts.Add(ReadArtifact(artifactDirectory, artifactPath, issues));
+                artifacts.Add(ReadArtifact(artifactDirectory, artifactPath, patchPlan, issues));
             }
         }
 
+        foreach (var artifact in artifacts.Where(artifact => artifact.Valid && artifact.Eligible && !artifact.CanEnterRanking))
+        {
+            artifact.Decision = "retain";
+            artifact.Reason = "eligible artifact retained because its action type has no complete retention structure validator";
+        }
+
         var validArtifacts = artifacts
-            .Where(artifact => artifact.Valid)
+            .Where(artifact => artifact.Valid && artifact.Eligible && artifact.CanEnterRanking)
             .GroupBy(artifact => artifact.GroupKey, StringComparer.OrdinalIgnoreCase)
             .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -89,6 +96,30 @@ internal static class ManagedActionArtifactRetention
                 ordered.Count(artifact => artifact.Decision is "wouldDelete" or "delete" or "deleted" or "deleteFailed")));
         }
 
+        foreach (var stale in artifacts.Where(artifact => artifact.Valid && !artifact.Eligible))
+        {
+            issues.Add(new ManagedActionRetentionIssue(
+                "warning",
+                stale.EligibilityCode,
+                stale.ArtifactPath,
+                stale.EligibilityMessage));
+
+            if (IsPrunableStaleArtifact(stale))
+            {
+                stale.Decision = apply ? "delete" : "wouldDelete";
+                stale.Reason = $"staleProducer: {stale.EligibilityCode}: {stale.EligibilityMessage}";
+                if (apply)
+                {
+                    TryDeleteArtifact(artifactDirectory, stale, issues);
+                }
+            }
+            else
+            {
+                stale.Decision = "retain";
+                stale.Reason = $"ineligible artifact retained for inspection: {stale.EligibilityCode}: {stale.EligibilityMessage}";
+            }
+        }
+
         foreach (var invalid in artifacts.Where(artifact => !artifact.Valid))
         {
             invalid.Decision = "retain";
@@ -102,6 +133,8 @@ internal static class ManagedActionArtifactRetention
             .Select(artifact => new ManagedActionRetentionArtifactReport(
                 artifact.ArtifactPath,
                 artifact.Valid,
+                artifact.Eligible,
+                artifact.EligibilityCode,
                 artifact.ActionType,
                 artifact.PluginId,
                 artifact.RuleId,
@@ -164,15 +197,16 @@ internal static class ManagedActionArtifactRetention
     private static RetentionArtifact ReadArtifact(
         string artifactDirectory,
         string artifactPath,
+        PatchPlan patchPlan,
         List<ManagedActionRetentionIssue> issues)
     {
         var fullPath = Path.GetFullPath(artifactPath);
         var lastWrite = File.GetLastWriteTimeUtc(fullPath);
         try
         {
-            if (!IsInsideDirectory(artifactDirectory, fullPath))
+            if (!IsDirectChildOfDirectory(artifactDirectory, fullPath))
             {
-                throw new InvalidDataException("artifact path is outside the managed action artifact directory");
+                throw new InvalidDataException("artifact path is outside the direct managed action artifact directory");
             }
 
             var artifact = JsonNode.Parse(File.ReadAllText(fullPath, Encoding.UTF8)) as JsonObject
@@ -193,20 +227,28 @@ internal static class ManagedActionArtifactRetention
             }
 
             var actionIndex = ReadOptionalInt(artifact, "actionIndex");
-            var sourcePath = ReadOptionalString(artifact, "sourcePath");
+            var declaredVersion = ReadOptionalInt(artifact, "version");
             var generatedAt = ReadOptionalDateTimeOffset(artifact, "generatedAtUtc");
+            var eligibility = ManagedActionArtifactEligibility.Evaluate(patchPlan, artifact);
+            var producerIdentityKey = ManagedActionArtifactEligibility.TryReadProducerContract(artifact, out var producer)
+                ? producer.BuildIdentityKey()
+                : string.Empty;
+            var canEnterRanking = eligibility.Eligible &&
+                ManagedActionArtifactEligibility.CanParticipateInRetentionRanking(artifact);
             var groupKey = BuildGroupKey(
                 actionType,
-                pluginId,
-                ruleId,
-                actionIndex,
+                producerIdentityKey,
                 target,
-                sourcePath,
                 profileScope);
 
             return new RetentionArtifact(
                 fullPath,
                 true,
+                eligibility.Eligible,
+                canEnterRanking,
+                eligibility.Code,
+                eligibility.Message,
+                declaredVersion,
                 actionType,
                 pluginId,
                 ruleId,
@@ -224,6 +266,11 @@ internal static class ManagedActionArtifactRetention
             return new RetentionArtifact(
                 fullPath,
                 false,
+                false,
+                false,
+                "managed-action-retention-artifact-invalid",
+                ex.Message,
+                null,
                 string.Empty,
                 string.Empty,
                 string.Empty,
@@ -244,9 +291,14 @@ internal static class ManagedActionArtifactRetention
     {
         try
         {
-            if (!IsInsideDirectory(artifactDirectory, artifact.ArtifactPath))
+            if (IsReparsePoint(artifactDirectory))
             {
-                throw new InvalidOperationException("refusing to delete artifact outside managed action artifact directory");
+                throw new InvalidOperationException("refusing to delete through a managed action artifact directory reparse point");
+            }
+
+            if (!IsDirectChildOfDirectory(artifactDirectory, artifact.ArtifactPath))
+            {
+                throw new InvalidOperationException("refusing to delete artifact outside the direct managed action artifact directory");
             }
 
             File.Delete(artifact.ArtifactPath);
@@ -263,22 +315,59 @@ internal static class ManagedActionArtifactRetention
 
     private static string BuildGroupKey(
         string actionType,
-        string pluginId,
-        string ruleId,
-        int? actionIndex,
+        string producerIdentityKey,
         string target,
-        string sourcePath,
         ManagedActionProfileScope profileScope)
     {
         return string.Join('|',
             NormalizeGroupPart(actionType),
-            NormalizeGroupPart(pluginId),
-            NormalizeGroupPart(ruleId),
-            actionIndex?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            producerIdentityKey,
             NormalizeGroupPart(target),
             NormalizeGroupPart(profileScope.Kind),
-            NormalizeGroupPart(profileScope.ProfileId),
-            NormalizeGroupPart(sourcePath));
+            NormalizeGroupPart(profileScope.ProfileId));
+    }
+
+    private static bool CanInspectArtifactDirectory(
+        string artifactDirectory,
+        List<ManagedActionRetentionIssue> issues)
+    {
+        try
+        {
+            if (!IsReparsePoint(artifactDirectory))
+            {
+                return true;
+            }
+
+            issues.Add(new ManagedActionRetentionIssue(
+                "error",
+                "managed-action-retention-reparse-directory",
+                Path.GetFullPath(artifactDirectory),
+                "refusing to inspect or prune a managed action artifact directory that is a reparse point"));
+            return false;
+        }
+        catch (Exception ex)
+        {
+            issues.Add(new ManagedActionRetentionIssue(
+                "error",
+                "managed-action-retention-directory-invalid",
+                Path.GetFullPath(artifactDirectory),
+                ex.Message));
+            return false;
+        }
+    }
+
+    private static bool IsPrunableStaleArtifact(RetentionArtifact artifact)
+    {
+        if (artifact.EligibilityCode.Equals("managed-artifact-version-unsupported", StringComparison.OrdinalIgnoreCase))
+        {
+            return artifact.DeclaredVersion == 1;
+        }
+
+        return artifact.EligibilityCode is
+            "managed-artifact-owner-inactive" or
+            "managed-artifact-owner-source-mismatch" or
+            "managed-artifact-producer-inactive" or
+            "managed-artifact-producer-definition-mismatch";
     }
 
     private static string ReadString(JsonObject root, string path)
@@ -328,11 +417,17 @@ internal static class ManagedActionArtifactRetention
         return true;
     }
 
-    private static bool IsInsideDirectory(string directory, string path)
+    private static bool IsDirectChildOfDirectory(string directory, string path)
     {
-        var root = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var root = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var fullPath = Path.GetFullPath(path);
-        return fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        var parent = Path.GetDirectoryName(fullPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return parent is not null && parent.Equals(root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
     }
 
     private static string NormalizeGroupPart(string value)
@@ -345,6 +440,11 @@ internal static class ManagedActionArtifactRetention
     private sealed class RetentionArtifact(
         string artifactPath,
         bool valid,
+        bool eligible,
+        bool canEnterRanking,
+        string eligibilityCode,
+        string eligibilityMessage,
+        int? declaredVersion,
         string actionType,
         string pluginId,
         string ruleId,
@@ -358,6 +458,11 @@ internal static class ManagedActionArtifactRetention
     {
         public string ArtifactPath { get; } = artifactPath;
         public bool Valid { get; } = valid;
+        public bool Eligible { get; } = eligible;
+        public bool CanEnterRanking { get; } = canEnterRanking;
+        public string EligibilityCode { get; } = eligibilityCode;
+        public string EligibilityMessage { get; } = eligibilityMessage;
+        public int? DeclaredVersion { get; } = declaredVersion;
         public string ActionType { get; } = actionType;
         public string PluginId { get; } = pluginId;
         public string RuleId { get; } = ruleId;
@@ -412,6 +517,8 @@ internal sealed record ManagedActionRetentionGroupReport(
 internal sealed record ManagedActionRetentionArtifactReport(
     string ArtifactPath,
     bool Valid,
+    bool Eligible,
+    string EligibilityCode,
     string ActionType,
     string PluginId,
     string RuleId,

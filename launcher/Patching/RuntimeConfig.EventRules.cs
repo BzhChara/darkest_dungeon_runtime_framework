@@ -22,6 +22,12 @@ internal sealed partial class RuntimeConfig
                 continue;
             }
 
+            if (string.IsNullOrWhiteSpace(rule.Id))
+            {
+                skipped.Add(new RuntimeEventRuleSkip(pluginId, sourceName, sourcePath, loadOrder, index, rule.Id, rule.On, "missing rule id"));
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(rule.On))
             {
                 skipped.Add(new RuntimeEventRuleSkip(pluginId, sourceName, sourcePath, loadOrder, index, rule.Id, rule.On, "missing event id"));

@@ -15,6 +15,7 @@ internal sealed class PatchPlan
         IReadOnlyList<FactEventRuleSkip> skippedFactEventRules,
         IReadOnlyList<ContentReferenceValidationReport> contentReferenceReports,
         IReadOnlyList<QuestBoardPolicyValidationReport> questBoardPolicyReports,
+        IReadOnlyList<ManagedActionProducerContract> managedActionProducers,
         IReadOnlyList<VirtualFileRule> effectiveVirtualFileRules,
         IReadOnlyList<PatchCompileIssue> compileIssues)
     {
@@ -37,6 +38,7 @@ internal sealed class PatchPlan
         SkippedFactEventRules = skippedFactEventRules;
         ContentReferenceReports = contentReferenceReports;
         QuestBoardPolicyReports = questBoardPolicyReports;
+        ManagedActionProducers = managedActionProducers;
         EffectiveVirtualFileRules = effectiveVirtualFileRules;
         CompileIssues = compileIssues;
     }
@@ -54,6 +56,7 @@ internal sealed class PatchPlan
     public IReadOnlyList<FactEventRuleSkip> SkippedFactEventRules { get; }
     public IReadOnlyList<ContentReferenceValidationReport> ContentReferenceReports { get; }
     public IReadOnlyList<QuestBoardPolicyValidationReport> QuestBoardPolicyReports { get; }
+    public IReadOnlyList<ManagedActionProducerContract> ManagedActionProducers { get; }
     public IReadOnlyList<VirtualFileRule> EffectiveVirtualFileRules { get; }
     public IReadOnlyList<PatchCompileIssue> CompileIssues { get; }
     public bool HasCompileErrors => CompileIssues.Any(issue => issue.IsError);

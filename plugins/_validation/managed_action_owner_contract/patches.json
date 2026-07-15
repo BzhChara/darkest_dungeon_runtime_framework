@@ -3,12 +3,37 @@
   "name": "Validation - Managed Action Owner Contract",
   "version": "0.1.0",
   "enabled": true,
-  "capabilities": [],
+  "capabilities": [
+    "town_event.override_current"
+  ],
   "virtualFileRules": [],
   "mapTemplates": [],
   "mapLayoutTemplates": [],
   "questChains": [],
-  "eventRules": [],
+  "eventRules": [
+    {
+      "id": "materialize_town_event_owner_fixture",
+      "enabled": true,
+      "on": "validation.managed_action_owner_contract",
+      "phase": "normal",
+      "priority": 0,
+      "requiresCapabilities": [
+        "town_event.override_current"
+      ],
+      "actions": [
+        {
+          "type": "townEvent.overrideCurrent",
+          "capability": "town_event.override_current",
+          "risk": "managed",
+          "required": true,
+          "args": {
+            "target": "profile.town_event",
+            "mode": "suppress"
+          }
+        }
+      ]
+    }
+  ],
   "factEventRules": [],
   "stateSchema": {}
 }

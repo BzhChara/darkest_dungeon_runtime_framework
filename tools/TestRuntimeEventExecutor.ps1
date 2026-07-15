@@ -122,9 +122,13 @@ function Read-ManagedActionArtifact {
     Assert-True (Test-Path -LiteralPath $artifactPath -PathType Leaf) "Managed action artifact was not written: $artifactPath"
 
     $artifact = Get-Content -Raw -LiteralPath $artifactPath | ConvertFrom-Json
+    Assert-True ([int]$artifact.version -eq 2) "Managed action artifact should use version 2."
     Assert-True ($artifact.status -eq "materialized") "Managed action artifact status should be materialized."
     Assert-True ($artifact.action.type -eq $ExpectedType) "Managed action artifact type mismatch."
     Assert-True ($artifact.plan.kind -eq $ExpectedType) "Managed action artifact plan kind mismatch."
+    Assert-True ($artifact.producer.kind -eq "runtimeEventAction") "Managed action artifact producer kind mismatch."
+    Assert-True ($artifact.producer.actionType -eq $ExpectedType) "Managed action artifact producer action type mismatch."
+    Assert-True ([string]$artifact.producer.definitionSha256 -match '^[0-9a-f]{64}$') "Managed action artifact producer hash should be a lowercase SHA-256 value."
     return $artifact
 }
 

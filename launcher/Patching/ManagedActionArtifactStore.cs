@@ -30,10 +30,11 @@ internal static class ManagedActionArtifactStore
             $"{generatedAt:yyyyMMdd_HHmmss_fff}_{Environment.ProcessId}_{sequence:D4}_" +
             $"{SanitizeFileName(sourceRule.Rule.On)}_{SanitizeFileName(action.Type)}.json";
         var path = Path.Combine(directory, fileName);
+        var producer = ManagedActionProducerContractFactory.CreateRuntimeEventAction(sourceRule, actionIndex);
 
         var artifact = new JsonObject
         {
-            ["version"] = 1,
+            ["version"] = ManagedActionProducerContractFactory.ArtifactVersion,
             ["generatedAtUtc"] = generatedAt.ToString("O", CultureInfo.InvariantCulture),
             ["status"] = "materialized",
             ["eventId"] = sourceRule.Rule.On,
@@ -44,6 +45,7 @@ internal static class ManagedActionArtifactStore
             ["ruleIndex"] = sourceRule.RuleIndex,
             ["ruleId"] = sourceRule.Rule.Id,
             ["actionIndex"] = actionIndex,
+            ["producer"] = producer.ToJson(),
             ["action"] = new JsonObject
             {
                 ["type"] = action.Type,

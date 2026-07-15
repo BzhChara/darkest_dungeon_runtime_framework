@@ -32,6 +32,8 @@ internal static class QuestBoardPolicyMaterializer
         var issues = new List<QuestBoardPolicyMaterializeIssue>();
         var resolve = QuestBoardPolicyResolveReporter.Write(config, patchPlan, log, projectRoot, saveStateReportPath);
         var profileScope = ManagedActionProfileScopeResolver.FromSaveStateReport(resolve.SaveStateReportPath);
+        var producer = patchPlan.ManagedActionProducers.Single(contract =>
+            contract.Kind.Equals(ManagedActionProducerContractFactory.QuestBoardPolicySetKind, StringComparison.OrdinalIgnoreCase));
         var seed = seedOverride ?? resolve.Week ?? 0;
         if (resolve.WarningCount > 0)
         {
@@ -65,12 +67,12 @@ internal static class QuestBoardPolicyMaterializer
         {
             if (selection.SelectedQuestIds.Count > 0)
             {
-                artifactPath = WriteArtifact(config, resolve, selection, slotLimit, seed, profileScope, issues);
+                artifactPath = WriteArtifact(config, resolve, selection, producer, slotLimit, seed, profileScope, issues);
                 status = "materialized";
             }
             else
             {
-                artifactPath = WriteEmptyArtifact(config, resolve, slotLimit, seed, profileScope, issues);
+                artifactPath = WriteEmptyArtifact(config, resolve, producer, slotLimit, seed, profileScope, issues);
                 status = "empty";
                 issues.Add(new QuestBoardPolicyMaterializeIssue(
                     "info",
@@ -411,6 +413,7 @@ internal static class QuestBoardPolicyMaterializer
         RuntimeConfig config,
         QuestBoardPolicyResolveReport resolve,
         QuestBoardPolicyMaterializeSelection selection,
+        ManagedActionProducerContract producer,
         int? slotLimit,
         int seed,
         ManagedActionProfileScope profileScope,
@@ -426,7 +429,7 @@ internal static class QuestBoardPolicyMaterializer
 
         File.WriteAllText(
             artifactPath,
-            BuildArtifact(resolve, selection, slotLimit, seed, profileScope, generatedAt, issues).ToJsonString(JsonOptions),
+            BuildArtifact(resolve, selection, producer, slotLimit, seed, profileScope, generatedAt, issues).ToJsonString(JsonOptions),
             Encoding.UTF8);
         return artifactPath;
     }
@@ -434,6 +437,7 @@ internal static class QuestBoardPolicyMaterializer
     private static string WriteEmptyArtifact(
         RuntimeConfig config,
         QuestBoardPolicyResolveReport resolve,
+        ManagedActionProducerContract producer,
         int? slotLimit,
         int seed,
         ManagedActionProfileScope profileScope,
@@ -449,7 +453,7 @@ internal static class QuestBoardPolicyMaterializer
 
         File.WriteAllText(
             artifactPath,
-            BuildEmptyArtifact(resolve, slotLimit, seed, profileScope, generatedAt, issues).ToJsonString(JsonOptions),
+            BuildEmptyArtifact(resolve, producer, slotLimit, seed, profileScope, generatedAt, issues).ToJsonString(JsonOptions),
             Encoding.UTF8);
         return artifactPath;
     }
@@ -457,6 +461,7 @@ internal static class QuestBoardPolicyMaterializer
     private static JsonObject BuildArtifact(
         QuestBoardPolicyResolveReport resolve,
         QuestBoardPolicyMaterializeSelection selection,
+        ManagedActionProducerContract producer,
         int? slotLimit,
         int seed,
         ManagedActionProfileScope profileScope,
@@ -483,7 +488,7 @@ internal static class QuestBoardPolicyMaterializer
 
         return new JsonObject
         {
-            ["version"] = 1,
+            ["version"] = ManagedActionProducerContractFactory.ArtifactVersion,
             ["generatedAtUtc"] = generatedAt.ToString("O", CultureInfo.InvariantCulture),
             ["status"] = "materialized",
             ["eventId"] = "quest.board.policies.materialized",
@@ -496,6 +501,7 @@ internal static class QuestBoardPolicyMaterializer
             ["ruleIndex"] = 0,
             ["ruleId"] = "questBoardPolicies.materialized",
             ["actionIndex"] = 0,
+            ["producer"] = producer.ToJson(),
             ["action"] = new JsonObject
             {
                 ["type"] = "questBoard.replaceWithFixedSet",
@@ -528,6 +534,7 @@ internal static class QuestBoardPolicyMaterializer
 
     private static JsonObject BuildEmptyArtifact(
         QuestBoardPolicyResolveReport resolve,
+        ManagedActionProducerContract producer,
         int? slotLimit,
         int seed,
         ManagedActionProfileScope profileScope,
@@ -548,7 +555,7 @@ internal static class QuestBoardPolicyMaterializer
 
         return new JsonObject
         {
-            ["version"] = 1,
+            ["version"] = ManagedActionProducerContractFactory.ArtifactVersion,
             ["generatedAtUtc"] = generatedAt.ToString("O", CultureInfo.InvariantCulture),
             ["status"] = "empty",
             ["eventId"] = "quest.board.policies.empty",
@@ -561,6 +568,7 @@ internal static class QuestBoardPolicyMaterializer
             ["ruleIndex"] = 0,
             ["ruleId"] = "questBoardPolicies.materialized",
             ["actionIndex"] = 0,
+            ["producer"] = producer.ToJson(),
             ["action"] = new JsonObject
             {
                 ["type"] = "questBoard.replaceWithFixedSet",
@@ -606,6 +614,7 @@ internal static class QuestBoardPolicyMaterializer
             {
                 ["pluginId"] = policy.PluginId,
                 ["sourcePath"] = policy.ManifestPath,
+                ["ruleIndex"] = policy.RuleIndex,
                 ["policyId"] = policy.Id,
                 ["mode"] = policy.Mode,
                 ["status"] = policy.Status,
@@ -625,6 +634,7 @@ internal static class QuestBoardPolicyMaterializer
             {
                 ["pluginId"] = policy.PluginId,
                 ["sourcePath"] = policy.ManifestPath,
+                ["ruleIndex"] = policy.RuleIndex,
                 ["policyId"] = policy.Id,
                 ["mode"] = policy.Mode,
                 ["status"] = policy.Status,

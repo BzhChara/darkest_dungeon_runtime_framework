@@ -20,7 +20,7 @@ internal static partial class ManagedActionOverlayCompiler
     public static ManagedActionOverlayReport Compile(RuntimeConfig config, PatchPlan patchPlan, LauncherLog log)
     {
         var artifactDirectory = Path.Combine(config.ModStateDirectory, "_managed_actions");
-        var overlayCandidates = new List<JsonObject>();
+        var overlayCandidates = new List<ManagedActionOverlayCandidate>();
         var issues = new JsonArray();
         var artifactCount = 0;
         var ignoredArtifactCount = 0;
@@ -87,14 +87,16 @@ internal static partial class ManagedActionOverlayCompiler
                             continue;
                         }
 
-                        overlayCandidates.Add(BuildQuestBoardFixedSetOverlay(artifactPath, artifact));
+                        overlayCandidates.Add(BuildOverlayCandidate(
+                            artifact,
+                            BuildQuestBoardFixedSetOverlay(artifactPath, artifact)));
                     }
                     else if (actionType.Equals("trinket.patchEntry", StringComparison.OrdinalIgnoreCase))
                     {
                         var overlay = BuildTrinketPatchEntryOverlay(artifactPath, artifact);
                         if (ReadBool(overlay, "enabled"))
                         {
-                            overlayCandidates.Add(overlay);
+                            overlayCandidates.Add(BuildOverlayCandidate(artifact, overlay));
                         }
                         else
                         {
@@ -103,7 +105,9 @@ internal static partial class ManagedActionOverlayCompiler
                     }
                     else if (actionType.Equals("town.unlockAllBuildings", StringComparison.OrdinalIgnoreCase))
                     {
-                        overlayCandidates.Add(BuildTownUnlockAllBuildingsOverlay(artifactPath, artifact));
+                        overlayCandidates.Add(BuildOverlayCandidate(
+                            artifact,
+                            BuildTownUnlockAllBuildingsOverlay(artifactPath, artifact)));
                     }
                     else
                     {
@@ -124,9 +128,12 @@ internal static partial class ManagedActionOverlayCompiler
             }
         }
 
-        var selectedOverlays = overlayCandidates
-            .GroupBy(BuildOverlaySupersedeKey, StringComparer.OrdinalIgnoreCase)
+        var selectedOverlayCandidates = overlayCandidates
+            .GroupBy(candidate => candidate.SupersedeKey, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.Last())
+            .ToArray();
+        var selectedOverlays = selectedOverlayCandidates
+            .Select(candidate => candidate.Overlay)
             .ToArray();
         var supersededOverlayCount = overlayCandidates.Count - selectedOverlays.Length;
         var overlays = new JsonArray();
@@ -216,15 +223,19 @@ internal static partial class ManagedActionOverlayCompiler
         };
     }
 
-    private static string BuildOverlaySupersedeKey(JsonObject overlay)
+    private static ManagedActionOverlayCandidate BuildOverlayCandidate(
+        JsonObject artifact,
+        JsonObject overlay)
     {
-        return string.Join('|',
-            ReadString(overlay, "kind"),
-            ReadString(overlay, "target"),
-            ReadString(overlay, "pluginId"),
-            ReadString(overlay, "sourcePath"),
-            ReadString(overlay, "ruleId"),
-            ReadInt(overlay, "actionIndex").ToString(CultureInfo.InvariantCulture));
+        if (!ManagedActionArtifactEligibility.TryReadProducerContract(artifact, out var producer))
+        {
+            throw new InvalidDataException("eligible overlay artifact is missing a complete producer contract");
+        }
+
+        var supersedeKey = string.Join('|',
+            producer.BuildIdentityKey(),
+            ReadString(overlay, "target"));
+        return new ManagedActionOverlayCandidate(overlay, supersedeKey);
     }
 
     private static IReadOnlyList<OverlayVirtualRule> BuildOverlayVirtualRules(
@@ -639,6 +650,8 @@ internal static partial class ManagedActionOverlayCompiler
     }
 
     private static string Quote(string value) => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
+
+    private sealed record ManagedActionOverlayCandidate(JsonObject Overlay, string SupersedeKey);
 }
 
 internal sealed record ManagedActionOverlayReport(

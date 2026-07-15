@@ -5,12 +5,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
+. (Join-Path $PSScriptRoot "ManagedActionProducerTestHelpers.ps1")
 $sessionId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $stateRoot = Join-Path $projectRoot.Path "state\continuous_profile_action_apply_test\$sessionId"
 $saveRoot = Join-Path $stateRoot "decoded_save"
 $artifactRoot = Join-Path $stateRoot "_managed_actions"
-$ownerPluginId = "validation.managed_action_owner_contract"
-$ownerManifestPath = (Resolve-Path -LiteralPath (Join-Path $projectRoot.Path "plugins\_validation\managed_action_owner_contract\patches.json")).Path
 $config = if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     Join-Path $projectRoot.Path "config\rule_contract_validation_config.json"
 } else {
@@ -62,28 +61,15 @@ function New-ManagedActionArtifact {
         [string]$RuleId,
         [int]$ActionIndex,
         [hashtable]$Arguments,
-        [string]$PluginId = $ownerPluginId,
-        [string]$SourcePath = $ownerManifestPath
+        [string]$PluginId = "",
+        [string]$SourcePath = ""
     )
 
-    Write-JsonFile -Path $Path -Value @{
-        version = 1
+    $artifact = [ordered]@{
         generatedAtUtc = (Get-Date).ToUniversalTime().ToString("O")
         status = "materialized"
-        eventId = "test.event"
-        pluginId = $PluginId
-        sourceName = "test"
-        sourcePath = $SourcePath
-        loadOrder = 0
-        ruleIndex = 0
         ruleId = $RuleId
         actionIndex = $ActionIndex
-        action = @{
-            type = $Type
-            capability = "profile.normalization"
-            risk = "decoded-save"
-            required = $true
-        }
         plan = @{
             kind = $Type
             effect = ($Type -replace '^.*\.', '')
@@ -91,6 +77,21 @@ function New-ManagedActionArtifact {
             arguments = $Arguments
         }
     }
+
+    $producer = Get-ManagedActionTestProducer -ProjectRoot $projectRoot.Path -ActionType $Type
+    Add-ManagedActionTestProducer -Artifact $artifact -Producer $producer | Out-Null
+
+    if (-not [string]::IsNullOrWhiteSpace($PluginId)) {
+        $artifact.pluginId = $PluginId
+        $artifact.producer.pluginId = $PluginId
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($SourcePath)) {
+        $artifact.sourcePath = $SourcePath
+        $artifact.producer.sourcePath = $SourcePath
+    }
+
+    Write-JsonFile -Path $Path -Value $artifact
 }
 
 function Read-ApplyReport {
@@ -110,6 +111,13 @@ function Count-ObjectProperties {
 }
 
 New-Item -ItemType Directory -Force -Path $saveRoot, $artifactRoot | Out-Null
+
+Invoke-Loader -LoaderArgs @(
+    "--config", $config,
+    "--mod-state-dir", $stateRoot,
+    "--validate-only",
+    "--no-inject"
+)
 
 Write-JsonFile -Path (Join-Path $saveRoot "persist.town.json") -Value @{
     base_root = @{
@@ -214,10 +222,6 @@ New-ManagedActionArtifact `
     -ActionIndex 0 `
     -Arguments @{ mode = "invalid_eligibility_probe" } `
     -PluginId "validation.disabled_managed_action_owner"
-$inactiveOwnerArtifact = Read-Utf8Text -Path $inactiveOwnerArtifactPath | ConvertFrom-Json -AsHashtable
-$inactiveOwnerArtifact.Remove("status")
-$inactiveOwnerArtifact.Remove("action")
-Write-JsonFile -Path $inactiveOwnerArtifactPath -Value $inactiveOwnerArtifact
 
 New-ManagedActionArtifact `
     -Path (Join-Path $artifactRoot "006_source_mismatch_town.suppressStoreItems.json") `

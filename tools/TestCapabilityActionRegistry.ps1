@@ -237,6 +237,19 @@ $coreManifest = [ordered]@{
                     args = [ordered]@{ levels = [ordered]@{ abbey = 1 } }
                 }
             )
+        },
+        [ordered]@{
+            on = "validation.registry_run"
+            requiresCapabilities = @("state.sidecar")
+            actions = @(
+                [ordered]@{
+                    type = "state.incrementCounter"
+                    capability = "state.sidecar"
+                    risk = "safe"
+                    required = $true
+                    args = [ordered]@{ key = "counter"; amount = 100 }
+                }
+            )
         }
     )
     stateSchema = [ordered]@{
@@ -320,6 +333,8 @@ $riskMismatchLine = @(Find-LogLine -Text $launcherLog -Needle 'id="action_risk_m
 Assert-True ($riskMismatchLine.Count -eq 1 -and $riskMismatchLine[0].Contains("requires risk=safe, declared risk=managed")) "Action risk mismatch should skip its rule."
 $caseMismatchLine = @(Find-LogLine -Text $launcherLog -Needle 'id="action_type_case_mismatch"')
 Assert-True ($caseMismatchLine.Count -eq 1 -and $caseMismatchLine[0].Contains("action type State.incrementCounter is not registered")) "Action type ids should use exact registered casing."
+$missingRuleIdLine = @(Find-LogLine -Text $launcherLog -Needle 'rule=11 id=""')
+Assert-True ($missingRuleIdLine.Count -eq 1 -and $missingRuleIdLine[0].Contains('reason="missing rule id"')) "A runtime event rule without an id should be skipped before it can materialize an unusable producer contract."
 
 Invoke-Loader -LoaderArgs ($baseArgs + @(
     "--mod-state-id", "validation.registry_core",

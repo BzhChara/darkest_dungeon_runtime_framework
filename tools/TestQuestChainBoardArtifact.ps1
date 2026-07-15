@@ -266,8 +266,12 @@ try {
     Assert-True ($artifactCount -eq 1) "Quest chain materialization should produce exactly one deterministic managed artifact."
 
     $managedArtifact = Read-Utf8Text -Path $questChainManagedArtifactPath | ConvertFrom-Json
+    Assert-True ([int]$managedArtifact.version -eq 2) "Quest chain artifact should use version 2."
     Assert-True ($managedArtifact.status -eq "materialized") "Quest chain artifact should be materialized."
     Assert-True ($managedArtifact.action.type -eq "questBoard.replaceWithFixedSet") "Quest chain artifact action type mismatch."
+    Assert-True ($managedArtifact.producer.kind -eq "questChainStaticBoard") "Quest chain artifact producer kind mismatch."
+    Assert-True ($managedArtifact.producer.pluginId -eq "validation.quest_chain_board_artifact") "Quest chain artifact producer plugin mismatch."
+    Assert-True ([string]$managedArtifact.producer.definitionSha256 -match '^[0-9a-f]{64}$') "Quest chain artifact producer hash should be a lowercase SHA-256 value."
     Assert-True ($managedArtifact.plan.arguments.questIds[0] -eq "plot_kill_necromancer_3") "First materialized quest id mismatch."
     Assert-True ($managedArtifact.plan.arguments.questIds[1] -eq "plot_kill_prophet_3") "Second materialized quest id mismatch."
 

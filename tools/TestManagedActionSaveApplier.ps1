@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "ManagedActionProducerTestHelpers.ps1")
 
 $projectRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
 $sessionId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
@@ -170,7 +171,7 @@ function Write-ManagedActionArtifact {
     New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
     $path = Join-Path $artifactDirectory $Name
     $artifact = [ordered]@{
-        version = 1
+        version = 2
         status = "materialized"
         generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
         pluginId = $pluginId
@@ -191,6 +192,9 @@ function Write-ManagedActionArtifact {
             arguments = $Arguments
         }
     }
+
+    $producer = Get-ManagedActionTestProducer -ProjectRoot $projectRoot.Path -ActionType $ActionType
+    Add-ManagedActionTestProducer -Artifact $artifact -Producer $producer | Out-Null
 
     $artifact | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath $path -Encoding UTF8
     return $path
@@ -961,6 +965,8 @@ $baseArgs = @(
     "--mod-state-id", $pluginId,
     "--mod-state-dir", $stateRoot
 )
+
+Invoke-Loader -LoaderArgs ($baseArgs + @("--validate-only"))
 
 $estate = Read-DecodedEstate
 $startingGold = Get-WalletAmount -Estate $estate -Currency "gold"

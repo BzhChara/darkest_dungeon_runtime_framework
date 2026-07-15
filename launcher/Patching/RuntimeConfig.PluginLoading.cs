@@ -12,6 +12,7 @@ internal sealed partial class RuntimeConfig
         var skippedFactEventRules = new List<FactEventRuleSkip>();
         var stateSchemas = new List<PluginStateSchemaSource>();
         var questBoardPolicyReports = new List<QuestBoardPolicyValidationReport>();
+        var managedActionProducers = new List<ManagedActionProducerContract>();
         var compileIssues = new List<PatchCompileIssue>();
         var manifestName = string.IsNullOrWhiteSpace(PluginPatchManifestName) ? "patches.json" : PluginPatchManifestName;
         var pluginCandidates = DiscoverPluginPatchManifests(projectRoot, manifestName, log).ToList();
@@ -72,6 +73,7 @@ internal sealed partial class RuntimeConfig
                 $"factEventRules={plugin.FactEventRuleCount} path={plugin.Path}");
             AddQuestChainReports(
                 questBoardPolicyReports,
+                managedActionProducers,
                 compileIssues,
                 plugin,
                 activePluginIds,
@@ -131,6 +133,11 @@ internal sealed partial class RuntimeConfig
             }
         }
 
+        managedActionProducers.AddRange(
+            ManagedActionProducerContractFactory.BuildRuntimeEventActionContracts(sourceRuntimeRules));
+        managedActionProducers.Add(
+            ManagedActionProducerContractFactory.CreateQuestBoardPolicySet(questBoardPolicyReports));
+
         return new PatchPlan(
             loadPlan.Manifests,
             loadPlan.LoadRules,
@@ -144,12 +151,14 @@ internal sealed partial class RuntimeConfig
             skippedFactEventRules,
             contentReferenceValidation.Reports,
             questBoardPolicyReports,
+            managedActionProducers,
             BuildEffectiveVirtualRules(projectRoot, sourceRules, compileIssues, log),
             compileIssues);
     }
 
     private void AddQuestChainReports(
         List<QuestBoardPolicyValidationReport> questBoardPolicyReports,
+        List<ManagedActionProducerContract> managedActionProducers,
         List<PatchCompileIssue> compileIssues,
         PluginManifestCandidate plugin,
         IReadOnlySet<string> activePluginIds,
@@ -178,6 +187,15 @@ internal sealed partial class RuntimeConfig
                 plugin.Manifest.MapLayoutTemplates,
                 plugin.Manifest.MapTemplates,
                 reportPath);
+            var managedActionProducer = ManagedActionProducerContractFactory.CreateStaticQuestChainBoard(
+                plugin,
+                ruleIndex,
+                report);
+            if (managedActionProducer is not null)
+            {
+                managedActionProducers.Add(managedActionProducer);
+            }
+
             var managedReportPath = Path.Combine(reportDirectory, reportBaseName + ".managed.quest_board.json");
             var managedArtifactPath = Path.Combine(
                 ModStateDirectory,
@@ -190,6 +208,7 @@ internal sealed partial class RuntimeConfig
                     plugin,
                     ruleIndex,
                     report,
+                    managedActionProducer,
                     managedReportPath,
                     managedArtifactPath);
                 log.Info(

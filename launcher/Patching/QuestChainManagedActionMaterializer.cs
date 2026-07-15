@@ -19,6 +19,7 @@ internal static class QuestChainManagedActionMaterializer
         PluginManifestCandidate plugin,
         int ruleIndex,
         QuestChainValidationReport validationReport,
+        ManagedActionProducerContract? producer,
         string reportPath,
         string artifactPath)
     {
@@ -57,11 +58,16 @@ internal static class QuestChainManagedActionMaterializer
         var writtenArtifactPath = "";
         if (status.Equals("materialized", StringComparison.OrdinalIgnoreCase))
         {
+            if (producer is null)
+            {
+                throw new InvalidOperationException("Materialized quest chain artifact requires an active producer contract.");
+            }
+
             var now = DateTimeOffset.UtcNow;
             Directory.CreateDirectory(Path.GetDirectoryName(artifactPath) ?? ".");
             File.WriteAllText(
                 artifactPath,
-                BuildQuestBoardArtifact(plugin, ruleIndex, validationReport, now, status, issues).ToJsonString(JsonOptions),
+                BuildQuestBoardArtifact(plugin, ruleIndex, validationReport, producer, now, status, issues).ToJsonString(JsonOptions),
                 Encoding.UTF8);
             writtenArtifactPath = artifactPath;
         }
@@ -87,6 +93,7 @@ internal static class QuestChainManagedActionMaterializer
         PluginManifestCandidate plugin,
         int ruleIndex,
         QuestChainValidationReport validationReport,
+        ManagedActionProducerContract producer,
         DateTimeOffset generatedAt,
         string status,
         IReadOnlyList<QuestChainManagedActionIssue> issues)
@@ -120,7 +127,7 @@ internal static class QuestChainManagedActionMaterializer
 
         return new JsonObject
         {
-            ["version"] = 1,
+            ["version"] = ManagedActionProducerContractFactory.ArtifactVersion,
             ["generatedAtUtc"] = generatedAt.ToString("O", CultureInfo.InvariantCulture),
             ["status"] = status,
             ["eventId"] = "quest.chain.materialized",
@@ -131,6 +138,7 @@ internal static class QuestChainManagedActionMaterializer
             ["ruleIndex"] = ruleIndex,
             ["ruleId"] = validationReport.Id,
             ["actionIndex"] = 0,
+            ["producer"] = producer.ToJson(),
             ["action"] = new JsonObject
             {
                 ["type"] = "questBoard.replaceWithFixedSet",

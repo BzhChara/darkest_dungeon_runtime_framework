@@ -44,6 +44,7 @@ internal static class Program
             log.Info($"Launcher architecture: {(Environment.Is64BitProcess ? "x64" : "x86")}");
 
             var patchPlan = config.BuildPatchPlan(projectRoot, log);
+            ManagedActionProducerCatalogReporter.Write(config, patchPlan, log);
             if (patchPlan.CompileIssues.Count > 0)
             {
                 patchPlan.LogCompileIssues(log);
@@ -142,6 +143,7 @@ internal static class Program
             {
                 modStateSucceeded &= ManagedActionArtifactRetention.Write(
                     config,
+                    patchPlan,
                     log,
                     options.PruneManagedActions,
                     config.ManagedActionRetentionKeepLatestPerGroup).Succeeded;
